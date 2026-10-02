@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/menuRoot"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_popup_rounded"
+    android:orientation="vertical"
+    android:paddingTop="16dp"
+    android:paddingBottom="8dp"
+    android:elevation="16dp"
+    android:gravity="center_horizontal">
+
+    <ImageView
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@drawable/ic_haze_logo"
+        android:layout_marginBottom="8dp" />
+
+    <View
+        android:id="@+id/menuDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0"
+        android:layout_marginBottom="8dp" />
+
+    <GridLayout
+        android:id="@+id/menuGrid"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:columnCount="3" />
+</LinearLayout>

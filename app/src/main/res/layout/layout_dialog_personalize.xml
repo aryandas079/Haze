@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/personalizeScrollView"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_popup_rounded"
+    android:overScrollMode="never"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:id="@+id/personalizeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="22dp">
+
+        <TextView
+            android:id="@+id/tvPersonalizeTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Personalize"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#202124" />
+
+        <TextView
+            android:id="@+id/tvPersonalizeSubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Themes, wallpapers, and colors"
+            android:textSize="12sp"
+            android:textColor="#5F6368"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="18dp" />
+
+        <!-- Background Wallpaper Section -->
+        <TextView
+            android:id="@+id/tvSectionBackground"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Background Theme"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#202124" />
+
+        <TextView
+            android:id="@+id/tvSectionBackgroundSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select a photo for your home screen"
+            android:textSize="11sp"
+            android:textColor="#5F6368"
+            android:layout_marginBottom="12dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:layout_marginBottom="20dp">
+
+            <LinearLayout
+                android:id="@+id/themeBackgroundsLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
+
+        <!-- Color Section -->
+        <TextView
+            android:id="@+id/tvSectionColors"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Theme Color"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#202124" />
+
+        <TextView
+            android:id="@+id/tvSectionColorsSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Solid accent colors in round circles"
+            android:textSize="11sp"
+            android:textColor="#5F6368"
+            android:layout_marginBottom="12dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:layout_marginBottom="20dp">
+
+            <LinearLayout
+                android:id="@+id/themeColorsLayout"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
+
+        <!-- Theme Mode Section -->
+        <TextView
+            android:id="@+id/tvSectionAppearance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Appearance"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#202124"
+            android:layout_marginBottom="6dp" />
+
+        <RadioGroup
+            android:id="@+id/themeModeGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="18dp">
+
+            <RadioButton
+                android:id="@+id/rbLightMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Light Mode"
+                android:textSize="13sp"
+                android:textColor="#202124"
+                android:layout_marginEnd="16dp" />
+
+            <RadioButton
+                android:id="@+id/rbDarkMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Dark Mode"
+                android:textSize="13sp"
+                android:textColor="#202124" />
+        </RadioGroup>
+
+        <!-- Shortcuts Section -->
+        <TextView
+            android:id="@+id/tvSectionShortcuts"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Shortcuts Rows"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#202124"
+            android:layout_marginBottom="6dp" />
+
+        <RadioGroup
+            android:id="@+id/shortcutsGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="22dp">
+
+            <RadioButton
+                android:id="@+id/rbShortcutsOff"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Off"
+                android:textSize="13sp"
+                android:textColor="#202124"
+                android:layout_marginEnd="14dp" />
+
+            <RadioButton
+                android:id="@+id/rbShortcuts1Row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1 Row"
+                android:textSize="13sp"
+                android:textColor="#202124"
+                android:layout_marginEnd="14dp" />
+
+            <RadioButton
+                android:id="@+id/rbShortcuts2Rows"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2 Rows"
+                android:textSize="13sp"
+                android:textColor="#202124" />
+        </RadioGroup>
+
+        <!-- Actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginTop="6dp">
+
+            <Button
+                android:id="@+id/btnCancelPersonalize"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:text="Cancel"
+                android:textColor="#5F6368"
+                android:textAllCaps="false"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btnApplyPersonalize"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:text="Apply Theme"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

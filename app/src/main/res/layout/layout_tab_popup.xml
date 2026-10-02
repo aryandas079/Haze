@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="340dp"
+    android:layout_height="450dp"
+    android:background="@drawable/bg_popup_rounded"
+    android:orientation="vertical"
+    android:elevation="16dp">
+
+    <!-- Header -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvTabsTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:text="Tabs (0)"
+            android:textColor="#202124"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/btnNewTab"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="4dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_add"
+                android:contentDescription="Add" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="New Tab"
+                android:textColor="#0A56D0"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </RelativeLayout>
+
+    <!-- Scrollable RecyclerView -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tabsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingHorizontal="16dp"
+        android:clipToPadding="false" />
+
+    <!-- Footer for Normal/Private Mode -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#F1F3F4">
+
+        <TextView
+            android:id="@+id/btnNormalMode"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:padding="16dp"
+            android:text="Normal Tabs"
+            android:textColor="#202124"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackground" />
+
+        <TextView
+            android:id="@+id/btnPrivateMode"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:padding="16dp"
+            android:text="Private Tabs"
+            android:textColor="#5F6368"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackground" />
+    </LinearLayout>
+</LinearLayout>

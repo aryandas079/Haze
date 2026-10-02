@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Group Header Area -->
+    <LinearLayout
+        android:id="@+id/groupHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="?attr/selectableItemBackground">
+
+        <View
+            android:id="@+id/groupColorBox"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:background="#FF0000" />
+
+        <TextView
+            android:id="@+id/groupNameText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Group Name"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#202124" />
+    </LinearLayout>
+
+    <!-- Main Tab Row -->
+    <LinearLayout
+        android:id="@+id/tabRowContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <View
+            android:id="@+id/groupSideIndicator"
+            android:layout_width="4dp"
+            android:layout_height="match_parent"
+            android:layout_marginEnd="8dp"
+            android:background="#FF0000"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/tabIcon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_globe"
+            android:contentDescription="Tab Icon" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tabTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="New Tab"
+                android:textColor="#202124"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/tabUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="haze://home"
+                android:textColor="#5F6368"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/tabClose"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_close"
+            android:contentDescription="Close Tab" />
+    </LinearLayout>
+</LinearLayout>

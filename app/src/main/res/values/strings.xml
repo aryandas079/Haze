@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Haze</string>
+    <string name="search_hint">Search or type URL</string>
+</resources>
