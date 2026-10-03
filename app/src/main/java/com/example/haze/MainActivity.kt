@@ -13,23 +13,18 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import android.print.PrintAttributes
-import android.print.PrintManager
 import android.speech.RecognizerIntent
 import android.text.Editable
 import android.text.TextWatcher
-import android.util.Log
 import android.util.TypedValue
-import android.view.KeyEvent
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.*
@@ -40,15 +35,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.transition.AutoTransition
+import androidx.transition.TransitionManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.util.Collections
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import androidx.core.content.FileProvider
 
 class MainActivity : AppCompatActivity() {
 
@@ -56,55 +56,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var addressBar: EditText
     private lateinit var tabCountBtn: TextView
     private lateinit var btnTabsCircular: FrameLayout
-    private lateinit var addressBarContainer: View
-    private lateinit var appBackgroundImageView: ImageView
-    private lateinit var appBackgroundOverlay: View
+    private lateinit var addressBarContainer: FrameLayout
     private lateinit var findBarContainer: LinearLayout
     private lateinit var findInput: EditText
 
+    private lateinit var dimOverlay: View
+    private lateinit var recentSearchesContainer: LinearLayout
+    private lateinit var recentSearchesList: LinearLayout
+    private lateinit var btnClearQuery: ImageButton
+    private var isSearchActive = false
+
     private lateinit var prefs: SharedPreferences
 
-    data class BackgroundTheme(
-        val id: String,
-        val name: String,
-        val thumbRes: Int,
-        val bgRes: Int,
-        val defaultAccent: String
-    )
-
-    private val backgroundThemes = listOf(
-        BackgroundTheme("default", "Default", R.drawable.ic_theme_default, 0, "#0A56D0"),
-        BackgroundTheme("sunset", "Sunset", R.drawable.thumb_theme_sunset, R.drawable.bg_theme_sunset, "#FF7043"),
-        BackgroundTheme("space", "Cosmic", R.drawable.thumb_theme_space, R.drawable.bg_theme_space, "#7E57C2"),
-        BackgroundTheme("canyon", "Canyon", R.drawable.thumb_theme_canyon, R.drawable.bg_theme_canyon, "#E65100"),
-        BackgroundTheme("ocean", "Ocean", R.drawable.thumb_theme_ocean, R.drawable.bg_theme_ocean, "#00ACC1"),
-        BackgroundTheme("forest", "Forest", R.drawable.thumb_theme_forest, R.drawable.bg_theme_forest, "#43A047")
-    )
-
-    data class ColorTheme(
-        val id: String,
-        val name: String,
-        val colorHex: String,
-        val isDefault: Boolean = false
-    )
-
-    private val colorThemes = listOf(
-        ColorTheme("default", "Default", "#0A56D0", true),
-        ColorTheme("blue", "Blue", "#1A73E8"),
-        ColorTheme("red", "Red", "#EA4335"),
-        ColorTheme("green", "Green", "#34A853"),
-        ColorTheme("purple", "Purple", "#9C27B0"),
-        ColorTheme("orange", "Orange", "#FF6D01")
-    )
-
     data class TabGroup(var id: String, var name: String, var color: Int)
-    data class Shortcut(
-        val name: String, 
-        val url: String, 
-        val iconUrl: String = "",
-        val svgPath: String = "", 
-        val fillColor: String = ""
-    )
+    data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
     data class Tab(
         val id: Long = System.currentTimeMillis(),
         val webView: WebView,
@@ -139,9 +104,21 @@ class MainActivity : AppCompatActivity() {
         Color.parseColor("#9C27B0")  // Purple
     )
 
-    private val defaultShortcuts = DefaultShortcuts.list.map {
-        Shortcut(name = it.name, url = it.url, iconUrl = it.iconUrl)
+    object DefaultShortcuts {
+        val list = listOf(
+            Shortcut("Google", "https://www.google.com", "https://www.google.com/s2/favicons?domain=google.com&sz=128", "M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.2,4.73C15.29,4.73 17.1,6.7 17.1,6.7L19,4.72C19,4.72 16.56,2 12.1,2C6.42,2 2.03,6.8 2.03,12C2.03,17.05 6.16,22 12.25,22C17.6,22 21.5,18.33 21.5,12.91C21.5,11.76 21.35,11.1 21.35,11.1V11.1Z", "#4285F4"),
+            Shortcut("YouTube", "https://www.youtube.com", "https://www.google.com/s2/favicons?domain=youtube.com&sz=128", "M21.58,7.19C21.35,6.33 20.67,5.65 19.81,5.42C18.25,5 12,5 12,5C12,5 5.75,5 4.19,5.42C3.33,5.65 2.65,6.33 2.42,7.19C2,8.75 2,12 2,12C2,12 2,15.25 2.42,16.81C2.65,17.67 3.33,18.35 4.19,18.58C5.75,19 12,19 12,19C12,19 18.25,19 19.81,18.58C20.67,18.35 21.35,17.67 21.58,16.81C22,15.25 22,12 22,12C22,12 22,8.75 21.58,7.19Z", "#FF0000"),
+            Shortcut("GitHub", "https://github.com", "https://www.google.com/s2/favicons?domain=github.com&sz=128", "M12,2A10,10 0 0,0 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21V19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26V21C14.5,21.27 14.66,21.59 15.17,21.5A10,10 0 0,0 12,2Z", "#202124"),
+            Shortcut("Notion", "https://www.notion.so", "https://www.google.com/s2/favicons?domain=notion.so&sz=128", "M5,4H19V20H5V4M7,6V18H17V6H7M9,8H15V10H9V8M9,12H15V14H9V12M9,16H13V18H9V16Z", "#202124"),
+            Shortcut("Twitter", "https://twitter.com", "https://www.google.com/s2/favicons?domain=twitter.com&sz=128", "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z", "#1DA1F2"),
+            Shortcut("Instagram", "https://instagram.com", "https://www.google.com/s2/favicons?domain=instagram.com&sz=128", "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z", "#E1306C"),
+            Shortcut("Reddit", "https://www.reddit.com", "https://www.google.com/s2/favicons?domain=reddit.com&sz=128", "M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.221.685-.356 1.093-.356.999 0 1.81.811 1.81 1.81 0 .633-.323 1.189-.81 1.512.03.208.051.42.051.633 0 4.316-5.013 7.82-11.196 7.82s-11.196-3.504-11.196-7.82c0-.213.02-.425.05-.633-.487-.323-.81-.879-.81-1.512 0-.999.811-1.81 1.81-1.81.408 0 .785.135 1.093.356 1.194-.856 2.85-1.418 4.674-1.488l.8-3.747 2.597.547a1.25 1.25 0 0 1 2.498-.056l.547-2.556a.625.625 0 0 1 .75-.484l3.14.662a1.248 1.248 0 0 1 1.205-.884z", "#FF4500"),
+            Shortcut("Spotify", "https://spotify.com", "https://www.google.com/s2/favicons?domain=spotify.com&sz=128", "M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.778-.179-.899-.599-.12-.42.18-.78.6-.9 4.56-1.02 8.52-.6 11.76 1.44.36.18.48.66.24 1.02zm1.44-3.84c-.301.481-.921.601-1.401.3-3.24-1.98-8.16-2.58-11.94-1.38-.54.18-1.14-.12-1.32-.66-.18-.54.12-1.14.66-1.32 4.38-1.32 9.84-.66 13.68 1.62.48.3.66.96.3 1.44zm.12-4.08C15.24 7.32 8.88 7.08 5.16 8.22c-.66.2-1.38-.16-1.58-.82-.2-.66.16-1.38.82-1.58 4.32-1.32 11.4-1.02 15.66 1.5.6.36.78 1.14.42 1.74-.36.6-1.14.78-1.74.42z", "#1DB954"),
+            Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128", "M12.09,2.15C11.96,2.15 11.83,2.23 11.78,2.37L10.27,6.86C8.84,6.44 7.42,6.03 10,6.03C10,6.03 6.9,6.5 5.5,7C4.1,7.5 3.03,8.6 2.5,10C1.97,11.4 1.7,13.2 1.5,15.5C1.3,17.8 1.1,20.5 1,22.5C2.5,22.5 4,22.5 5.5,22.5C5.7,20.5 5.9,18 6.1,15.5C6.3,13 6.5,11.2 7,10.2C7.5,9.2 8.8,8.8 9.1,8.6C10,8.4 11.1,8.7 12.3,9.5L14,14.5L16.2,9.2C17.5,8.9 18.8,8.8 20,8.8C20.5,8.8 21,8.9 21.5,9C21.7,10.5 21.9,12.5 22.1,15C22.3,17.5 22.5,20 22.7,22.5C24.2,22.5 25.7,22.5 27.2,22.5C27.1,20.5 26.9,17.8 26.7,15.5C26.5,13.2 26.2,11.4 25.7,10C25.2,8.6 24.1,7.5 22.7,7C21.3,6.5 19.8,6.2 18.3,6.1L16.8,2.37C16.75,2.23 16.62,2.15 16.49,2.15C16.36,2.15 16.23,2.23 16.18,2.37L14,9.5L12.09,2.37C12.04,2.23 11.91,2.15 12.09,2.15Z", "#202124")
+        )
     }
+
+    private val defaultShortcuts = DefaultShortcuts.list
 
     private val HAZE_HOME_URL = "haze://home"
 
@@ -190,103 +167,47 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun focusAddressBar() {
             runOnUiThread {
-                triggerStrongHaptic(addressBar)
-                addressBar.requestFocus()
-                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT)
+                activateSearchMode()
             }
         }
         @JavascriptInterface
-        fun startVoiceSearch() { 
-            runOnUiThread { 
-                triggerStrongHaptic()
-                this@MainActivity.startVoiceSearch() 
-            } 
-        }
+        fun startVoiceSearch() { runOnUiThread { this@MainActivity.startVoiceSearch() } }
         @JavascriptInterface
         fun navigateTo(url: String) { 
             runOnUiThread { 
-                triggerStrongHaptic()
                 addressBarContainer.visibility = View.VISIBLE
                 addressBar.setText(url)
                 loadUrlFromInput(url) 
             } 
         }
         @JavascriptInterface
-        fun openMenu() { 
-            runOnUiThread { 
-                triggerStrongHaptic()
-                showBrowserMenu() 
-            } 
-        }
+        fun openMenu() { runOnUiThread { showBrowserMenu() } }
         @JavascriptInterface
-        fun openTabManager() { 
-            runOnUiThread { 
-                triggerStrongHaptic()
-                showFullScreenTabs() 
-            } 
-        }
+        fun openTabManager() { runOnUiThread { showFullScreenTabs() } }
         @JavascriptInterface
         fun getTabCount(): Int { return currentTabsList.size }
         @JavascriptInterface
-        fun openAddShortcutDialog() { 
-            runOnUiThread { 
-                triggerStrongHaptic()
-                showAddShortcutDialog() 
-            } 
-        }
+        fun openAddShortcutDialog() { runOnUiThread { showAddShortcutDialog() } }
         @JavascriptInterface
-        fun confirmRemoveShortcut(index: Int) { 
-            runOnUiThread { 
-                triggerStrongHaptic(isHeavy = true)
-                showRemoveShortcutDialog(index) 
-            } 
-        }
+        fun confirmRemoveShortcut(index: Int) { runOnUiThread { showRemoveShortcutDialog(index) } }
         @JavascriptInterface
-        fun showMaxShortcutsToast(maxCapacity: Int) {
+        fun showMaxShortcutsToast() {
             runOnUiThread {
-                triggerStrongHaptic(isHeavy = true)
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Shortcut Limit Reached")
-                    .setMessage("Your shortcuts grid is currently full ($maxCapacity/$maxCapacity).\n\nTo make the Add (+) button active again:\n1. Press and hold (long-press) any shortcut you don't need.\n2. Tap 'Remove'.\n\nOnce removed, this Add button will immediately activate so you can add a new website!")
-                    .setPositiveButton("Got It", null)
-                    .show()
-                Toast.makeText(this@MainActivity, "Hold any icon to remove it and free up space", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, "Maximum shortcuts reached. Long-press an existing shortcut to remove it.", Toast.LENGTH_LONG).show()
+            }
+        }
+        @JavascriptInterface
+        fun onTextSelection(text: String) {
+            runOnUiThread {
+                if (text.trim().isNotEmpty()) {
+                    HazeContextMenuManager.showTextSelectionContextMenu(this@MainActivity, text.trim())
+                }
             }
         }
     }
 
-    private fun wakeScreen() {
-        try {
-            val pm = getSystemService(POWER_SERVICE) as PowerManager
-            @Suppress("DEPRECATION")
-            val wakeLock = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE,
-                "haze:wakelock"
-            )
-            wakeLock.acquire(15000)
-        } catch (e: Exception) {}
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            )
-        }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        wakeScreen()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        wakeScreen()
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
@@ -297,11 +218,49 @@ class MainActivity : AppCompatActivity() {
         tabCountBtn = findViewById(R.id.tabCountBtn)
         btnTabsCircular = findViewById(R.id.btnTabsCircular)
         addressBarContainer = findViewById(R.id.addressBarContainer)
-        appBackgroundImageView = findViewById(R.id.appBackgroundImageView)
-        appBackgroundOverlay = findViewById(R.id.appBackgroundOverlay)
         val menuBtn: ImageButton = findViewById(R.id.menuBtn)
         val btnVoiceSearch: ImageButton = findViewById(R.id.btnVoiceSearch)
-        
+
+        dimOverlay = findViewById(R.id.dimOverlay)
+        recentSearchesContainer = findViewById(R.id.recentSearchesContainer)
+        recentSearchesList = findViewById(R.id.recentSearchesList)
+        btnClearQuery = findViewById(R.id.btnClearQuery)
+        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
+
+        dimOverlay.setOnClickListener { deactivateSearchMode() }
+        btnClearHistory.setOnClickListener {
+            triggerStrongHaptic(it)
+            clearRecentSearches()
+        }
+
+        btnClearQuery.setOnClickListener {
+            triggerStrongHaptic(it)
+            addressBar.setText("")
+            addressBar.requestFocus()
+        }
+
+        addressBar.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                val text = s?.toString() ?: ""
+                btnClearQuery.visibility = if (text.isNotEmpty() && isSearchActive) View.VISIBLE else View.GONE
+                currentTabsList.getOrNull(activeTabIndex)?.webView?.findAllAsync(text)
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
+        addressBar.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                triggerStrongHaptic(addressBar)
+                activateSearchMode()
+            }
+        }
+
+        addressBar.setOnClickListener {
+            triggerStrongHaptic(it)
+            activateSearchMode()
+        }
+
         findBarContainer = findViewById(R.id.findBarContainer)
         findInput = findViewById(R.id.findInput)
         val btnFindPrev: ImageButton = findViewById(R.id.btnFindPrev)
@@ -353,15 +312,123 @@ class MainActivity : AppCompatActivity() {
             triggerStrongHaptic(it)
             startVoiceSearch() 
         }
-        addressBar.setOnClickListener {
-            triggerStrongHaptic(it)
-        }
 
-        // Start App with empty address bar by default
         addressBar.setText("")
         handleCustomIntent(intent)
         applyTheme()
         addNewTab(HAZE_HOME_URL)
+    }
+
+    private fun activateSearchMode() {
+        if (isSearchActive) return
+        isSearchActive = true
+
+        val rootLayout = findViewById<ConstraintLayout>(R.id.main)
+        val autoTransition = AutoTransition().apply {
+            duration = 240
+            interpolator = FastOutSlowInInterpolator()
+        }
+        TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
+
+        val params = addressBarContainer.layoutParams as ConstraintLayout.LayoutParams
+        params.bottomToBottom = ConstraintLayout.LayoutParams.UNSET
+        params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+        params.topMargin = dpToPx(36)
+        addressBarContainer.layoutParams = params
+
+        dimOverlay.visibility = View.VISIBLE
+        dimOverlay.alpha = 0f
+        dimOverlay.animate().alpha(1f).setDuration(240).start()
+
+        renderRecentSearches()
+        recentSearchesContainer.visibility = View.VISIBLE
+        btnClearQuery.visibility = if (addressBar.text.isNotEmpty()) View.VISIBLE else View.GONE
+
+        addressBar.requestFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun deactivateSearchMode() {
+        if (!isSearchActive) return
+        isSearchActive = false
+
+        val rootLayout = findViewById<ConstraintLayout>(R.id.main)
+        val autoTransition = AutoTransition().apply {
+            duration = 200
+            interpolator = FastOutSlowInInterpolator()
+        }
+        TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
+
+        val params = addressBarContainer.layoutParams as ConstraintLayout.LayoutParams
+        params.topToTop = ConstraintLayout.LayoutParams.UNSET
+        params.topMargin = 0
+        params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+        addressBarContainer.layoutParams = params
+
+        dimOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+            dimOverlay.visibility = View.GONE
+        }.start()
+
+        recentSearchesContainer.visibility = View.GONE
+        btnClearQuery.visibility = View.GONE
+
+        addressBar.clearFocus()
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(addressBar.windowToken, 0)
+    }
+
+    private fun saveRecentSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("haze://")) return
+        HazeDatabase.getInstance(this).addRecentSearch(trimmed)
+    }
+
+    private fun getRecentSearches(): List<String> {
+        return HazeDatabase.getInstance(this).getRecentSearches(10).map { it.query }
+    }
+
+    private fun clearRecentSearches() {
+        HazeDatabase.getInstance(this).clearRecentSearches()
+        renderRecentSearches()
+    }
+
+    private fun deleteRecentSearch(item: String) {
+        HazeDatabase.getInstance(this).deleteRecentSearch(item)
+        renderRecentSearches()
+    }
+
+    private fun renderRecentSearches() {
+        recentSearchesList.removeAllViews()
+        val searches = getRecentSearches()
+        if (searches.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "No recent searches"
+                setTextColor(Color.parseColor("#9AA0A6"))
+                textSize = 13f
+                setPadding(0, 16, 0, 16)
+            }
+            recentSearchesList.addView(emptyTv)
+            return
+        }
+
+        for (query in searches) {
+            val rowView = layoutInflater.inflate(R.layout.item_recent_search, recentSearchesList, false)
+            val tvQuery = rowView.findViewById<TextView>(R.id.tvRecentQuery)
+            val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
+
+            tvQuery.text = query
+            rowView.setOnClickListener {
+                triggerStrongHaptic(it)
+                addressBar.setText(query)
+                loadUrlFromInput(query)
+            }
+            btnDelete.setOnClickListener {
+                triggerStrongHaptic(it)
+                deleteRecentSearch(query)
+            }
+            recentSearchesList.addView(rowView)
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -403,11 +470,20 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_personalize", false)) {
             showPersonalizeDialog()
         }
+        if (intent.getBooleanExtra("open_bookmarks", false)) {
+            webContainer.postDelayed({ HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) } }, 300)
+        }
+        if (intent.getBooleanExtra("open_history", false)) {
+            webContainer.postDelayed({ HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) } }, 300)
+        }
+        if (intent.getBooleanExtra("open_downloads", false)) {
+            webContainer.postDelayed({ HazeDownloadsManager.showDownloadsDialog(this) }, 300)
+        }
         if (intent.getBooleanExtra("open_menu", false)) {
             webContainer.postDelayed({ showBrowserMenu() }, 400)
         }
-        if (intent.getBooleanExtra("open_extra", false)) {
-            webContainer.postDelayed({ showExtraToolsDialog() }, 400)
+        if (intent.getBooleanExtra("activate_search", false)) {
+            webContainer.postDelayed({ activateSearchMode() }, 300)
         }
     }
 
@@ -427,7 +503,6 @@ class MainActivity : AppCompatActivity() {
                 val url = obj.getString("url")
                 var iconUrl = obj.optString("iconUrl", "")
                 
-                // If it's one of the default items or missing authentic iconUrl, use the high-res favicon
                 if (iconUrl.isEmpty() || !iconUrl.startsWith("data:image/png;base64,")) {
                     val defaultItem = DefaultShortcuts.list.find { 
                         it.name.equals(name, ignoreCase = true) || it.url.equals(url, ignoreCase = true) 
@@ -524,31 +599,17 @@ class MainActivity : AppCompatActivity() {
                         url = "https://$url"
                     }
                     val customShortcuts = getCustomShortcuts().toMutableList()
-                    if (customShortcuts.size >= maxCapacity) {
-                        Toast.makeText(this, "Limit reached ($maxCapacity/$maxCapacity). Remove one first.", Toast.LENGTH_LONG).show()
-                        return@setPositiveButton
-                    }
-                    
                     val host = try { Uri.parse(url).host?.removePrefix("www.") ?: url } catch (e: Exception) { url }
-                    val faviconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=128"
-                    
-                    customShortcuts.add(Shortcut(name, url, iconUrl = faviconUrl))
+                    val iconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=128"
+                    customShortcuts.add(Shortcut(name, url, iconUrl = iconUrl))
                     saveCustomShortcuts(customShortcuts)
                     
                     reloadHomeTabs()
-                    Toast.makeText(this, "Shortcut '$name' added!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Shortcut added!", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    private fun dpToPx(dp: Int): Int {
-        return TypedValue.applyDimension(
-            TypedValue.COMPLEX_UNIT_DIP,
-            dp.toFloat(),
-            resources.displayMetrics
-        ).toInt()
     }
 
     private fun showRemoveShortcutDialog(index: Int) {
@@ -559,36 +620,37 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Remove Shortcut")
                 .setMessage("Do you want to remove '${s.name}' from your home screen?")
                 .setPositiveButton("Remove") { _, _ ->
-                    val removed = customShortcuts.removeAt(index)
+                    customShortcuts.removeAt(index)
                     saveCustomShortcuts(customShortcuts)
                     reloadHomeTabs()
-                    Toast.makeText(this, "Shortcut '${removed.name}' removed! Add button is now active.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Shortcut removed!", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
         }
     }
 
+    private fun dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+    }
+
     private fun getHazeHomeHtml(): String {
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDarkSetting = prefs.getBoolean("is_dark", false)
+        val isIncognito = isPrivateMode
+        val isDark = isDarkSetting || isIncognito
+
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2" // "off", "1", "2"
-        val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
-        val bgThemeId = prefs.getString("bg_theme", "default") ?: "default"
-        val selectedBgTheme = backgroundThemes.find { it.id == bgThemeId }
-        val hasWallpaper = selectedBgTheme != null && selectedBgTheme.bgRes != 0
+        val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         
-        val bgColor = if (hasWallpaper) "transparent" else (if (isDark) "#121212" else "#FAFAFA")
-        val cardColor = if (hasWallpaper) "rgba(255, 255, 255, 0.22)" else (if (isDark) "#1E1E1E" else "#FFFFFF")
-        val textColor = if (hasWallpaper) "#FFFFFF" else (if (isDark) "#FFFFFF" else "#202124")
-        val labelColor = if (hasWallpaper) "#FFFFFF" else (if (isDark) "#E0E0E0" else "#202124")
-        val textShadow = if (hasWallpaper) "text-shadow: 0 1px 4px rgba(0,0,0,0.85);" else ""
-        val cardBorder = if (hasWallpaper) {
-            "border: 1px solid rgba(255, 255, 255, 0.35); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 4px 16px rgba(0,0,0,0.25);"
-        } else if (isDark) {
-            "box-shadow: 0 2px 8px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08);"
-        } else {
-            "box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.04);"
-        }
+        val bgColor = if (isIncognito) "#181818" else (if (isDarkSetting) "#121212" else "#FAFAFA")
+        val cardColor = if (isIncognito) "#2A2A2A" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
+        val textColor = if (isDark) "#FFFFFF" else "#202124"
+        val labelColor = if (isDark) "#E0E0E0" else "#202124"
+        val cardBorder = "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
         
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
         val customShortcuts = getCustomShortcuts()
@@ -598,78 +660,82 @@ class MainActivity : AppCompatActivity() {
         val displayShortcutsHtml = StringBuilder()
         for (i in activeShortcuts.indices) {
             val s = activeShortcuts[i]
-            val domain = try { Uri.parse(s.url).host?.removePrefix("www.") ?: s.url } catch (e: Exception) { s.url }
-            val fallbackFavicon = "https://www.google.com/s2/favicons?domain=$domain&sz=128"
-            val iconSrc = if (s.iconUrl.isNotEmpty()) s.iconUrl else fallbackFavicon
-            
+            val iconContent = if (s.iconUrl.isNotEmpty()) {
+                """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" />"""
+            } else {
+                """<svg viewBox="0 0 24 24" style="fill: ${s.fillColor}; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
+            }
             displayShortcutsHtml.append("""
                 <div class="shortcut" 
-                     ontouchstart="handleTouchStart(event, $i)" 
-                     ontouchmove="handleTouchMove(event)" 
-                     ontouchend="handleTouchEnd(event, '${s.url}')" 
-                     ontouchcancel="handleTouchCancel()"
-                     oncontextmenu="return handleContextMenu(event, $i)"
-                     onclick="handleClick(event, '${s.url}')">
-                    <div class="shortcut-box">
-                        <img class="shortcut-icon" src="$iconSrc" onerror="this.onerror=null; this.src='$fallbackFavicon';" alt="${s.name}" />
-                    </div>
+                     onclick="Android.triggerHaptic(false); Android.navigateTo('${s.url}')" 
+                     oncontextmenu="Android.triggerHaptic(true); event.preventDefault(); Android.confirmRemoveShortcut($i); return false;">
+                    <div class="shortcut-box">$iconContent</div>
                     <div class="shortcut-label">${s.name}</div>
                 </div>
             """)
         }
         
         if (shortcutsMode != "off") {
-            if (isFull) {
-                displayShortcutsHtml.append("""
-                    <div class="shortcut" onclick="if(window.Android&&window.Android.triggerHaptic)window.Android.triggerHaptic(true); Android.showMaxShortcutsToast($maxCapacity)">
-                        <div class="shortcut-box disabled-box">
-                            <svg viewBox="0 0 24 24" style="fill: #8A8D93;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        </div>
-                        <div class="shortcut-label" style="opacity: 0.45;">Add</div>
-                    </div>
-                """)
-            } else {
-                displayShortcutsHtml.append("""
-                    <div class="shortcut" onclick="if(window.Android&&window.Android.triggerHaptic)window.Android.triggerHaptic(false); Android.openAddShortcutDialog()">
-                        <div class="shortcut-box">
-                            <svg viewBox="0 0 24 24" style="fill: $accentColor;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        </div>
-                        <div class="shortcut-label">Add</div>
-                    </div>
-                """)
-            }
+            val addClickAction = if (isFull) "Android.triggerHaptic(true); Android.showMaxShortcutsToast()" else "Android.triggerHaptic(false); Android.openAddShortcutDialog()"
+            val addStyle = if (isFull) "opacity: 0.35; filter: grayscale(100%); cursor: not-allowed;" else "opacity: 1;"
+            
+            displayShortcutsHtml.append("""
+                <div class="shortcut" onclick="$addClickAction" style="$addStyle">
+                    <div class="shortcut-box"><svg viewBox="0 0 24 24" style="fill: $accentColor; width:26px; height:26px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></div>
+                    <div class="shortcut-label">Add</div>
+                </div>
+            """)
         }
         
-        val logoFilter = if (hasWallpaper) {
-            """filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.88)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.95));"""
+        val bgTheme = if (isIncognito) "default" else (prefs.getString("bg_theme", "default") ?: "default")
+        val hasBgPhoto = bgTheme != "default"
+
+        val bgStyle = if (hasBgPhoto) {
+            "background: linear-gradient(rgba(0,0,0,0.32), rgba(0,0,0,0.48)), url('file:///android_asset/bg_theme_$bgTheme.webp') no-repeat center center fixed; background-size: cover;"
         } else {
-            ""
+            "background: $bgColor; background-color: $bgColor;"
         }
-        val logoVignette = if (hasWallpaper) {
-            """background: radial-gradient(ellipse at center, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 72%); border-radius: 40px; padding: 12px 24px;"""
+
+        val logoShadow = if (hasBgPhoto) {
+            "filter: drop-shadow(0 8px 24px rgba(0,0,0,0.85)) contrast(1.25) brightness(1.1);"
         } else {
-            ""
+            if (isDark) "filter: drop-shadow(0 4px 14px rgba(0,0,0,0.35));" else "filter: drop-shadow(0 4px 14px rgba(0,0,0,0.12));"
         }
-        val strokeColor = if (hasWallpaper) "#FFFFFF" else textColor
-        val op1 = "1.0"
-        val op2 = if (hasWallpaper) "0.72" else "0.65"
-        val op3 = if (hasWallpaper) "0.45" else "0.35"
-        
+
+        val effectiveCardColor = if (hasBgPhoto) "rgba(255, 255, 255, 0.85)" else cardColor
+        val effectiveCardBorder = if (hasBgPhoto) "backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 4px 14px rgba(0,0,0,0.2);" else cardBorder
+        val effectiveLabelColor = if (hasBgPhoto) "#FFFFFF" else labelColor
+        val labelShadow = if (hasBgPhoto) "text-shadow: 0 1px 4px rgba(0,0,0,0.9);" else ""
+
+        val logoSrc = if (isDark || hasBgPhoto) "file:///android_asset/haze_logo_dark.png" else "file:///android_asset/haze_logo.png"
+        val logoViewHtml = if (isIncognito) {
+            """
+            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
+                <circle cx="32" cy="62" r="15" fill="$textColor"/>
+                <circle cx="32" cy="62" r="11" fill="$bgColor"/>
+                <circle cx="68" cy="62" r="15" fill="$textColor"/>
+                <circle cx="68" cy="62" r="11" fill="$bgColor"/>
+                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+            """.trimIndent()
+        } else {
+            """<img class="logo" src="$logoSrc" alt="Haze" />"""
+        }
+
         return """
             <!DOCTYPE html>
             <html>
             <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
                 <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
                     html, body {
                         margin: 0; padding: 0; height: 100vh; width: 100vw;
                         display: flex; flex-direction: column; align-items: center; justify-content: center;
-                        background: $bgColor;
-                        background-color: $bgColor;
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                        $bgStyle
+                        font-family: 'Outfit', sans-serif;
                         overflow: hidden; position: fixed; touch-action: none;
-                        -webkit-user-select: none;
-                        user-select: none;
                     }
                     .container {
                         display: flex; flex-direction: column; align-items: center; width: 100%;
@@ -678,149 +744,47 @@ class MainActivity : AppCompatActivity() {
                     .logo-wrapper {
                         display: flex; justify-content: center; align-items: center;
                         margin-bottom: 24px;
-                        $logoVignette
                     }
                     .logo {
-                        width: 240px; height: 180px;
-                        $logoFilter
+                        width: 220px; height: 155px;
+                        object-fit: contain;
+                        $logoShadow
                     }
                     .shortcuts {
                         display: ${if (shortcutsMode == "off") "none" else "grid"};
                         grid-template-columns: repeat(5, 1fr);
-                        gap: 14px 10px; margin-top: 10px;
+                        gap: 10px; margin-top: 10px;
                         justify-items: center;
                         width: 94%; max-width: 440px;
                     }
                     .shortcut {
                         display: flex; flex-direction: column; align-items: center;
                         text-decoration: none; cursor: pointer; width: 100%;
-                        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+                        transition: transform 0.1s ease;
+                    }
+                    .shortcut:active {
+                        transform: scale(0.92);
                     }
                     .shortcut-box {
-                        width: 52px; height: 52px; border-radius: 17px;
-                        background: $cardColor;
+                        width: 52px; height: 52px; border-radius: 16px;
+                        background: $effectiveCardColor;
                         display: flex; justify-content: center; align-items: center;
                         margin-bottom: 6px;
-                        transition: transform 0.08s cubic-bezier(0.2, 0.9, 0.3, 1), box-shadow 0.08s ease;
-                        will-change: transform;
-                        $cardBorder
-                    }
-                    .shortcut-box:active {
-                        transform: scale(0.85);
-                        box-shadow: 0 0 12px rgba(10, 86, 208, 0.45);
-                    }
-                    .shortcut-icon {
-                        width: 28px; height: 28px;
-                        object-fit: contain;
-                        border-radius: 4px;
-                        pointer-events: none;
-                        -webkit-user-drag: none;
-                    }
-                    .shortcut-box svg {
-                        width: 26px; height: 26px;
-                        pointer-events: none;
+                        $effectiveCardBorder
                     }
                     .shortcut-label {
-                        color: $labelColor;
+                        color: $effectiveLabelColor;
                         font-size: 11px; font-weight: 500;
                         text-align: center;
+                        $labelShadow
                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
-                        $textShadow
-                    }
-                    .disabled-box {
-                        opacity: 0.38 !important;
-                        filter: grayscale(100%);
-                        cursor: not-allowed;
-                        border: 1px dashed rgba(140, 140, 140, 0.4) !important;
-                    }
-                    .disabled-box:active {
-                        transform: none !important;
-                        box-shadow: none !important;
                     }
                 </style>
-                <script>
-                    var touchTimer = null;
-                    var didLongPress = false;
-                    var startX = 0, startY = 0;
-                    var hasMoved = false;
-
-                    function handleTouchStart(e, index) {
-                        didLongPress = false;
-                        hasMoved = false;
-                        if (e.touches && e.touches[0]) {
-                            startX = e.touches[0].clientX;
-                            startY = e.touches[0].clientY;
-                        }
-                        if (window.Android && window.Android.triggerHaptic) {
-                            window.Android.triggerHaptic(false);
-                        }
-                        touchTimer = setTimeout(function() {
-                            if (!hasMoved) {
-                                didLongPress = true;
-                                if (window.Android && window.Android.triggerHaptic) {
-                                    window.Android.triggerHaptic(true);
-                                }
-                                Android.confirmRemoveShortcut(index);
-                            }
-                        }, 450);
-                    }
-
-                    function handleTouchMove(e) {
-                        if (e.touches && e.touches[0]) {
-                            var dx = Math.abs(e.touches[0].clientX - startX);
-                            var dy = Math.abs(e.touches[0].clientY - startY);
-                            if (dx > 12 || dy > 12) {
-                                hasMoved = true;
-                                clearTimeout(touchTimer);
-                            }
-                        }
-                    }
-
-                    function handleTouchEnd(e, url) {
-                        clearTimeout(touchTimer);
-                        if (!didLongPress && !hasMoved) {
-                            if (window.Android && window.Android.triggerHaptic) {
-                                window.Android.triggerHaptic(false);
-                            }
-                            Android.navigateTo(url);
-                        }
-                    }
-
-                    function handleTouchCancel() {
-                        clearTimeout(touchTimer);
-                        hasMoved = true;
-                    }
-
-                    function handleContextMenu(e, index) {
-                        e.preventDefault();
-                        clearTimeout(touchTimer);
-                        if (window.Android && window.Android.triggerHaptic) {
-                            window.Android.triggerHaptic(true);
-                        }
-                        Android.confirmRemoveShortcut(index);
-                        return false;
-                    }
-
-                    function handleClick(e, url) {
-                        if (!('ontouchstart' in window) && !didLongPress) {
-                            if (window.Android && window.Android.triggerHaptic) {
-                                window.Android.triggerHaptic(false);
-                            }
-                            Android.navigateTo(url);
-                        }
-                    }
-                </script>
             </head>
             <body>
                 <div class="container">
                     <div class="logo-wrapper">
-                        <svg class="logo" viewBox="0 0 300 200" xmlns="http://www.w3.org/2000/svg">
-                            <g transform="rotate(-20 150 100)">
-                                <path d="M 50,40 C 90,28 170,25 230,42 C 245,46 235,58 210,56 C 150,50 90,52 45,52 C 35,52 38,43 50,40 Z" fill="$strokeColor" opacity="$op1"/>
-                                <path d="M 55,80 C 100,68 175,66 235,82 C 248,85 238,96 215,94 C 155,88 95,90 50,90 C 40,90 43,83 55,80 Z" fill="$strokeColor" opacity="$op2"/>
-                                <path d="M 60,120 C 105,108 180,106 240,122 C 250,125 240,135 218,133 C 160,127 100,128 55,128 C 45,128 48,123 60,120 Z" fill="$strokeColor" opacity="$op3"/>
-                            </g>
-                        </svg>
+                        $logoViewHtml
                     </div>
 
                     <div class="shortcuts">
@@ -833,54 +797,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() {
-        val isDark = prefs.getBoolean("is_dark", false)
-        val bgThemeId = prefs.getString("bg_theme", "default") ?: "default"
-        val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
-        val accentColor = Color.parseColor(accentColorHex)
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         
-        val selectedBgTheme = backgroundThemes.find { it.id == bgThemeId }
-        val hasWallpaper = selectedBgTheme != null && selectedBgTheme.bgRes != 0
-        
-        val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        val isHome = currentTab == null || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
-        
-        if (hasWallpaper && isHome) {
-            appBackgroundImageView.visibility = View.VISIBLE
-            appBackgroundImageView.setImageResource(selectedBgTheme!!.bgRes)
-            appBackgroundOverlay.visibility = View.VISIBLE
-        } else {
-            appBackgroundImageView.visibility = View.GONE
-            appBackgroundOverlay.visibility = View.GONE
-        }
-        
-        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA")
-        val barBgColor = if (hasWallpaper && isHome) {
-            if (isDark) Color.parseColor("#E61E1E1E") else Color.parseColor("#F5FFFFFF")
-        } else {
-            if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
-        }
+        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
+        val barBgColor = if (isPrivateMode) Color.parseColor("#2A2A2A") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         
         findViewById<ConstraintLayout>(R.id.main).setBackgroundColor(bgColor)
-        
-        if (hasWallpaper && isHome) {
-            addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
-        } else {
-            addressBarContainer.setBackgroundColor(bgColor)
-        }
+        addressBarContainer.setBackgroundColor(bgColor)
         findBarContainer.setBackgroundColor(bgColor)
         
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
-        val barShape = GradientDrawable().apply {
+        val shape = GradientDrawable().apply {
             this.shape = GradientDrawable.RECTANGLE
             val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
             cornerRadius = radiusPx
             setColor(barBgColor)
+            val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
+            setStroke(1, strokeColor)
         }
-        addressBarInner.background = barShape
-        addressBarInner.elevation = 0f
-        addressBarInner.outlineProvider = null
+        addressBarInner.background = shape
         
         addressBar.setTextColor(textColor)
         addressBar.setHintTextColor(hintColor)
@@ -888,30 +825,46 @@ class MainActivity : AppCompatActivity() {
         findInput.setHintTextColor(hintColor)
         
         findViewById<ImageView>(R.id.searchIcon).setColorFilter(hintColor)
-        findViewById<ImageButton>(R.id.btnVoiceSearch).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.menuBtn).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindClose).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindNext).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindPrev).setColorFilter(hintColor)
         
         val tabShape = GradientDrawable().apply {
-            this.shape = GradientDrawable.RECTANGLE
-            val tabRadPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, resources.displayMetrics)
-            cornerRadius = tabRadPx
-            val tabStrokePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.8f, resources.displayMetrics).toInt().coerceAtLeast(1)
-            setStroke(tabStrokePx, hintColor)
-            setColor(Color.TRANSPARENT)
+            this.shape = GradientDrawable.OVAL
+            setColor(barBgColor)
         }
         btnTabsCircular.background = tabShape
         tabCountBtn.setTextColor(textColor)
         
-        if (currentTab != null && isHome) {
-            currentTab.webView.setBackgroundColor(Color.TRANSPARENT)
-            currentTab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
-        }
+        reloadHomeTabs()
     }
 
-    private fun addNewTab(url: String) {
+    private fun getInternalPageHtml(title: String, icon: String): String {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+                    body { font-family: 'Outfit', sans-serif; background-color: #FAFAFA; color: #202124; padding: 24px; text-align: center; }
+                    .icon { font-size: 72px; margin-top: 15vh; margin-bottom: 16px; }
+                    h1 { font-weight: 300; font-size: 32px; letter-spacing: 2px; }
+                    p { color: #5F6368; font-weight: 200; }
+                </style>
+            </head>
+            <body>
+                <div class="icon">$icon</div>
+                <h1>$title</h1>
+                <p>This is your local $title page.</p>
+                <p>Functionality coming soon.</p>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    fun addNewTab(url: String) {
         val webView = WebView(this)
         webView.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, 
@@ -931,50 +884,33 @@ class MainActivity : AppCompatActivity() {
         
         when (url) {
             HAZE_HOME_URL -> {
-                val bgThemeId = prefs.getString("bg_theme", "default") ?: "default"
-                val selectedBgTheme = backgroundThemes.find { it.id == bgThemeId }
-                val hasWallpaper = selectedBgTheme != null && selectedBgTheme.bgRes != 0
-                val isDark = prefs.getBoolean("is_dark", false)
-                if (hasWallpaper) {
-                    webView.setBackgroundColor(Color.TRANSPARENT)
-                } else {
-                    webView.setBackgroundColor(if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-                }
                 webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 tab.title = "New Tab"
                 if (activeTabIndex == activeNormalTabIndex || activeTabIndex == activePrivateTabIndex) addressBar.setText("")
             }
-            "haze://favorites" -> { webView.loadDataWithBaseURL(url, getInternalPageHtml("Favorites", "⭐"), "text/html", "UTF-8", null); tab.title = "Favorites"; addressBar.setText(url) }
-            "haze://history" -> { webView.loadDataWithBaseURL(url, getInternalPageHtml("History", "🕒"), "text/html", "UTF-8", null); tab.title = "History"; addressBar.setText(url) }
-            "haze://downloads" -> { webView.loadDataWithBaseURL(url, getInternalPageHtml("Downloads", "⬇️"), "text/html", "UTF-8", null); tab.title = "Downloads"; addressBar.setText(url) }
-            "haze://settings" -> { webView.loadDataWithBaseURL(url, getInternalPageHtml("Settings", "⚙️"), "text/html", "UTF-8", null); tab.title = "Settings"; addressBar.setText(url) }
+            "haze://favorites", "haze://bookmarks" -> {
+                tab.title = "Favorites"
+                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                HazeBookmarksManager.showBookmarksDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
+            }
+            "haze://history" -> {
+                tab.title = "History"
+                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                HazeHistoryManager.showHistoryDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
+            }
+            "haze://downloads" -> {
+                tab.title = "Downloads"
+                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                HazeDownloadsManager.showDownloadsDialog(this)
+            }
+            "haze://settings" -> {
+                tab.title = "Settings"
+                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                HazeSettingsManager.showSettingsDialog(this)
+            }
             else -> webView.loadUrl(url)
         }
         tab.url = url
-    }
-
-    private fun getInternalPageHtml(title: String, icon: String): String {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400&display=swap');
-                    body { font-family: 'Outfit', sans-serif; background-color: #FAFAFA; color: #202124; padding: 24px; text-align: center; }
-                    .icon { font-size: 72px; margin-top: 15vh; margin-bottom: 16px; }
-                    h1 { font-weight: 300; font-size: 32px; letter-spacing: 2px; }
-                    p { color: #5F6368; font-weight: 200; }
-                </style>
-            </head>
-            <body>
-                <div class="icon">$icon</div>
-                <h1>$title</h1>
-                <p>This is your local $title page.</p>
-                <p>Functionality coming soon.</p>
-            </body>
-            </html>
-        """.trimIndent()
     }
 
     private fun switchTab(index: Int) {
@@ -1005,49 +941,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateChromeVisibility(url: String?) {
         addressBarContainer.visibility = View.VISIBLE
-        val bgThemeId = prefs.getString("bg_theme", "default") ?: "default"
-        val selectedBgTheme = backgroundThemes.find { it.id == bgThemeId }
-        val hasWallpaper = selectedBgTheme != null && selectedBgTheme.bgRes != 0
         val isHome = url == null || url == HAZE_HOME_URL || url.startsWith("haze://home") || url.isEmpty()
-        val isDark = prefs.getBoolean("is_dark", false)
-        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA")
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         
         if (isHome) {
             addressBar.setText("")
         }
 
-        val barBgColor = if (hasWallpaper && isHome) {
-            if (isDark) Color.parseColor("#E61E1E1E") else Color.parseColor("#F5FFFFFF")
-        } else {
-            if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
-        }
+        val barBgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
         val barShape = GradientDrawable().apply {
             this.shape = GradientDrawable.RECTANGLE
             val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
             cornerRadius = radiusPx
             setColor(barBgColor)
+            val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
+            setStroke(1, strokeColor)
         }
         addressBarInner.background = barShape
-        addressBarInner.elevation = 0f
-        addressBarInner.outlineProvider = null
         
-        if (hasWallpaper && isHome) {
-            appBackgroundImageView.visibility = View.VISIBLE
-            appBackgroundImageView.setImageResource(selectedBgTheme!!.bgRes)
-            appBackgroundOverlay.visibility = View.VISIBLE
-            appBackgroundOverlay.setBackgroundColor(if (isDark) Color.parseColor("#4D000000") else Color.parseColor("#26000000"))
-            addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(Color.TRANSPARENT)
+        addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
+        if (isHome) {
+            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(bgColor)
         } else {
-            appBackgroundImageView.visibility = View.GONE
-            appBackgroundOverlay.visibility = View.GONE
-            addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
-            if (isHome) {
-                currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(bgColor)
-            } else {
-                currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(Color.WHITE)
-            }
+            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(Color.WHITE)
         }
     }
 
@@ -1081,8 +999,9 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(WebAppInterface(), "Android")
 
+        val jsEnabled = prefs.getBoolean("javascript_enabled", true)
         webView.settings.apply {
-            javaScriptEnabled = true
+            javaScriptEnabled = jsEnabled
             domStorageEnabled = !isPrivateMode
             databaseEnabled = !isPrivateMode
             setSupportZoom(true)
@@ -1096,35 +1015,98 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             setRenderPriority(WebSettings.RenderPriority.HIGH)
         }
+
+        // Web download listener
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+            HazeDownloadsManager.initDownload(this, url, userAgent, contentDisposition, mimeType, contentLength)
+        }
+
+        // Native Context Menu on Long Click
+        webView.setOnLongClickListener {
+            val result = webView.hitTestResult
+            when (result.type) {
+                WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
+                    val url = result.extra
+                    if (!url.isNullOrEmpty()) {
+                        HazeContextMenuManager.showLinkContextMenu(this, url)
+                        true
+                    } else false
+                }
+                WebView.HitTestResult.IMAGE_TYPE -> {
+                    val imageUrl = result.extra
+                    if (!imageUrl.isNullOrEmpty()) {
+                        HazeContextMenuManager.showImageContextMenu(this, imageUrl)
+                        true
+                    } else false
+                }
+                WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                    val extra = result.extra
+                    if (!extra.isNullOrEmpty()) {
+                        HazeContextMenuManager.showLinkContextMenu(this, extra)
+                        true
+                    } else false
+                }
+                else -> {
+                    val currentUrl = webView.url ?: ""
+                    if (currentUrl.isNotEmpty() && currentUrl != HAZE_HOME_URL && !currentUrl.startsWith("haze://")) {
+                        val currentTitle = webView.title ?: "Web Page"
+                        HazeContextMenuManager.showPageContextMenu(this, currentUrl, currentTitle, webView)
+                        true
+                    } else false
+                }
+            }
+        }
         
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 val tab = getTabFromWebView(webView)
                 if (tab != null && url != null) {
-                    if (url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home")) {
+                    if (url == HAZE_HOME_URL) {
                         tab.title = "New Tab"
-                        tab.url = HAZE_HOME_URL
+                        tab.url = url
                     } else {
-                        tab.title = view?.title ?: url
                         tab.url = url
                     }
                     if (tab == currentTabsList.getOrNull(activeTabIndex)) {
-                        updateChromeVisibility(tab.url)
-                        if (isHomeTab(tab) || tab.url == HAZE_HOME_URL || tab.url.startsWith("haze://")) {
-                            addressBar.setText("")
+                        updateChromeVisibility(url)
+                        if (url == HAZE_HOME_URL || url.startsWith("haze://")) {
+                            if (url == HAZE_HOME_URL) addressBar.setText("") else addressBar.setText(url)
                         } else {
-                            addressBar.setText(tab.url)
+                            addressBar.setText(url)
                         }
                     }
+
+                    // Record history if not private and not internal
+                    if (!isPrivateMode && url != HAZE_HOME_URL && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                        val pageTitle = tab.title.ifEmpty { view?.title ?: "Web Page" }
+                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false)
+                    }
+
+                    // Text Selection Listener injection
+                    val selectionScript = """
+                        (function() {
+                            if (window.__hazeSelectionInjected) return;
+                            window.__hazeSelectionInjected = true;
+                            document.addEventListener('selectionchange', function() {
+                                var sel = window.getSelection().toString();
+                                if (sel && sel.trim().length > 0 && sel.trim().length < 500) {
+                                    clearTimeout(window.__hazeSelTimer);
+                                    window.__hazeSelTimer = setTimeout(function() {
+                                        var text = window.getSelection().toString();
+                                        if (text && text.trim().length > 0) {
+                                            Android.onTextSelection(text.trim());
+                                        }
+                                    }, 800);
+                                }
+                            });
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(selectionScript, null)
                 }
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                Log.d("HazeWebView", "${consoleMessage?.message()} (line ${consoleMessage?.lineNumber()})")
-                return true
-            }
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 val tab = getTabFromWebView(webView)
@@ -1163,12 +1145,9 @@ class MainActivity : AppCompatActivity() {
 
         var viewingPrivate = isPrivateMode
 
-        btnClose.setOnClickListener { dialog.dismiss() }
-
-        btnNewTabAction.setOnClickListener {
-            dialog.dismiss()
-            isPrivateMode = viewingPrivate
-            addNewTab(HAZE_HOME_URL)
+        btnClose.setOnClickListener { 
+            triggerStrongHaptic(it)
+            dialog.dismiss() 
         }
 
         val personalAdapter = TabsAdapter(normalTabs, { clickedIndex ->
@@ -1218,8 +1197,11 @@ class MainActivity : AppCompatActivity() {
 
         fun updateUI() {
             if (viewingPrivate) {
+                btnTogglePersonal.background = null
                 btnTogglePersonal.setTextColor(Color.parseColor("#5F6368"))
-                btnTogglePrivate.setTextColor(accentColor)
+                btnTogglePrivate.background = getDrawable(R.drawable.bg_popup_rounded)
+                btnTogglePrivate.setTextColor(Color.parseColor("#202124"))
+
                 tvCurrentModeLabel.text = "Private Tabs"
                 btnNewTabAction.text = "+ New Private"
                 btnNewTabAction.setTextColor(accentColor)
@@ -1228,8 +1210,11 @@ class MainActivity : AppCompatActivity() {
                 currentTouchHelper?.attachToRecyclerView(null)
                 currentTouchHelper = attachDragAndDrop(rvActiveTabs, privateTabs, privateAdapter, true)
             } else {
-                btnTogglePersonal.setTextColor(accentColor)
+                btnTogglePersonal.background = getDrawable(R.drawable.bg_popup_rounded)
+                btnTogglePersonal.setTextColor(Color.parseColor("#202124"))
+                btnTogglePrivate.background = null
                 btnTogglePrivate.setTextColor(Color.parseColor("#5F6368"))
+
                 tvCurrentModeLabel.text = "Personal Tabs"
                 btnNewTabAction.text = "+ New Tab"
                 btnNewTabAction.setTextColor(accentColor)
@@ -1241,16 +1226,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnTogglePersonal.setOnClickListener {
+            triggerStrongHaptic(it)
             viewingPrivate = false
             updateUI()
         }
 
         btnTogglePrivate.setOnClickListener {
+            triggerStrongHaptic(it)
             viewingPrivate = true
             updateUI()
         }
 
         btnNewTabAction.setOnClickListener {
+            triggerStrongHaptic(it)
             dialog.dismiss()
             isPrivateMode = viewingPrivate
             addNewTab(HAZE_HOME_URL)
@@ -1362,6 +1350,7 @@ class MainActivity : AppCompatActivity() {
                 holder.groupNameText.text = tab.group!!.name
                 
                 holder.groupHeader.setOnClickListener {
+                    triggerStrongHaptic(it)
                     showEditGroupDialog(tab.group!!)
                 }
             } else {
@@ -1387,10 +1376,16 @@ class MainActivity : AppCompatActivity() {
             else holder.tabIcon.setImageResource(R.drawable.ic_globe)
             
             holder.tabTitle.text = tab.title
-            holder.tabUrl.text = if (tab.url == HAZE_HOME_URL) "Home" else tab.url
+            holder.tabUrl.text = if (isHomeTab(tab)) "Home" else tab.url
 
-            holder.rowContainer.setOnClickListener { onItemClick(position) }
-            holder.tabClose.setOnClickListener { onCloseClick(position) }
+            holder.rowContainer.setOnClickListener { 
+                triggerStrongHaptic(it)
+                onItemClick(position) 
+            }
+            holder.tabClose.setOnClickListener { 
+                triggerStrongHaptic(it)
+                onCloseClick(position) 
+            }
         }
 
         override fun getItemCount(): Int = list.size
@@ -1417,332 +1412,242 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showPersonalizeDialog() {
+    fun showPersonalizeDialog() {
         val isDark = prefs.getBoolean("is_dark", false)
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
-        var selectedBgId = prefs.getString("bg_theme", "default") ?: "default"
-        var selectedColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val currentBg = prefs.getString("bg_theme", "default") ?: "default"
         
-        val dialogView = layoutInflater.inflate(R.layout.layout_dialog_personalize, null)
-        val dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .create()
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        var selectedColor = accentColor
+        var selectedBg = currentBg
 
-        val scrollView = dialogView.findViewById<ScrollView>(R.id.personalizeScrollView)
-        val tvTitle = dialogView.findViewById<TextView>(R.id.tvPersonalizeTitle)
-        val tvSubtitle = dialogView.findViewById<TextView>(R.id.tvPersonalizeSubtitle)
-        val tvSecBg = dialogView.findViewById<TextView>(R.id.tvSectionBackground)
-        val tvSecBgSub = dialogView.findViewById<TextView>(R.id.tvSectionBackgroundSub)
-        val tvSecCol = dialogView.findViewById<TextView>(R.id.tvSectionColors)
-        val tvSecColSub = dialogView.findViewById<TextView>(R.id.tvSectionColorsSub)
-        val tvSecApp = dialogView.findViewById<TextView>(R.id.tvSectionAppearance)
-        val tvSecShort = dialogView.findViewById<TextView>(R.id.tvSectionShortcuts)
-        
-        val themeModeGroup = dialogView.findViewById<RadioGroup>(R.id.themeModeGroup)
-        val rbLight = dialogView.findViewById<RadioButton>(R.id.rbLightMode)
-        val rbDark = dialogView.findViewById<RadioButton>(R.id.rbDarkMode)
-        
-        val shortcutsGroup = dialogView.findViewById<RadioGroup>(R.id.shortcutsGroup)
-        val rbOff = dialogView.findViewById<RadioButton>(R.id.rbShortcutsOff)
-        val rb1Row = dialogView.findViewById<RadioButton>(R.id.rbShortcuts1Row)
-        val rb2Rows = dialogView.findViewById<RadioButton>(R.id.rbShortcuts2Rows)
-        
-        val btnCancel = dialogView.findViewById<Button>(R.id.btnCancelPersonalize)
-        val btnApply = dialogView.findViewById<Button>(R.id.btnApplyPersonalize)
-        
-        val themeBackgroundsLayout = dialogView.findViewById<LinearLayout>(R.id.themeBackgroundsLayout)
-        val themeColorsLayout = dialogView.findViewById<LinearLayout>(R.id.themeColorsLayout)
-        
-        val dialogBgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
-        val titleTextColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
-        
-        val dialogShape = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(16).toFloat()
-            setColor(dialogBgColor)
-            setStroke(dpToPx(1), strokeColor)
+        val dialogView = ScrollView(this).apply {
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
         }
-        scrollView.background = dialogShape
         
-        tvTitle.setTextColor(titleTextColor)
-        tvSecBg.setTextColor(titleTextColor)
-        tvSecCol.setTextColor(titleTextColor)
-        tvSecApp.setTextColor(titleTextColor)
-        tvSecShort.setTextColor(titleTextColor)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(24))
+        }
+        dialogView.addView(content)
         
-        tvSubtitle.setTextColor(subTextColor)
-        tvSecBgSub.setTextColor(subTextColor)
-        tvSecColSub.setTextColor(subTextColor)
+        val titleText = TextView(this).apply {
+            text = "Personalize"
+            textSize = 20f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setPadding(0, 0, 0, dpToPx(20))
+        }
+        content.addView(titleText)
         
-        rbLight.setTextColor(titleTextColor)
-        rbDark.setTextColor(titleTextColor)
-        rbOff.setTextColor(titleTextColor)
-        rb1Row.setTextColor(titleTextColor)
-        rb2Rows.setTextColor(titleTextColor)
+        // Theme Toggle (Light / Dark)
+        val themeLabel = TextView(this).apply {
+            text = "Theme"
+            setTextColor(Color.GRAY)
+            textSize = 13f
+            setPadding(0, 0, 0, dpToPx(8))
+        }
+        content.addView(themeLabel)
         
+        val themeGroup = RadioGroup(this).apply { 
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(0, 0, 0, dpToPx(16)) 
+        }
+        val rbLight = RadioButton(this).apply { text = "Light Mode"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        val rbDark = RadioButton(this).apply { text = "Dark Mode"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        themeGroup.addView(rbLight)
+        themeGroup.addView(rbDark)
         if (isDark) rbDark.isChecked = true else rbLight.isChecked = true
+        content.addView(themeGroup)
+        
+        // Shortcuts Mode Selector
+        val shortcutsLabel = TextView(this).apply {
+            text = "Shortcuts Rows"
+            setTextColor(Color.GRAY)
+            textSize = 13f
+            setPadding(0, 0, 0, dpToPx(8))
+        }
+        content.addView(shortcutsLabel)
+        
+        val shortcutsGroup = RadioGroup(this).apply { 
+            orientation = RadioGroup.HORIZONTAL
+            setPadding(0, 0, 0, dpToPx(20)) 
+        }
+        val rbOff = RadioButton(this).apply { text = "Off"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        val rb1Row = RadioButton(this).apply { text = "1 Row"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        val rb2Row = RadioButton(this).apply { text = "2 Rows"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        shortcutsGroup.addView(rbOff)
+        shortcutsGroup.addView(rb1Row)
+        shortcutsGroup.addView(rb2Row)
         when (shortcutsMode) {
             "off" -> rbOff.isChecked = true
             "1" -> rb1Row.isChecked = true
-            else -> rb2Rows.isChecked = true
+            else -> rb2Row.isChecked = true
         }
-
-        fun updateApplyButton() {
-            val accent = Color.parseColor(selectedColorHex)
-            val btnShape = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(21).toFloat()
-                setColor(accent)
-            }
-            btnApply.background = btnShape
-            btnApply.setTextColor(Color.WHITE)
-        }
-        updateApplyButton()
-
-        val bgRingViews = mutableListOf<FrameLayout>()
-        val bgLabelViews = mutableListOf<TextView>()
+        content.addView(shortcutsGroup)
         
-        fun refreshBgSelection() {
-            val accent = Color.parseColor(selectedColorHex)
-            backgroundThemes.forEachIndexed { index, theme ->
-                val ring = bgRingViews.getOrNull(index) ?: return@forEachIndexed
-                val label = bgLabelViews.getOrNull(index) ?: return@forEachIndexed
-                val isSelected = theme.id == selectedBgId
-                
-                val ringDrawable = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    if (isSelected) {
-                        setStroke(dpToPx(3), accent)
-                        setColor(Color.TRANSPARENT)
-                    } else {
-                        setStroke(dpToPx(1), if (isDark) Color.parseColor("#444444") else Color.parseColor("#E0E0E0"))
-                        setColor(Color.TRANSPARENT)
-                    }
-                }
-                ring.background = ringDrawable
-                if (isSelected) {
-                    label.setTextColor(accent)
-                    label.setTypeface(null, Typeface.BOLD)
-                } else {
-                    label.setTextColor(subTextColor)
-                    label.setTypeface(null, Typeface.NORMAL)
-                }
-            }
+        // Accent Colors (Round circles: Default + 5 solid colors)
+        val accentLabel = TextView(this).apply {
+            text = "Accent Color (Default + 5 Solid Colors)"
+            setTextColor(Color.GRAY)
+            textSize = 13f
+            setPadding(0, 0, 0, dpToPx(10))
         }
-
-        val colorRingViews = mutableListOf<FrameLayout>()
-        val colorLabelViews = mutableListOf<TextView>()
+        content.addView(accentLabel)
         
-        fun refreshColorSelection() {
-            colorThemes.forEachIndexed { index, col ->
-                val ring = colorRingViews.getOrNull(index) ?: return@forEachIndexed
-                val label = colorLabelViews.getOrNull(index) ?: return@forEachIndexed
-                val isSelected = selectedColorHex.equals(col.colorHex, ignoreCase = true)
-                val colorInt = Color.parseColor(col.colorHex)
-                
-                val ringDrawable = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    if (isSelected) {
-                        setStroke(dpToPx(3), colorInt)
-                        setColor(Color.TRANSPARENT)
-                    } else {
-                        setStroke(dpToPx(1), if (isDark) Color.parseColor("#444444") else Color.parseColor("#E0E0E0"))
-                        setColor(Color.TRANSPARENT)
-                    }
-                }
-                ring.background = ringDrawable
-                if (isSelected) {
-                    label.setTextColor(colorInt)
-                    label.setTypeface(null, Typeface.BOLD)
-                } else {
-                    label.setTextColor(subTextColor)
-                    label.setTypeface(null, Typeface.NORMAL)
-                }
-            }
-            updateApplyButton()
-            refreshBgSelection()
+        val colorScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, 0, 0, dpToPx(20))
         }
-
-        // Build Background Themes horizontal round circles
-        themeBackgroundsLayout.removeAllViews()
-        backgroundThemes.forEachIndexed { index, theme ->
-            val itemContainer = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 0, dpToPx(12), 0)
-                }
-            }
-            
-            val ringFrame = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dpToPx(54), dpToPx(54)).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
-            }
-            
-            val innerImageView = ImageView(this).apply {
-                layoutParams = FrameLayout.LayoutParams(dpToPx(44), dpToPx(44)).apply {
-                    gravity = Gravity.CENTER
-                }
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                if (theme.id == "default") {
-                    setImageResource(R.drawable.ic_theme_default)
-                } else {
-                    setImageResource(theme.thumbRes)
-                }
-            }
-            ringFrame.addView(innerImageView)
-            
-            val labelView = TextView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    dpToPx(62),
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = dpToPx(6)
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                text = theme.name
-                textSize = 11f
-                gravity = Gravity.CENTER
-                maxLines = 1
-            }
-            
-            itemContainer.addView(ringFrame)
-            itemContainer.addView(labelView)
-            
-            itemContainer.setOnClickListener {
-                selectedBgId = theme.id
-                refreshBgSelection()
-            }
-            
-            bgRingViews.add(ringFrame)
-            bgLabelViews.add(labelView)
-            themeBackgroundsLayout.addView(itemContainer)
-        }
-        refreshBgSelection()
-
-        // Build Color Themes horizontal round circles
-        themeColorsLayout.removeAllViews()
-        colorThemes.forEachIndexed { index, col ->
-            val itemContainer = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 0, dpToPx(12), 0)
-                }
-            }
-            
-            val ringFrame = FrameLayout(this).apply {
-                layoutParams = LinearLayout.LayoutParams(dpToPx(54), dpToPx(54)).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
-            }
-            
-            if (col.isDefault) {
-                val defaultImageView = ImageView(this).apply {
-                    layoutParams = FrameLayout.LayoutParams(dpToPx(44), dpToPx(44)).apply {
-                        gravity = Gravity.CENTER
-                    }
-                    scaleType = ImageView.ScaleType.FIT_CENTER
-                    setImageResource(R.drawable.ic_color_default)
-                }
-                ringFrame.addView(defaultImageView)
-            } else {
-                val colorCircleView = View(this).apply {
-                    layoutParams = FrameLayout.LayoutParams(dpToPx(44), dpToPx(44)).apply {
-                        gravity = Gravity.CENTER
-                    }
-                    background = GradientDrawable().apply {
+        val colorLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        colorScroll.addView(colorLayout)
+        
+        val colors = listOf(
+            "#0A56D0", // Default
+            "#EA4335", // Red
+            "#34A853", // Green
+            "#9C27B0", // Purple
+            "#FF6D01", // Orange
+            "#00897B"  // Teal
+        )
+        
+        val colorContainers = mutableListOf<FrameLayout>()
+        fun refreshColorBorders() {
+            colorContainers.forEachIndexed { idx, frame ->
+                val c = colors[idx]
+                if (c.equals(selectedColor, ignoreCase = true)) {
+                    val ring = GradientDrawable().apply {
                         shape = GradientDrawable.OVAL
-                        setColor(Color.parseColor(col.colorHex))
+                        setColor(Color.TRANSPARENT)
+                        setStroke(dpToPx(3), if (isDark) Color.WHITE else Color.BLACK)
+                    }
+                    frame.background = ring
+                } else {
+                    frame.background = null
+                }
+            }
+        }
+        
+        for (c in colors) {
+            val frame = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(52)).apply {
+                    marginEnd = dpToPx(12)
+                }
+                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+            }
+            val circleView = View(this).apply {
+                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                val shape = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor(c))
+                }
+                background = shape
+            }
+            frame.addView(circleView)
+            frame.setOnClickListener {
+                triggerStrongHaptic(it)
+                selectedColor = c
+                refreshColorBorders()
+            }
+            colorContainers.add(frame)
+            colorLayout.addView(frame)
+        }
+        refreshColorBorders()
+        content.addView(colorScroll)
+        
+        // Background Themes (Round circles: Default + 5 Photo Themes)
+        val bgLabel = TextView(this).apply {
+            text = "Background Theme (Default + 5 Photos)"
+            setTextColor(Color.GRAY)
+            textSize = 13f
+            setPadding(0, 0, 0, dpToPx(10))
+        }
+        content.addView(bgLabel)
+        
+        val bgScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        val bgLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        bgScroll.addView(bgLayout)
+        
+        val themes = listOf(
+            Pair("default", R.drawable.ic_theme_default),
+            Pair("canyon", R.drawable.thumb_theme_canyon),
+            Pair("forest", R.drawable.thumb_theme_forest),
+            Pair("ocean", R.drawable.thumb_theme_ocean),
+            Pair("space", R.drawable.thumb_theme_space),
+            Pair("sunset", R.drawable.thumb_theme_sunset)
+        )
+        
+        val bgContainers = mutableListOf<FrameLayout>()
+        fun refreshBgBorders() {
+            bgContainers.forEachIndexed { idx, frame ->
+                val themeId = themes[idx].first
+                if (themeId.equals(selectedBg, ignoreCase = true)) {
+                    val ring = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(Color.TRANSPARENT)
+                        setStroke(dpToPx(3), Color.parseColor(selectedColor))
+                    }
+                    frame.background = ring
+                } else {
+                    frame.background = null
+                }
+            }
+        }
+        
+        for (theme in themes) {
+            val frame = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(56), dpToPx(56)).apply {
+                    marginEnd = dpToPx(12)
+                }
+                setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+            }
+            val imgView = ImageView(this).apply {
+                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                clipToOutline = true
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: android.graphics.Outline) {
+                        outline.setOval(0, 0, view.width, view.height)
                     }
                 }
-                ringFrame.addView(colorCircleView)
+                setImageResource(theme.second)
             }
-            
-            val labelView = TextView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    dpToPx(58),
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = dpToPx(6)
-                    gravity = Gravity.CENTER_HORIZONTAL
-                }
-                text = col.name
-                textSize = 11f
-                gravity = Gravity.CENTER
-                maxLines = 1
+            frame.addView(imgView)
+            frame.setOnClickListener {
+                triggerStrongHaptic(it)
+                selectedBg = theme.first
+                refreshBgBorders()
             }
-            
-            itemContainer.addView(ringFrame)
-            itemContainer.addView(labelView)
-            
-            itemContainer.setOnClickListener {
-                selectedColorHex = col.colorHex
-                refreshColorSelection()
-            }
-            
-            colorRingViews.add(ringFrame)
-            colorLabelViews.add(labelView)
-            themeColorsLayout.addView(itemContainer)
+            bgContainers.add(frame)
+            bgLayout.addView(frame)
         }
-        refreshColorSelection()
-
-        btnCancel.setOnClickListener {
-            dialog.dismiss()
-        }
+        refreshBgBorders()
+        content.addView(bgScroll)
         
-        btnApply.setOnClickListener {
-            val newShortcutsMode = when {
-                rbOff.isChecked -> "off"
-                rb1Row.isChecked -> "1"
-                else -> "2"
-            }
-            val newIsDark = rbDark.isChecked
-            
-            prefs.edit()
-                .putString("bg_theme", selectedBgId)
-                .putString("accent_color", selectedColorHex)
-                .putBoolean("is_dark", newIsDark)
-                .putString("shortcuts_mode", newShortcutsMode)
-                .apply()
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setPositiveButton("Apply") { _, _ ->
+                val mode = when {
+                    rbOff.isChecked -> "off"
+                    rb1Row.isChecked -> "1"
+                    else -> "2"
+                }
+                prefs.edit()
+                    .putBoolean("is_dark", rbDark.isChecked)
+                    .putString("shortcuts_mode", mode)
+                    .putString("accent_color", selectedColor)
+                    .putString("bg_theme", selectedBg)
+                    .apply()
                 
-            dialog.dismiss()
-            applyTheme()
+                applyTheme()
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
             
-            val selBg = backgroundThemes.find { it.id == selectedBgId }
-            val hasWp = selBg != null && selBg.bgRes != 0
-            val homeBgColor = if (hasWp) Color.TRANSPARENT else (if (newIsDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-
-            for (tab in normalTabs) {
-                if (isHomeTab(tab)) {
-                    tab.url = HAZE_HOME_URL
-                    tab.webView.setBackgroundColor(homeBgColor)
-                    tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
-                }
-            }
-            for (tab in privateTabs) {
-                if (isHomeTab(tab)) {
-                    tab.url = HAZE_HOME_URL
-                    tab.webView.setBackgroundColor(homeBgColor)
-                    tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
-                }
-            }
-        }
-        
         dialog.show()
     }
 
@@ -1755,398 +1660,450 @@ class MainActivity : AppCompatActivity() {
             true
         )
         popupWindow.elevation = 24f
-
+        
         val isDark = prefs.getBoolean("is_dark", false)
-        val popupBg = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
-        val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val iconColor = if (isDark) Color.parseColor("#E0E0E0") else Color.parseColor("#5F6368")
-
-        val root = popupView.findViewById<LinearLayout>(R.id.menuRoot)
-        root?.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(16).toFloat()
-            setColor(popupBg)
-            setStroke(dpToPx(1), strokeColor)
+        val menuRoot = popupView.findViewById<LinearLayout>(R.id.menuRoot)
+        val menuLogo = popupView.findViewById<ImageView>(R.id.menuLogo)
+        val menuDivider = popupView.findViewById<View>(R.id.menuDivider)
+        
+        if (isDark) {
+            menuLogo.setImageResource(R.drawable.haze_logo_dark)
+            menuDivider.setBackgroundColor(Color.parseColor("#333333"))
+            menuRoot.setBackgroundColor(Color.parseColor("#1E1E1E"))
         }
-        val divider = popupView.findViewById<View>(R.id.menuDivider)
-        divider?.setBackgroundColor(strokeColor)
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)
-
+        
         val menuItems = listOf(
-            Pair("New tab", R.drawable.ic_add),
+            Pair("New Tab", R.drawable.ic_add),
             Pair("New InPrivate", R.drawable.ic_private),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
             Pair("History", R.drawable.ic_history),
             Pair("Downloads", R.drawable.ic_download),
-            Pair("Full screen", R.drawable.ic_fullscreen),
-            Pair("Reading mode", R.drawable.ic_reading_mode),
+            Pair("Full Screen", R.drawable.ic_fullscreen),
+            Pair("Reading Mode", R.drawable.ic_reading_mode),
             Pair("Extra", R.drawable.ic_extra),
-            Pair("Find on page", R.drawable.ic_search),
+            Pair("Find on Page", R.drawable.ic_search),
             Pair("Settings", R.drawable.ic_settings),
             Pair("Close Haze", R.drawable.ic_close)
         )
-
+        
         for (item in menuItems) {
             val itemView = layoutInflater.inflate(R.layout.item_menu_box, grid, false)
             val iconView = itemView.findViewById<ImageView>(R.id.menuIcon)
             val textView = itemView.findViewById<TextView>(R.id.menuText)
-
             iconView.setImageResource(item.second)
-            iconView.setColorFilter(iconColor)
             textView.text = item.first
-            textView.setTextColor(textColor)
-
+            if (isDark) {
+                iconView.setColorFilter(Color.parseColor("#E0E0E0"))
+                textView.setTextColor(Color.parseColor("#E0E0E0"))
+            }
+            
             val params = GridLayout.LayoutParams()
-            params.width = dpToPx(92)
+            params.width = (88 * resources.displayMetrics.density).toInt()
             params.height = GridLayout.LayoutParams.WRAP_CONTENT
             params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
             itemView.layoutParams = params
-
+            
             itemView.setOnClickListener {
                 triggerStrongHaptic(it)
                 popupWindow.dismiss()
                 when (item.first) {
-                    "New tab" -> addNewTab(HAZE_HOME_URL)
+                    "New Tab" -> addNewTab(HAZE_HOME_URL)
                     "New InPrivate" -> {
                         isPrivateMode = true
                         addNewTab(HAZE_HOME_URL)
                         Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
                     }
                     "Personalize" -> showPersonalizeDialog()
-                    "Favorites" -> addNewTab("haze://favorites")
-                    "History" -> addNewTab("haze://history")
-                    "Downloads" -> addNewTab("haze://downloads")
-                    "Full screen" -> toggleFullScreenMode()
-                    "Reading mode" -> toggleReadingMode()
+                    "Favorites" -> HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) }
+                    "History" -> HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) }
+                    "Downloads" -> HazeDownloadsManager.showDownloadsDialog(this)
+                    "Full Screen" -> toggleFullScreenMode()
+                    "Reading Mode" -> toggleReadingMode()
                     "Extra" -> showExtraToolsDialog()
-                    "Find on page" -> {
+                    "Find on Page" -> {
                         findBarContainer.visibility = View.VISIBLE
                         findInput.requestFocus()
                         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                         imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT)
                     }
-                    "Settings" -> addNewTab("haze://settings")
-                    "Close Haze" -> finish()
+                    "Settings" -> HazeSettingsManager.showSettingsDialog(this)
+                    "Close Haze" -> popupWindow.dismiss()
                 }
             }
             grid.addView(itemView)
         }
-
+        
         popupView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
         val popupHeight = popupView.measuredHeight
         val menuBtn = findViewById<ImageButton>(R.id.menuBtn)
-
-        popupWindow.showAsDropDown(menuBtn, 0, -(popupHeight + menuBtn.height + 24))
+        
+        if (menuBtn.isShown) {
+            popupWindow.showAsDropDown(menuBtn, 0, -(popupHeight + menuBtn.height + 24))
+        } else {
+            popupWindow.showAtLocation(webContainer, Gravity.TOP or Gravity.END, 32, 140)
+        }
     }
 
     private fun toggleFullScreenMode() {
         isFullScreenMode = !isFullScreenMode
-        triggerStrongHaptic(isHeavy = true)
-        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
         if (isFullScreenMode) {
-            windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
             addressBarContainer.visibility = View.GONE
-            Toast.makeText(this, "Full screen enabled. Swipe edges or tap Back to exit.", Toast.LENGTH_SHORT).show()
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+            Toast.makeText(this, "Full screen active. Press Back to exit.", Toast.LENGTH_SHORT).show()
         } else {
-            windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            updateChromeVisibility(currentTab?.url)
-            Toast.makeText(this, "Exited full screen", Toast.LENGTH_SHORT).show()
+            addressBarContainer.visibility = View.VISIBLE
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+                v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+                insets
+            }
         }
     }
 
     private fun toggleReadingMode() {
-        triggerStrongHaptic()
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
         if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
-            Toast.makeText(this, "Reading mode is available on web articles", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Reading mode is only available on web pages", Toast.LENGTH_SHORT).show()
             return
         }
-        val isDark = prefs.getBoolean("is_dark", false)
-        val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
-        val js = """
+        
+        val readerScript = """
             (function() {
-                var existing = document.getElementById('haze-reader-style');
-                if (existing) {
-                    existing.remove();
-                    var exitBtn = document.getElementById('haze-reader-exit-btn');
-                    if (exitBtn) exitBtn.remove();
-                    return 'disabled';
-                }
-                var style = document.createElement('style');
-                style.id = 'haze-reader-style';
-                style.innerHTML = `
-                    body {
-                        max-width: 740px !important;
-                        margin: 0 auto !important;
-                        padding: 24px 20px 84px 20px !important;
-                        font-family: Georgia, 'Times New Roman', serif !important;
-                        font-size: 19px !important;
-                        line-height: 1.8 !important;
-                        background-color: ${if (isDark) "#181818" else "#FBF7ED"} !important;
-                        color: ${if (isDark) "#E6E6E6" else "#2C2523"} !important;
-                        letter-spacing: 0.2px !important;
-                    }
-                    header, nav, footer, aside, .sidebar, .advertisement, .ad, .ads, [class*="banner"], [id*="banner"], iframe {
-                        display: none !important;
-                    }
-                    img {
-                        max-width: 100% !important;
-                        height: auto !important;
-                        border-radius: 8px !important;
-                        margin: 16px auto !important;
-                        display: block !important;
-                    }
-                    h1, h2, h3 {
-                        color: ${if (isDark) "#FFFFFF" else "#1A1A1A"} !important;
-                        line-height: 1.3 !important;
-                        margin-top: 1.2em !important;
-                    }
-                    a {
-                        color: $accentColor !important;
-                        text-decoration: underline !important;
-                    }
-                `;
-                document.head.appendChild(style);
-                
-                var exitBtn = document.createElement('div');
-                exitBtn.id = 'haze-reader-exit-btn';
-                exitBtn.innerHTML = '✕ Exit Reading Mode';
-                exitBtn.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:$accentColor;color:#FFF;padding:12px 24px;border-radius:24px;font-family:sans-serif;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,0.35);z-index:9999999;cursor:pointer;-webkit-tap-highlight-color:transparent;';
-                exitBtn.onclick = function() {
-                    var s = document.getElementById('haze-reader-style');
-                    if (s) s.remove();
-                    exitBtn.remove();
-                    if (window.Android && window.Android.triggerHaptic) window.Android.triggerHaptic(false);
-                };
-                document.body.appendChild(exitBtn);
-                return 'enabled';
+                var article = document.querySelector('article') || document.querySelector('main') || document.querySelector('.post-content') || document.querySelector('.article-content') || document.querySelector('#content');
+                var text = article ? article.innerHTML : document.body.innerHTML;
+                var title = document.title;
+                return JSON.stringify({ title: title, html: text });
             })();
         """.trimIndent()
-
-        tab.webView.evaluateJavascript(js) { result ->
-            if (result?.contains("enabled") == true) {
-                Toast.makeText(this, "Reading mode enabled", Toast.LENGTH_SHORT).show()
-            } else if (result?.contains("disabled") == true) {
-                Toast.makeText(this, "Reading mode disabled", Toast.LENGTH_SHORT).show()
+        
+        tab.webView.evaluateJavascript(readerScript) { result ->
+            try {
+                val cleanResult = if (result.startsWith("\"") && result.endsWith("\"")) {
+                    org.json.JSONTokener(result).nextValue().toString()
+                } else result
+                val json = JSONObject(cleanResult)
+                val title = json.optString("title", "Reader Mode")
+                val contentHtml = json.optString("html", "")
+                
+                showReaderModeDialog(title, contentHtml)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not format page for reading", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun showExtraToolsDialog() {
-        triggerStrongHaptic()
-        val tab = currentTabsList.getOrNull(activeTabIndex)
+    private fun showReaderModeDialog(title: String, contentHtml: String) {
+        val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
         val isDark = prefs.getBoolean("is_dark", false)
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
-        val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
-
-        val dialogView = LinearLayout(this).apply {
+        
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dpToPx(16).toFloat()
-                setColor(bgColor)
-                setStroke(dpToPx(1), strokeColor)
-            }
+            setBackgroundColor(if (isDark) Color.parseColor("#181818") else Color.parseColor("#FAFAFA"))
         }
-
-        val titleView = TextView(this).apply {
-            text = "Extra Tools"
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(textColor)
-            setPadding(0, 0, 0, dpToPx(14))
+        
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(12))
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            elevation = 8f
         }
-        dialogView.addView(titleView)
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .create()
-        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-
-        fun createToolItem(title: String, subtitle: String, iconRes: Int, checked: Boolean? = null, onClick: () -> Unit) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dpToPx(8), dpToPx(12), dpToPx(8), dpToPx(12))
-                val outValue = TypedValue()
-                theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
-                setBackgroundResource(outValue.resourceId)
-            }
-
-            val icon = ImageView(this).apply {
-                setImageResource(iconRes)
-                setColorFilter(accentColor)
-                layoutParams = LinearLayout.LayoutParams(dpToPx(24), dpToPx(24)).apply {
-                    marginEnd = dpToPx(16)
-                }
-            }
-            row.addView(icon)
-
-            val textLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val tView = TextView(this).apply {
-                text = title
-                textSize = 15f
-                setTextColor(textColor)
-                setTypeface(null, Typeface.NORMAL)
-            }
-            val sView = TextView(this).apply {
-                text = subtitle
-                textSize = 12f
-                setTextColor(subTextColor)
-            }
-            textLayout.addView(tView)
-            textLayout.addView(sView)
-            row.addView(textLayout)
-
-            if (checked != null) {
-                val cb = CheckBox(this).apply {
-                    isChecked = checked
-                    isClickable = false
-                    buttonTintList = android.content.res.ColorStateList.valueOf(accentColor)
-                }
-                row.addView(cb)
-            }
-
-            row.setOnClickListener {
+        
+        val btnClose = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setBackgroundResource(getSelectableRes())
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+            setOnClickListener {
                 triggerStrongHaptic(it)
                 dialog.dismiss()
-                onClick()
             }
-            dialogView.addView(row)
         }
-
-        val isDesktop = tab?.isDesktop ?: false
-        createToolItem(
-            title = "Desktop site",
-            subtitle = if (isDesktop) "Desktop layout active" else "Request desktop version",
-            iconRes = R.drawable.ic_desktop,
-            checked = isDesktop
-        ) {
-            tab?.let { toggleDesktopSite(it) }
+        val headerTitle = TextView(this).apply {
+            text = "Reading Mode"
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dpToPx(12)
+            }
         }
-
-        createToolItem(
-            title = "Share page",
-            subtitle = "Send link via apps or messaging",
-            iconRes = R.drawable.ic_share
-        ) {
-            shareCurrentPage()
+        header.addView(btnClose)
+        header.addView(headerTitle)
+        root.addView(header)
+        
+        val webView = WebView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+            settings.javaScriptEnabled = false
+            setBackgroundColor(Color.TRANSPARENT)
         }
-
-        createToolItem(
-            title = "Print / Save PDF",
-            subtitle = "Print page or export as PDF",
-            iconRes = R.drawable.ic_download
-        ) {
-            printCurrentPage()
-        }
-
-        createToolItem(
-            title = "Clear browsing data",
-            subtitle = "Clear cache, cookies, and history",
-            iconRes = R.drawable.ic_close
-        ) {
-            clearBrowsingData()
-        }
-
-        createToolItem(
-            title = "Page details",
-            subtitle = "Security and connection info",
-            iconRes = R.drawable.ic_settings
-        ) {
-            showPageDetails()
-        }
-
+        
+        val readerHtml = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+                    body {
+                        font-family: 'Outfit', sans-serif;
+                        line-height: 1.8;
+                        font-size: 18px;
+                        padding: 24px 20px 60px 20px;
+                        margin: 0 auto;
+                        max-width: 680px;
+                        color: ${if (isDark) "#E0E0E0" else "#202124"};
+                        background: ${if (isDark) "#181818" else "#FAFAFA"};
+                    }
+                    h1 { font-size: 26px; line-height: 1.35; margin-bottom: 24px; font-weight: 600; color: ${if (isDark) "#FFFFFF" else "#111111"}; }
+                    h2, h3 { color: ${if (isDark) "#FFFFFF" else "#222222"}; margin-top: 28px; }
+                    img { max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; }
+                    p { margin-bottom: 20px; }
+                    a { color: ${prefs.getString("accent_color", "#0A56D0")}; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <h1>$title</h1>
+                $contentHtml
+            </body>
+            </html>
+        """.trimIndent()
+        
+        webView.loadDataWithBaseURL(null, readerHtml, "text/html", "UTF-8", null)
+        root.addView(webView)
+        
+        dialog.setContentView(root)
         dialog.show()
     }
 
-    private fun toggleDesktopSite(tab: Tab) {
+    fun showExtraToolsDialog() {
+        val tab = currentTabsList.getOrNull(activeTabIndex)
+        val isDark = prefs.getBoolean("is_dark", false)
+        
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(24))
+        }
+        
+        val titleTv = TextView(this).apply {
+            text = "Extra Tools"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setPadding(dpToPx(8), 0, dpToPx(8), dpToPx(16))
+        }
+        root.addView(titleTv)
+        
+        fun addTool(label: String, iconRes: Int, onClick: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(48))
+                setPadding(dpToPx(12), 0, dpToPx(12), 0)
+                setBackgroundResource(getSelectableRes())
+                setOnClickListener {
+                    triggerStrongHaptic(it)
+                    dialog.dismiss()
+                    onClick()
+                }
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(22), dpToPx(22)).apply {
+                    marginEnd = dpToPx(16)
+                }
+            }
+            val text = TextView(this).apply {
+                this.text = label
+                textSize = 15f
+                setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            }
+            row.addView(icon)
+            row.addView(text)
+            root.addView(row)
+        }
+        
+        val isDesktop = tab?.isDesktop == true
+        addTool(if (isDesktop) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop) {
+            tab?.let { toggleDesktopSite(it) }
+        }
+        addTool("Bookmark this page", R.drawable.ic_star) {
+            if (tab != null && !isHomeTab(tab)) {
+                HazeBookmarksManager.showBookmarkThisPageDialog(this, tab.title, tab.url)
+            } else {
+                Toast.makeText(this, "Cannot bookmark this page", Toast.LENGTH_SHORT).show()
+            }
+        }
+        addTool("Share page", R.drawable.ic_share) {
+            shareCurrentPage()
+        }
+        addTool("Print / Save as PDF", R.drawable.ic_download) {
+            printCurrentPage()
+        }
+        addTool("Capture Screenshot", R.drawable.ic_image) {
+            captureCurrentTabScreenshot()
+        }
+        addTool("Page Details", R.drawable.ic_globe) {
+            showPageDetails()
+        }
+        addTool("Clear Browsing Data", R.drawable.ic_close) {
+            clearBrowsingData()
+        }
+        
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    fun toggleDesktopSite(tab: Tab) {
         tab.isDesktop = !tab.isDesktop
         val settings = tab.webView.settings
         if (tab.isDesktop) {
             settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             settings.useWideViewPort = true
             settings.loadWithOverviewMode = true
-            Toast.makeText(this, "Desktop site requested", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Desktop site enabled", Toast.LENGTH_SHORT).show()
         } else {
             settings.userAgentString = null
-            Toast.makeText(this, "Mobile site restored", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Mobile site enabled", Toast.LENGTH_SHORT).show()
         }
         tab.webView.reload()
     }
 
-    private fun shareCurrentPage() {
+    fun shareCurrentPage() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val url = tab.url
-        if (isHomeTab(tab) || url.startsWith("haze://")) {
-            Toast.makeText(this, "Cannot share home screen", Toast.LENGTH_SHORT).show()
+        if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
+            Toast.makeText(this, "Cannot share this page", Toast.LENGTH_SHORT).show()
             return
         }
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, tab.title)
-            putExtra(Intent.EXTRA_TEXT, url)
+            putExtra(Intent.EXTRA_TEXT, tab.url)
         }
-        startActivity(Intent.createChooser(intent, "Share via"))
+        startActivity(Intent.createChooser(intent, "Share page"))
     }
 
-    private fun printCurrentPage() {
+    fun printCurrentPage() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val printManager = getSystemService(PRINT_SERVICE) as? PrintManager
-        if (printManager == null) {
-            Toast.makeText(this, "Printing service unavailable", Toast.LENGTH_SHORT).show()
+        if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
+            Toast.makeText(this, "Cannot print this page", Toast.LENGTH_SHORT).show()
             return
         }
-        val printAdapter = tab.webView.createPrintDocumentAdapter(tab.title.ifEmpty { "Haze_Webpage" })
-        printManager.print("Haze Document", printAdapter, PrintAttributes.Builder().build())
+        val printManager = getSystemService(PRINT_SERVICE) as? android.print.PrintManager
+        val printAdapter = tab.webView.createPrintDocumentAdapter("Haze - " + tab.title)
+        printManager?.print("Haze - " + tab.title, printAdapter, android.print.PrintAttributes.Builder().build())
     }
 
-    private fun clearBrowsingData() {
+    fun captureCurrentTabScreenshot() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        try {
+            val bitmap = Bitmap.createBitmap(tab.webView.width, tab.webView.height, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            tab.webView.draw(canvas)
+            
+            val file = File(cacheDir, "screenshot_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+            }
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "Share Screenshot"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to capture screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun clearBrowsingData() {
         AlertDialog.Builder(this)
             .setTitle("Clear Browsing Data")
-            .setMessage("Do you want to clear cached web pages, site cookies, and storage?")
-            .setPositiveButton("Clear") { _, _ ->
+            .setMessage("This will clear all browsing history, cache, cookies, and local database records.")
+            .setPositiveButton("Clear All") { _, _ ->
                 triggerStrongHaptic(isHeavy = true)
-                for (tab in normalTabs) {
-                    tab.webView.clearCache(true)
-                    tab.webView.clearHistory()
-                }
-                for (tab in privateTabs) {
-                    tab.webView.clearCache(true)
-                    tab.webView.clearHistory()
-                }
+                HazeDatabase.getInstance(this).clearAllHistory()
+                HazeDatabase.getInstance(this).clearRecentSearches()
                 CookieManager.getInstance().removeAllCookies(null)
                 WebStorage.getInstance().deleteAllData()
+                for (tab in normalTabs) tab.webView.clearCache(true)
+                for (tab in privateTabs) tab.webView.clearCache(true)
                 Toast.makeText(this, "Browsing data cleared", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun showPageDetails() {
+    fun showPageDetails() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val url = tab.url
-        val isSecure = url.startsWith("https://")
-        val securityStatus = if (isSecure) "🔒 Secure connection (HTTPS)" else "⚠️ Connection not secure"
-        val domain = try { Uri.parse(url).host ?: url } catch (e: Exception) { url }
-
+        val cert = tab.webView.certificate
+        val isSecure = tab.url.startsWith("https://")
+        val message = StringBuilder().apply {
+            append("URL: ${tab.url}\n\n")
+            append("Security: ${if (isSecure) "Secure (HTTPS)" else "Not Secure (HTTP)"}\n\n")
+            if (cert != null) {
+                append("Issued to: ${cert.issuedTo.cName}\n")
+                append("Issued by: ${cert.issuedBy.cName}\n")
+                append("Valid until: ${cert.validNotAfterDate}\n")
+            }
+        }.toString()
+        
         AlertDialog.Builder(this)
             .setTitle(tab.title)
-            .setMessage("Domain: $domain\nURL: $url\n\nSecurity:\n$securityStatus")
+            .setMessage(message)
             .setPositiveButton("OK", null)
             .show()
+    }
+
+    fun openPrivateTab(url: String) {
+        isPrivateMode = true
+        addNewTab(url)
+    }
+
+    fun addNewBackgroundTab(url: String) {
+        val webView = WebView(this)
+        webView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        val tab = Tab(webView = webView, isPrivate = isPrivateMode, url = url, title = "New Tab")
+        currentTabsList.add(tab)
+        webContainer.addView(webView)
+        setupWebView(webView)
+        webView.visibility = View.GONE
+        webView.loadUrl(url)
+        tabCountBtn.text = currentTabsList.size.toString()
+        Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
+    }
+
+    fun updateWebSettings() {
+        val jsEnabled = prefs.getBoolean("javascript_enabled", true)
+        for (tab in normalTabs) {
+            tab.webView.settings.javaScriptEnabled = jsEnabled
+        }
+        for (tab in privateTabs) {
+            tab.webView.settings.javaScriptEnabled = jsEnabled
+        }
+    }
+
+    private fun getSelectableRes(): Int {
+        val outValue = TypedValue()
+        theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+        return outValue.resourceId
     }
 
     private fun startVoiceSearch() {
@@ -2165,6 +2122,7 @@ class MainActivity : AppCompatActivity() {
             if (actionId == EditorInfo.IME_ACTION_GO ||
                 (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
             ) {
+                triggerStrongHaptic(addressBar)
                 loadUrlFromInput(addressBar.text.toString())
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.hideSoftInputFromWindow(addressBar.windowToken, 0)
@@ -2174,35 +2132,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadUrlFromInput(input: String) {
+    fun loadUrlFromInput(input: String) {
         if (activeTabIndex == -1) return
         val query = input.trim()
         if (query.isEmpty()) return
 
+        if (query == "haze://favorites" || query == "haze://bookmarks") {
+            HazeBookmarksManager.showBookmarksDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
+            deactivateSearchMode()
+            return
+        }
+        if (query == "haze://history") {
+            HazeHistoryManager.showHistoryDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
+            deactivateSearchMode()
+            return
+        }
+        if (query == "haze://downloads") {
+            HazeDownloadsManager.showDownloadsDialog(this)
+            deactivateSearchMode()
+            return
+        }
+        if (query == "haze://settings") {
+            HazeSettingsManager.showSettingsDialog(this)
+            deactivateSearchMode()
+            return
+        }
+
+        val searchEngine = prefs.getString("search_engine", "Google") ?: "Google"
+        val searchEngineUrl = when (searchEngine) {
+            "Bing" -> "https://www.bing.com/search?q="
+            "DuckDuckGo" -> "https://duckduckgo.com/?q="
+            "Yahoo" -> "https://search.yahoo.com/search?p="
+            "Ecosia" -> "https://www.ecosia.org/search?q="
+            else -> "https://www.google.com/search?q="
+        }
+
         val url = if (URLUtil.isValidUrl(query)) query
         else if (query.contains(".") && !query.contains(" ")) "https://$query"
-        else "https://www.google.com/search?q=${Uri.encode(query)}"
+        else "$searchEngineUrl${Uri.encode(query)}"
 
         val tab = currentTabsList[activeTabIndex]
         if (tab.url == HAZE_HOME_URL) tab.title = "Loading..."
         tab.url = url
-        updateChromeVisibility(url)
+        
+        saveRecentSearch(query)
+        deactivateSearchMode()
+        
         tab.webView.loadUrl(url)
     }
 
     private fun handleBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (isFullScreenMode) {
+                if (isSearchActive) {
+                    deactivateSearchMode()
+                } else if (isFullScreenMode) {
                     toggleFullScreenMode()
-                    return
-                }
-                if (findBarContainer.visibility == View.VISIBLE) {
+                } else if (findBarContainer.visibility == View.VISIBLE) {
                     findBarContainer.visibility = View.GONE
                     currentTabsList.getOrNull(activeTabIndex)?.webView?.clearMatches()
-                    return
-                }
-                if (activeTabIndex != -1 && currentTabsList[activeTabIndex].webView.canGoBack()) {
+                    val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                    imm.hideSoftInputFromWindow(findInput.windowToken, 0)
+                } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].webView.canGoBack()) {
                     val tab = currentTabsList[activeTabIndex]
                     if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.webView.goBack() 
                     else {

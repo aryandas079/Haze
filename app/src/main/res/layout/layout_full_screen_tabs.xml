@@ -3,23 +3,24 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F8F9FA">
+    android:background="#FAFAFA">
 
     <!-- Header -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="16dp"
-        android:background="#FFFFFF"
-        android:elevation="4dp">
+        android:background="#FFFFFF">
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/app_name"
+            android:text="Tabs Manager"
             android:textSize="20sp"
             android:textStyle="bold"
             android:textColor="#202124"
             android:layout_centerInParent="true"/>
+
         <ImageButton
             android:id="@+id/btnCloseTabs"
             android:layout_width="32dp"
@@ -30,58 +31,70 @@
             android:contentDescription="Close" />
     </RelativeLayout>
 
-    <!-- Mode Toggle (Personal / Private) -->
+    <!-- Clean, Borderless & Trackless Tab Selector -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:background="#FFFFFF"
-        android:elevation="2dp">
+        android:gravity="center"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:background="#FFFFFF">
 
-        <TextView
-            android:id="@+id/btnTogglePersonal"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:padding="16dp"
-            android:text="Personal"
-            android:textColor="#0A56D0"
-            android:textStyle="bold"
-            android:background="?attr/selectableItemBackground" />
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:orientation="horizontal"
+            android:gravity="center">
 
-        <View android:layout_width="1dp" android:layout_height="match_parent" android:layout_marginTop="8dp" android:layout_marginBottom="8dp" android:background="#E0E0E0" />
+            <TextView
+                android:id="@+id/btnTogglePersonal"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="Personal"
+                android:textColor="#0A56D0"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:clickable="true"
+                android:focusable="true"/>
 
-        <TextView
-            android:id="@+id/btnTogglePrivate"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:padding="16dp"
-            android:text="Private"
-            android:textColor="#5F6368"
-            android:textStyle="bold"
-            android:background="?attr/selectableItemBackground" />
+            <TextView
+                android:id="@+id/btnTogglePrivate"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:text="Private"
+                android:textColor="#5F6368"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:clickable="true"
+                android:focusable="true"/>
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Dynamic Action Bar (+ New Tab) -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
         android:paddingTop="12dp"
-        android:paddingBottom="4dp">
+        android:paddingBottom="8dp">
+
         <TextView
             android:id="@+id/tvCurrentModeLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Personal Tabs"
-            android:textSize="18sp"
+            android:textSize="16sp"
             android:textStyle="bold"
             android:textColor="#202124"
             android:layout_centerVertical="true"/>
+
         <TextView
             android:id="@+id/btnNewTabAction"
             android:layout_width="wrap_content"
@@ -90,17 +103,18 @@
             android:layout_centerVertical="true"
             android:text="+ New Tab"
             android:textColor="#0A56D0"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="bold"
-            android:padding="4dp"
+            android:padding="6dp"
             android:background="?attr/selectableItemBackground"/>
     </RelativeLayout>
 
-    <!-- Single RecyclerView for whatever mode is active -->
+    <!-- RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvActiveTabs"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
         android:clipToPadding="false"/>
 </LinearLayout>
