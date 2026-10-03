@@ -6,10 +6,12 @@ import android.app.Dialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -44,11 +46,25 @@ import androidx.transition.AutoTransition
 import androidx.transition.TransitionManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Collections
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import androidx.core.content.FileProvider
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.drawable.Icon
+import android.media.AudioManager
+import android.util.Rational
+import androidx.core.content.ContextCompat
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
 
 class MainActivity : AppCompatActivity() {
 
@@ -66,7 +82,177 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnClearQuery: ImageButton
     private var isSearchActive = false
 
+    private lateinit var floatingNavContainer: LinearLayout
+    private lateinit var btnFloatingBack: FrameLayout
+    private lateinit var ivFloatingBackIcon: ImageView
+    private lateinit var btnFloatingForward: FrameLayout
+    private lateinit var ivFloatingForwardIcon: ImageView
+    private lateinit var floatingNavDivider: View
+
+    private lateinit var topRightActions: LinearLayout
+    lateinit var btnProfile: FrameLayout
+    private lateinit var ivProfileAvatar: ImageView
+
+    // Picture-in-Picture / Miniplayer & Media State
+    var isMediaPlaying = false
+    private var lastVideoWidth = 16
+    private var lastVideoHeight = 9
+    private var customVideoView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private lateinit var fullscreenVideoContainer: FrameLayout
+    private val ACTION_PIP_PLAY_PAUSE = "com.example.haze.ACTION_PIP_PLAY_PAUSE"
+
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_PIP_PLAY_PAUSE) {
+                toggleMediaPlayback()
+            }
+        }
+    }
+
+    private var onGoogleSignInSuccess: ((HazeAccountManager.HazeUser) -> Unit)? = null
+    private var onGoogleSignInError: ((String) -> Unit)? = null
+
+    val googleSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        HazeAccountManager.handleSignInIntentResult(
+            this,
+            result.data,
+            onSuccess = { user ->
+                updateProfileButton()
+                onGoogleSignInSuccess?.invoke(user)
+            },
+            onError = { err ->
+                onGoogleSignInError?.invoke(err)
+            }
+        )
+    }
+
+    fun launchGoogleSignIn(
+        onSuccess: (HazeAccountManager.HazeUser) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        this.onGoogleSignInSuccess = onSuccess
+        this.onGoogleSignInError = onError
+        try {
+            val client = HazeAccountManager.getGoogleSignInClient(this)
+            googleSignInLauncher.launch(client.getSignInIntent())
+        } catch (e: Exception) {
+            launchDeviceAccountPicker()
+        }
+    }
+
+    val deviceAccountPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            HazeAccountManager.handleDeviceAccountPickerResult(
+                this,
+                result.data,
+                onSuccess = { user ->
+                    updateProfileButton()
+                    onGoogleSignInSuccess?.invoke(user)
+                },
+                onError = { err ->
+                    onGoogleSignInError?.invoke(err)
+                }
+            )
+        } else {
+            onGoogleSignInError?.invoke("Account selection was cancelled.")
+        }
+    }
+
+    fun launchDeviceAccountPicker() {
+        try {
+            val intent = HazeAccountManager.getDeviceAccountPickerIntent()
+            deviceAccountPickerLauncher.launch(intent)
+        } catch (e: Exception) {
+            onGoogleSignInError?.invoke("Could not open account picker: ${e.message}")
+        }
+    }
+
+    fun updateProfileButton() {
+        runOnUiThread {
+            if (!::btnProfile.isInitialized || !::ivProfileAvatar.isInitialized) return@runOnUiThread
+            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val user = HazeAccountManager.getUser(this)
+
+            if (user != null && !isPrivateMode) {
+                ivProfileAvatar.clearColorFilter()
+                ivProfileAvatar.scaleType = ImageView.ScaleType.CENTER_CROP
+                ivProfileAvatar.setPadding(0, 0, 0, 0)
+                HazeProfileImageHelper.loadAvatar(
+                    this,
+                    user.photoUrl,
+                    user.givenName,
+                    ivProfileAvatar,
+                    dpToPx(38)
+                )
+            } else {
+                ivProfileAvatar.clearColorFilter()
+                ivProfileAvatar.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                val p = dpToPx(5)
+                ivProfileAvatar.setPadding(p, p, p, p)
+                ivProfileAvatar.setImageResource(R.drawable.ic_person)
+                ivProfileAvatar.setColorFilter(if (isDark) Color.parseColor("#CCCCCC") else Color.parseColor("#5F6368"))
+            }
+        }
+    }
+
+    fun getActiveTab(): Tab? = currentTabsList.getOrNull(activeTabIndex)
+
+    private lateinit var btnPrivacyShield: FrameLayout
+    private lateinit var ivPrivacyShieldIcon: ImageView
+    private lateinit var shieldBadgeDot: View
+
+    fun updatePrivacyShieldButton() {
+        runOnUiThread {
+            if (!::btnPrivacyShield.isInitialized || !::ivPrivacyShieldIcon.isInitialized || !::shieldBadgeDot.isInitialized) return@runOnUiThread
+            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+
+            val totalBlocked = HazePrivacyShieldEngine.getTotalBlocked(this)
+            val isEnabled = HazePrivacyShieldEngine.isShieldEnabled(this)
+
+            ivPrivacyShieldIcon.setColorFilter(
+                if (!isEnabled) Color.parseColor("#9AA0A6")
+                else accentColor
+            )
+
+            val dotShape = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(accentColor)
+            }
+            shieldBadgeDot.background = dotShape
+
+            shieldBadgeDot.visibility = if (totalBlocked > 0L && isEnabled) View.VISIBLE else View.GONE
+        }
+    }
+
+    fun updateNavigationButtons() {
+        runOnUiThread {
+            if (!::btnFloatingBack.isInitialized || !::btnFloatingForward.isInitialized || !::floatingNavContainer.isInitialized) return@runOnUiThread
+            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+            val isHome = currentTab == null || isHomeTab(currentTab)
+
+            if (isHome || isSearchActive || customVideoView != null || miniPlayerManager?.isActive == true) {
+                floatingNavContainer.visibility = View.GONE
+                return@runOnUiThread
+            }
+
+            floatingNavContainer.visibility = View.VISIBLE
+            val webView = currentTab.webView
+            val canBack = webView.canGoBack()
+            val canForward = webView.canGoForward()
+
+            btnFloatingBack.isEnabled = canBack
+            btnFloatingBack.alpha = if (canBack) 1.0f else 0.35f
+
+            btnFloatingForward.isEnabled = canForward
+            btnFloatingForward.alpha = if (canForward) 1.0f else 0.35f
+        }
+    }
+
     private lateinit var prefs: SharedPreferences
+    private var miniPlayerManager: HazeMiniPlayer? = null
+    private var miniPlayerTab: Tab? = null
 
     data class TabGroup(var id: String, var name: String, var color: Int)
     data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
@@ -83,7 +269,7 @@ class MainActivity : AppCompatActivity() {
 
     private val normalTabs = mutableListOf<Tab>()
     private val privateTabs = mutableListOf<Tab>()
-    private var isPrivateMode = false
+    var isPrivateMode = false
     private var isFullScreenMode = false
     
     private val currentTabsList: MutableList<Tab>
@@ -173,6 +359,17 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun startVoiceSearch() { runOnUiThread { this@MainActivity.startVoiceSearch() } }
         @JavascriptInterface
+        fun launchMiniPlayer() { 
+            runOnUiThread { 
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                if (currentTab != null && !isHomeTab(currentTab)) {
+                    miniPlayerTab = currentTab
+                    miniPlayerManager?.attach(currentTab.webView, currentTab.title)
+                    addNewTab(HAZE_HOME_URL) // Keep browsing in a new tab
+                }
+            }
+        }
+        @JavascriptInterface
         fun navigateTo(url: String) { 
             runOnUiThread { 
                 addressBarContainer.visibility = View.VISIBLE
@@ -184,6 +381,34 @@ class MainActivity : AppCompatActivity() {
         fun openMenu() { runOnUiThread { showBrowserMenu() } }
         @JavascriptInterface
         fun openTabManager() { runOnUiThread { showFullScreenTabs() } }
+        @JavascriptInterface
+        fun openProfile() {
+            runOnUiThread {
+                triggerStrongHaptic(isHeavy = false)
+                HazeProfileDialogManager.showProfilePanel(this@MainActivity)
+            }
+        }
+        @JavascriptInterface
+        fun openPrivacyShield() {
+            runOnUiThread {
+                triggerStrongHaptic(isHeavy = false)
+                HazePrivacyShieldDashboard.showDashboard(this@MainActivity)
+            }
+        }
+        @JavascriptInterface
+        fun bypassSecurityWarning(url: String) {
+            runOnUiThread {
+                try {
+                    val host = Uri.parse(url).host
+                    if (host != null) {
+                        HazeDatabase.getInstance(this@MainActivity).setDomainWhitelisted(host, true)
+                    }
+                    loadUrlFromInput(url)
+                } catch (e: Exception) {
+                    loadUrlFromInput(url)
+                }
+            }
+        }
         @JavascriptInterface
         fun getTabCount(): Int { return currentTabsList.size }
         @JavascriptInterface
@@ -204,6 +429,17 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        @JavascriptInterface
+        fun onMediaStateChange(isPlaying: Boolean, width: Int, height: Int) {
+            runOnUiThread {
+                isMediaPlaying = isPlaying
+                if (width > 0 && height > 0) {
+                    lastVideoWidth = width
+                    lastVideoHeight = height
+                }
+                updatePipAutoEnter()
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,6 +450,17 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
 
         webContainer = findViewById(R.id.webContainer)
+        fullscreenVideoContainer = findViewById(R.id.fullscreenVideoContainer)
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                pipReceiver,
+                IntentFilter(ACTION_PIP_PLAY_PAUSE),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         addressBar = findViewById(R.id.addressBar)
         tabCountBtn = findViewById(R.id.tabCountBtn)
         btnTabsCircular = findViewById(R.id.btnTabsCircular)
@@ -313,10 +560,101 @@ class MainActivity : AppCompatActivity() {
             startVoiceSearch() 
         }
 
+        val miniPlayerRoot = findViewById<FrameLayout>(R.id.miniPlayerRoot)
+        if (miniPlayerRoot != null) {
+            miniPlayerManager = HazeMiniPlayer(
+                activity = this,
+                rootLayout = miniPlayerRoot,
+                onExpand = {
+                    val tab = miniPlayerTab
+                    if (tab != null) {
+                        if (tab.webView.parent == null) webContainer.addView(tab.webView)
+                        val index = currentTabsList.indexOfFirst { it === tab }
+                        if (index >= 0) switchTab(index)
+                    }
+                    miniPlayerTab = null
+                },
+                onClose = {
+                    val tab = miniPlayerTab
+                    val index = tab?.let { currentTabsList.indexOfFirst { candidate -> candidate === it } } ?: -1
+                    if (index >= 0) closeTab(index)
+                    miniPlayerTab = null
+                }
+            )
+        }
+
+        floatingNavContainer = findViewById(R.id.floatingNavContainer)
+        btnFloatingBack = findViewById(R.id.btnFloatingBack)
+        ivFloatingBackIcon = findViewById(R.id.ivFloatingBackIcon)
+        btnFloatingForward = findViewById(R.id.btnFloatingForward)
+        ivFloatingForwardIcon = findViewById(R.id.ivFloatingForwardIcon)
+        floatingNavDivider = findViewById(R.id.floatingNavDivider)
+
+        btnFloatingBack.setOnClickListener {
+            triggerStrongHaptic(it)
+            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+            if (currentTab?.webView?.canGoBack() == true) {
+                currentTab.webView.goBack()
+            }
+            it.postDelayed({ updateNavigationButtons() }, 300)
+        }
+
+        btnFloatingBack.setOnLongClickListener {
+            triggerStrongHaptic(it)
+            HazeHistoryManager.showHistoryDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
+            true
+        }
+
+        btnFloatingForward.setOnClickListener {
+            triggerStrongHaptic(it)
+            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+            if (currentTab?.webView?.canGoForward() == true) {
+                currentTab.webView.goForward()
+            }
+            it.postDelayed({ updateNavigationButtons() }, 300)
+        }
+
+        topRightActions = findViewById(R.id.topRightActions)
+        btnProfile = findViewById(R.id.btnProfile)
+        ivProfileAvatar = findViewById(R.id.ivProfileAvatar)
+        btnProfile.setOnClickListener {
+            triggerStrongHaptic(it)
+            HazeProfileDialogManager.showProfilePanel(this)
+        }
+        HazeAccountManager.addAccountListener {
+            updateProfileButton()
+        }
+
+        btnPrivacyShield = findViewById(R.id.btnPrivacyShield)
+        ivPrivacyShieldIcon = findViewById(R.id.ivPrivacyShieldIcon)
+        shieldBadgeDot = findViewById(R.id.shieldBadgeDot)
+        btnPrivacyShield.setOnClickListener {
+            triggerStrongHaptic(it)
+            HazePrivacyShieldDashboard.showDashboard(this)
+        }
+        HazePrivacyShieldEngine.init(this)
+        HazePrivacyShieldEngine.addListener(object : HazePrivacyShieldEngine.ShieldListener {
+            override fun onShieldEvent(category: String, totalBlocked: Long) {
+                runOnUiThread { updatePrivacyShieldButton() }
+            }
+        })
+
         addressBar.setText("")
         handleCustomIntent(intent)
         applyTheme()
-        addNewTab(HAZE_HOME_URL)
+        val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
+        addNewTab(initialUrl)
+        updateProfileButton()
+        updatePrivacyShieldButton()
+
+        // Silent sign-in in background
+        HazeAccountManager.silentSignIn(this) {
+            updateProfileButton()
+        }
+
+        // First-launch onboarding check
+        val mainContainer = findViewById<ViewGroup>(R.id.main)
+        HazeOnboardingManager.showOnboardingIfNeeded(this, mainContainer)
     }
 
     private fun activateSearchMode() {
@@ -339,6 +677,13 @@ class MainActivity : AppCompatActivity() {
         dimOverlay.visibility = View.VISIBLE
         dimOverlay.alpha = 0f
         dimOverlay.animate().alpha(1f).setDuration(240).start()
+
+        if (::topRightActions.isInitialized) {
+            topRightActions.visibility = View.GONE
+        }
+        if (::floatingNavContainer.isInitialized) {
+            floatingNavContainer.visibility = View.GONE
+        }
 
         renderRecentSearches()
         recentSearchesContainer.visibility = View.VISIBLE
@@ -372,6 +717,23 @@ class MainActivity : AppCompatActivity() {
 
         recentSearchesContainer.visibility = View.GONE
         btnClearQuery.visibility = View.GONE
+
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        val isHome = currentTab != null && isHomeTab(currentTab)
+        if (::topRightActions.isInitialized) {
+            topRightActions.visibility = if (isHome && !isPrivateMode) View.VISIBLE else View.GONE
+            if (isHome && !isPrivateMode) {
+                topRightActions.bringToFront()
+            }
+        }
+        if (::floatingNavContainer.isInitialized) {
+            val shouldShowNav = !isHome && customVideoView == null && miniPlayerManager?.isActive != true
+            floatingNavContainer.visibility = if (shouldShowNav) View.VISIBLE else View.GONE
+            if (shouldShowNav) {
+                floatingNavContainer.bringToFront()
+                updateNavigationButtons()
+            }
+        }
 
         addressBar.clearFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
@@ -435,6 +797,10 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleCustomIntent(intent)
+        val incomingUrl = intent?.dataString
+        if (!incomingUrl.isNullOrEmpty()) {
+            loadUrlFromInput(incomingUrl)
+        }
     }
 
     private fun handleCustomIntent(intent: Intent?) {
@@ -448,6 +814,11 @@ class MainActivity : AppCompatActivity() {
         val newColor = intent.getStringExtra("set_accent_color")
         if (newColor != null) {
             prefs.edit().putString("accent_color", newColor).apply()
+            changed = true
+        }
+        if (intent.hasExtra("set_dark_mode")) {
+            val dark = intent.getBooleanExtra("set_dark_mode", false)
+            prefs.edit().putBoolean("is_dark", dark).apply()
             changed = true
         }
         if (intent.getBooleanExtra("reset_shortcuts", false)) {
@@ -467,23 +838,56 @@ class MainActivity : AppCompatActivity() {
             applyTheme()
             reloadHomeTabs()
         }
+        if (intent.getBooleanExtra("test_seed_data", false)) {
+            val db = HazeDatabase.getInstance(this)
+            // Seed downloads across all categories
+            db.addDownload(101L, "Flutter_Architecture_Cheatsheet.pdf", "/storage/emulated/0/Download/Flutter_Architecture_Cheatsheet.pdf", 4521984L, "https://flutter.dev/cheatsheet.pdf", "application/pdf", HazeDownloadEngine.STATUS_COMPLETED)
+            db.addDownload(102L, "Android_Studio_Ladybug.zip", "/storage/emulated/0/Download/Android_Studio_Ladybug.zip", 1048576000L, "https://developer.android.com/studio.zip", "application/zip", HazeDownloadEngine.STATUS_DOWNLOADING)
+            db.addDownload(103L, "Kotlin_Language_Spec.epub", "/storage/emulated/0/Download/Kotlin_Language_Spec.epub", 12582912L, "https://kotlinlang.org/spec.epub", "application/epub+zip", HazeDownloadEngine.STATUS_QUEUED)
+            db.addDownload(104L, "Nature_4K_Wallpaper.png", "/storage/emulated/0/Download/Nature_4K_Wallpaper.png", 8388608L, "https://images.unsplash.com/nature.png", "image/png", HazeDownloadEngine.STATUS_PAUSED)
+            db.addDownload(105L, "Firmware_Update_v2.bin", "/storage/emulated/0/Download/Firmware_Update_v2.bin", 52428800L, "https://firmware.download/v2.bin", "application/octet-stream", HazeDownloadEngine.STATUS_FAILED)
+
+            // Seed nested bookmark folders
+            val devFolderId = db.createFolder("Development", 0L)
+            val androidFolderId = db.createFolder("Android SDK", devFolderId)
+            db.addBookmark("Android Developers", "https://developer.android.com", androidFolderId)
+            db.addBookmark("Kotlin Official", "https://kotlinlang.org", androidFolderId)
+            db.addBookmark("GitHub", "https://github.com", devFolderId)
+            db.addBookmark("Google Search", "https://www.google.com", 0L)
+            db.addBookmark("Wikipedia", "https://wikipedia.org", 0L)
+        }
+        if (intent.getBooleanExtra("test_clear_data", false)) {
+            val db = HazeDatabase.getInstance(this)
+            db.clearAllHistory()
+            db.clearAllDownloads()
+            db.clearAllBookmarks()
+        }
         if (intent.getBooleanExtra("open_personalize", false)) {
             showPersonalizeDialog()
         }
         if (intent.getBooleanExtra("open_bookmarks", false)) {
-            webContainer.postDelayed({ HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) } }, 300)
+            webContainer.postDelayed({ HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) } }, 200)
         }
         if (intent.getBooleanExtra("open_history", false)) {
-            webContainer.postDelayed({ HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) } }, 300)
+            webContainer.postDelayed({ HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) } }, 200)
         }
         if (intent.getBooleanExtra("open_downloads", false)) {
-            webContainer.postDelayed({ HazeDownloadsManager.showDownloadsDialog(this) }, 300)
+            webContainer.postDelayed({ HazeDownloadsManager.showDownloadsDialog(this) }, 200)
+        }
+        if (intent.getBooleanExtra("open_clear_data", false)) {
+            webContainer.postDelayed({ clearBrowsingData() }, 200)
         }
         if (intent.getBooleanExtra("open_menu", false)) {
-            webContainer.postDelayed({ showBrowserMenu() }, 400)
+            webContainer.postDelayed({ showBrowserMenu() }, 300)
         }
         if (intent.getBooleanExtra("activate_search", false)) {
-            webContainer.postDelayed({ activateSearchMode() }, 300)
+            webContainer.postDelayed({ activateSearchMode() }, 200)
+        }
+        if (intent.getBooleanExtra("open_profile", false)) {
+            webContainer.postDelayed({ HazeProfileDialogManager.showProfilePanel(this) }, 200)
+        }
+        if (intent.getBooleanExtra("open_privacy_shield", false)) {
+            webContainer.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 200)
         }
     }
 
@@ -546,7 +950,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isHomeTab(tab: Tab): Boolean {
-        return tab.url == HAZE_HOME_URL || tab.url == "$HAZE_HOME_URL/" || tab.url.startsWith("haze://home") || tab.url.isEmpty()
+        val u = tab.url.trim()
+        return u == HAZE_HOME_URL || u == "$HAZE_HOME_URL/" || u.startsWith("haze://home") || u == "about:blank" || u.startsWith("about:") || u.isEmpty()
     }
 
     private fun reloadHomeTabs() {
@@ -691,7 +1096,7 @@ class MainActivity : AppCompatActivity() {
         val hasBgPhoto = bgTheme != "default"
 
         val bgStyle = if (hasBgPhoto) {
-            "background: linear-gradient(rgba(0,0,0,0.32), rgba(0,0,0,0.48)), url('file:///android_asset/bg_theme_$bgTheme.webp') no-repeat center center fixed; background-size: cover;"
+            "background: transparent; background-color: transparent;"
         } else {
             "background: $bgColor; background-color: $bgColor;"
         }
@@ -707,10 +1112,13 @@ class MainActivity : AppCompatActivity() {
         val effectiveLabelColor = if (hasBgPhoto) "#FFFFFF" else labelColor
         val labelShadow = if (hasBgPhoto) "text-shadow: 0 1px 4px rgba(0,0,0,0.9);" else ""
 
-        val logoSrc = if (isDark || hasBgPhoto) "file:///android_asset/haze_logo_dark.png" else "file:///android_asset/haze_logo.png"
+        val stroke1Color = if (isDark || hasBgPhoto) "#FFFFFF" else "#1A1C1E"
+        val stroke2Color = if (isDark || hasBgPhoto) "#D8D8D8" else "#5E6267"
+        val stroke3Color = if (isDark || hasBgPhoto) "#A8A8A8" else "#9EA2A7"
+
         val logoViewHtml = if (isIncognito) {
             """
-            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
                 <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
                 <circle cx="32" cy="62" r="15" fill="$textColor"/>
                 <circle cx="32" cy="62" r="11" fill="$bgColor"/>
@@ -720,7 +1128,13 @@ class MainActivity : AppCompatActivity() {
             </svg>
             """.trimIndent()
         } else {
-            """<img class="logo" src="$logoSrc" alt="Haze" />"""
+            """
+            <svg class="logo" viewBox="160 260 700 500" width="220" height="157" xmlns="http://www.w3.org/2000/svg" style="width: 220px; height: 157px; max-width: 65vw; display: block; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
+                <path d="${HazeLogoVector.STROKE_1}" fill="$stroke1Color" />
+                <path d="${HazeLogoVector.STROKE_2}" fill="$stroke2Color" />
+                <path d="${HazeLogoVector.STROKE_3}" fill="$stroke3Color" />
+            </svg>
+            """.trimIndent()
         }
 
         return """
@@ -746,8 +1160,10 @@ class MainActivity : AppCompatActivity() {
                         margin-bottom: 24px;
                     }
                     .logo {
-                        width: 220px; height: 155px;
-                        object-fit: contain;
+                        width: 220px; height: 157px;
+                        max-width: 65vw;
+                        display: block;
+                        pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
                         $logoShadow
                     }
                     .shortcuts {
@@ -807,6 +1223,25 @@ class MainActivity : AppCompatActivity() {
         findViewById<ConstraintLayout>(R.id.main).setBackgroundColor(bgColor)
         addressBarContainer.setBackgroundColor(bgColor)
         findBarContainer.setBackgroundColor(bgColor)
+
+        val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
+        val appBgImageView = findViewById<ImageView>(R.id.appBackgroundImageView)
+        val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
+        if (bgTheme != "default" && !isPrivateMode) {
+            try {
+                val inputStream = assets.open("bg_theme_$bgTheme.webp")
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                appBgImageView?.setImageBitmap(bitmap)
+                appBgImageView?.visibility = View.VISIBLE
+                appBgOverlay?.visibility = View.VISIBLE
+            } catch (e: Exception) {
+                appBgImageView?.visibility = View.GONE
+                appBgOverlay?.visibility = View.GONE
+            }
+        } else {
+            appBgImageView?.visibility = View.GONE
+            appBgOverlay?.visibility = View.GONE
+        }
         
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
         val shape = GradientDrawable().apply {
@@ -836,35 +1271,43 @@ class MainActivity : AppCompatActivity() {
         }
         btnTabsCircular.background = tabShape
         tabCountBtn.setTextColor(textColor)
-        
+
+        if (::btnProfile.isInitialized) {
+            btnProfile.background = null
+            btnProfile.elevation = 0f
+            btnProfile.outlineProvider = null
+            updateProfileButton()
+        }
+
+        if (::btnPrivacyShield.isInitialized) {
+            btnPrivacyShield.background = null
+            btnPrivacyShield.elevation = 0f
+            btnPrivacyShield.outlineProvider = null
+            updatePrivacyShieldButton()
+        }
+
+        if (::floatingNavContainer.isInitialized) {
+            val navPillShape = GradientDrawable().apply {
+                this.shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(20).toFloat()
+                setColor(if (isDark) Color.parseColor("#E6262626") else Color.parseColor("#F5FFFFFF"))
+                setStroke(dpToPx(1), if (isDark) Color.parseColor("#383838") else Color.parseColor("#DADCE0"))
+            }
+            floatingNavContainer.background = navPillShape
+            floatingNavContainer.elevation = dpToPx(8).toFloat()
+
+            val iconColor = if (isDark) Color.parseColor("#F1F3F4") else Color.parseColor("#202124")
+            ivFloatingBackIcon.setColorFilter(iconColor)
+            ivFloatingForwardIcon.setColorFilter(iconColor)
+            floatingNavDivider.setBackgroundColor(if (isDark) Color.parseColor("#383838") else Color.parseColor("#DADCE0"))
+
+            updateNavigationButtons()
+        }
+
         reloadHomeTabs()
     }
 
-    private fun getInternalPageHtml(title: String, icon: String): String {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
-                    body { font-family: 'Outfit', sans-serif; background-color: #FAFAFA; color: #202124; padding: 24px; text-align: center; }
-                    .icon { font-size: 72px; margin-top: 15vh; margin-bottom: 16px; }
-                    h1 { font-weight: 300; font-size: 32px; letter-spacing: 2px; }
-                    p { color: #5F6368; font-weight: 200; }
-                </style>
-            </head>
-            <body>
-                <div class="icon">$icon</div>
-                <h1>$title</h1>
-                <p>This is your local $title page.</p>
-                <p>Functionality coming soon.</p>
-            </body>
-            </html>
-        """.trimIndent()
-    }
-
-    fun addNewTab(url: String) {
+        fun addNewTab(url: String) {
         val webView = WebView(this)
         webView.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, 
@@ -908,6 +1351,11 @@ class MainActivity : AppCompatActivity() {
                 webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazeSettingsManager.showSettingsDialog(this)
             }
+            "haze://shield", "haze://privacy", "haze://adblock" -> {
+                tab.title = "Privacy Shield"
+                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                HazePrivacyShieldDashboard.showDashboard(this)
+            }
             else -> webView.loadUrl(url)
         }
         tab.url = url
@@ -928,11 +1376,13 @@ class MainActivity : AppCompatActivity() {
         }
         
         tabCountBtn.text = currentTabsList.size.toString()
-        val currentUrl = currentTabsList[index].url
+        val currentTab = currentTabsList[index]
+        val currentUrl = currentTab.url
+        val isHome = isHomeTab(currentTab)
         
         updateChromeVisibility(currentUrl)
         
-        if (isHomeTab(currentTabsList[index]) || currentUrl == HAZE_HOME_URL || currentUrl.startsWith("haze://home") || currentUrl.startsWith("about:") || currentUrl.isEmpty()) {
+        if (isHome) {
             addressBar.setText("")
         } else {
             addressBar.setText(currentUrl)
@@ -941,7 +1391,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateChromeVisibility(url: String?) {
         addressBarContainer.visibility = View.VISIBLE
-        val isHome = url == null || url == HAZE_HOME_URL || url.startsWith("haze://home") || url.isEmpty()
+        val isHome = url == null || url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home") || url == "about:blank" || url.startsWith("about:") || url.isEmpty()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         
@@ -960,12 +1410,56 @@ class MainActivity : AppCompatActivity() {
             setStroke(1, strokeColor)
         }
         addressBarInner.background = barShape
+        addressBarInner.elevation = 0f
+        addressBarInner.outlineProvider = null
         
         addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
+        addressBarContainer.elevation = 0f
+        val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
+        val hasBgPhoto = bgTheme != "default" && !isPrivateMode
+        val appBgImageView = findViewById<ImageView>(R.id.appBackgroundImageView)
+        val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
+
         if (isHome) {
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(bgColor)
+            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(if (hasBgPhoto) Color.TRANSPARENT else bgColor)
+            if (hasBgPhoto) {
+                appBgImageView?.visibility = View.VISIBLE
+                appBgOverlay?.visibility = View.VISIBLE
+            } else {
+                appBgImageView?.visibility = View.GONE
+                appBgOverlay?.visibility = View.GONE
+            }
         } else {
             currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(Color.WHITE)
+            appBgImageView?.visibility = View.GONE
+            appBgOverlay?.visibility = View.GONE
+        }
+
+        if (::topRightActions.isInitialized) {
+            topRightActions.visibility = if (isHome && !isPrivateMode) View.VISIBLE else View.GONE
+            if (isHome && !isPrivateMode) {
+                topRightActions.bringToFront()
+            }
+        }
+        if (::floatingNavContainer.isInitialized) {
+            val shouldShowNav = !isHome && !isSearchActive && customVideoView == null && miniPlayerManager?.isActive != true
+            floatingNavContainer.visibility = if (shouldShowNav) View.VISIBLE else View.GONE
+            if (shouldShowNav) {
+                floatingNavContainer.bringToFront()
+                updateNavigationButtons()
+            }
+        }
+        if (::btnProfile.isInitialized) {
+            updateProfileButton()
+        }
+        if (::btnPrivacyShield.isInitialized) {
+            updatePrivacyShieldButton()
+        }
+
+        if (miniPlayerManager?.isActive == true) {
+            addressBarContainer.visibility = View.GONE
+            if (::topRightActions.isInitialized) topRightActions.visibility = View.GONE
+            if (::floatingNavContainer.isInitialized) floatingNavContainer.visibility = View.GONE
         }
     }
 
@@ -1004,6 +1498,12 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = jsEnabled
             domStorageEnabled = !isPrivateMode
             databaseEnabled = !isPrivateMode
+            allowFileAccess = true
+            allowContentAccess = true
+            @Suppress("DEPRECATION")
+            allowFileAccessFromFileURLs = true
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = true
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
@@ -1015,6 +1515,14 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             setRenderPriority(WebSettings.RenderPriority.HIGH)
         }
+        // CookieManager is the WebView cookie store.  This controls new third-party
+        // cookie acceptance; it does not claim to delete existing cookies.
+        CookieManager.getInstance().setAcceptThirdPartyCookies(
+            webView, prefs.getBoolean("block_third_party_cookies", true).not()
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            WebView.startSafeBrowsing(this) { }
+        }
 
         // Web download listener
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
@@ -1023,6 +1531,10 @@ class MainActivity : AppCompatActivity() {
 
         // Native Context Menu on Long Click
         webView.setOnLongClickListener {
+            val currentUrl = webView.url ?: ""
+            if (currentUrl == HAZE_HOME_URL || currentUrl.startsWith("haze://") || currentUrl.isEmpty()) {
+                return@setOnLongClickListener true
+            }
             val result = webView.hitTestResult
             when (result.type) {
                 WebView.HitTestResult.SRC_ANCHOR_TYPE -> {
@@ -1058,29 +1570,113 @@ class MainActivity : AppCompatActivity() {
         }
         
         webView.webViewClient = object : WebViewClient() {
+            private var topLevelUrl: String? = null
+            private fun tabIsPrivate() = getTabFromWebView(webView)?.isPrivate ?: isPrivateMode
+            private fun handleNavigationSecurity(view: WebView?, url: String): Boolean {
+                if (url.startsWith("haze://") || url.startsWith("about:") || url.startsWith("javascript:") || url.startsWith("data:")) {
+                    return false
+                }
+                val decision = HazePrivacyShieldEngine.evaluateRequest(
+                    context = this@MainActivity,
+                    requestUrl = url,
+                    pageUrl = url,
+                    isMainFrame = true,
+                    isPrivate = tabIsPrivate()
+                )
+                if (decision.shouldBlock && decision.isHarmfulPageNavigation) {
+                    val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+                    val warningHtml = HazeSecurityWarningManager.getSecurityWarningHtml(url, decision.category, isDark)
+                    view?.post {
+                        view.loadDataWithBaseURL(url, warningHtml, "text/html", "UTF-8", null)
+                    }
+                    return true
+                }
+                return false
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url?.toString() ?: return false
+                if (request.isForMainFrame) {
+                    if (handleNavigationSecurity(view, url)) return true
+                }
+                return super.shouldOverrideUrlLoading(view, request)
+            }
+
+            @Suppress("DEPRECATION")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                if (url == null) return false
+                if (handleNavigationSecurity(view, url)) return true
+                return super.shouldOverrideUrlLoading(view, url)
+            }
+
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                if (request == null) return null
+                val reqUrl = request.url?.toString() ?: return null
+                val isMainFrame = request.isForMainFrame
+                val pageUrl = if (isMainFrame) reqUrl else (request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer") ?: topLevelUrl)
+
+                val decision = HazePrivacyShieldEngine.evaluateRequest(
+                    context = this@MainActivity,
+                    requestUrl = reqUrl,
+                    pageUrl = pageUrl,
+                    isMainFrame = isMainFrame,
+                    isPrivate = tabIsPrivate()
+                )
+
+                if (decision.shouldBlock) {
+                    if (isMainFrame && decision.isHarmfulPageNavigation) {
+                        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+                        val html = HazeSecurityWarningManager.getSecurityWarningHtml(reqUrl, decision.category, isDark)
+                        val bytes = html.toByteArray(Charsets.UTF_8)
+                        val headers = mapOf("Content-Type" to "text/html; charset=utf-8")
+                        return WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, ByteArrayInputStream(bytes))
+                    } else {
+                        return HazePrivacyShieldEngine.createBlockedResponse(reqUrl)
+                    }
+                }
+
+                return null
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                if (!url.isNullOrEmpty()) topLevelUrl = url
+                super.onPageStarted(view, url, favicon)
+            }
+
+            override fun onSafeBrowsingHit(view: WebView?, request: WebResourceRequest?, threatType: Int, callback: SafeBrowsingResponse?) {
+                val url = request?.url?.toString() ?: return callback?.backToSafety(false) ?: Unit
+                HazePrivacyShieldEngine.recordSafeBrowsingThreat(this@MainActivity, url, tabIsPrivate(), threatType)
+                val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                view?.post { view.loadDataWithBaseURL(url, HazeSecurityWarningManager.getSecurityWarningHtml(url, HazePrivacyShieldEngine.CATEGORY_PHISHING, isDark), "text/html", "UTF-8", null) }
+                callback?.backToSafety(false)
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 val tab = getTabFromWebView(webView)
                 if (tab != null && url != null) {
-                    if (url == HAZE_HOME_URL) {
+                    val isHome = url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url == "about:blank" || url.startsWith("about:") || url.startsWith("haze://home")
+                    if (isHome) {
                         tab.title = "New Tab"
-                        tab.url = url
+                        tab.url = HAZE_HOME_URL
                     } else {
                         tab.url = url
                     }
                     if (tab == currentTabsList.getOrNull(activeTabIndex)) {
-                        updateChromeVisibility(url)
-                        if (url == HAZE_HOME_URL || url.startsWith("haze://")) {
-                            if (url == HAZE_HOME_URL) addressBar.setText("") else addressBar.setText(url)
+                        updateChromeVisibility(tab.url)
+                        if (isHome) {
+                            addressBar.setText("")
                         } else {
                             addressBar.setText(url)
                         }
                     }
 
                     // Record history if not private and not internal
-                    if (!isPrivateMode && url != HAZE_HOME_URL && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    if (!isPrivateMode && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
                         val pageTitle = tab.title.ifEmpty { view?.title ?: "Web Page" }
-                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false)
+                        val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
+                        val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
+                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
                     }
 
                     // Text Selection Listener injection
@@ -1103,18 +1699,133 @@ class MainActivity : AppCompatActivity() {
                         })();
                     """.trimIndent()
                     view?.evaluateJavascript(selectionScript, null)
+
+                    // Media Playback detection script injection
+                    val mediaScript = """
+                        (function() {
+                            if (window.__hazeMediaTrackInstalled) return;
+                            window.__hazeMediaTrackInstalled = true;
+
+                            function checkMedia() {
+                                try {
+                                    var media = document.querySelectorAll('video, audio');
+                                    var isPlaying = false;
+                                    var width = 16;
+                                    var height = 9;
+                                    for (var i = 0; i < media.length; i++) {
+                                        var m = media[i];
+                                        if (!m.paused && !m.ended && m.readyState > 1) {
+                                            isPlaying = true;
+                                            if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
+                                                width = m.videoWidth;
+                                                height = m.videoHeight;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    if (window.Android && window.Android.onMediaStateChange) {
+                                        window.Android.onMediaStateChange(isPlaying, width, height);
+                                    }
+                                } catch(e) {}
+                            }
+
+                            function trackElement(el) {
+                                if (!el || el.__hazeTracked) return;
+                                el.__hazeTracked = true;
+                                el.addEventListener('play', checkMedia, true);
+                                el.addEventListener('playing', checkMedia, true);
+                                el.addEventListener('pause', checkMedia, true);
+                                el.addEventListener('ended', checkMedia, true);
+                                el.addEventListener('ratechange', checkMedia, true);
+                            }
+
+                            function scanElements() {
+                                var all = document.querySelectorAll('video, audio');
+                                for (var i = 0; i < all.length; i++) {
+                                    trackElement(all[i]);
+                                }
+                                checkMedia();
+                            }
+
+                            scanElements();
+
+                            var observer = new MutationObserver(function() {
+                                scanElements();
+                            });
+                            if (document.body || document.documentElement) {
+                                observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                            }
+
+                            setInterval(checkMedia, 1500);
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(mediaScript, null)
+                    updateNavigationButtons()
                 }
+            }
+
+            override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                super.doUpdateVisitedHistory(view, url, isReload)
+                updateNavigationButtons()
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
+                if (customVideoView != null) {
+                    callback?.onCustomViewHidden()
+                    return
+                }
+                customVideoView = view
+                customViewCallback = callback
+                fullscreenVideoContainer.removeAllViews()
+                if (view != null) {
+                    fullscreenVideoContainer.addView(
+                        view,
+                        FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            Gravity.CENTER
+                        )
+                    )
+                }
+                fullscreenVideoContainer.visibility = View.VISIBLE
+                webContainer.visibility = View.GONE
+                addressBarContainer.visibility = View.GONE
+                if (::topRightActions.isInitialized) {
+                    topRightActions.visibility = View.GONE
+                }
+                if (::floatingNavContainer.isInitialized) {
+                    floatingNavContainer.visibility = View.GONE
+                }
+                isMediaPlaying = true
+                updatePipAutoEnter()
+            }
+
+            override fun onHideCustomView() {
+                if (customVideoView == null) return
+                fullscreenVideoContainer.removeAllViews()
+                fullscreenVideoContainer.visibility = View.GONE
+                webContainer.visibility = View.VISIBLE
+                customVideoView = null
+                customViewCallback?.onCustomViewHidden()
+                customViewCallback = null
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                updateChromeVisibility(currentTab?.url)
+                updatePipAutoEnter()
+            }
+
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
                 val tab = getTabFromWebView(webView)
                 if (tab != null && title != null) {
-                    if (view?.url == HAZE_HOME_URL || tab.url == HAZE_HOME_URL) {
+                    val isHome = view?.url == HAZE_HOME_URL || tab.url == HAZE_HOME_URL || view?.url == "about:blank" || tab.url == "about:blank" || view?.url?.startsWith("about:") == true || tab.url.startsWith("about:")
+                    if (isHome) {
                         tab.title = "New Tab"
                     } else if (!tab.url.startsWith("haze://")) {
                         tab.title = title
+                        if (!isPrivateMode && tab.url != HAZE_HOME_URL && !tab.url.startsWith("about:")) {
+                            HazeDatabase.getInstance(this@MainActivity).addHistory(tab.url, title, isPrivate = false)
+                        }
                     }
                 }
             }
@@ -1123,6 +1834,12 @@ class MainActivity : AppCompatActivity() {
                 val tab = getTabFromWebView(webView)
                 if (tab != null && icon != null) {
                     tab.favicon = icon
+                    if (!isPrivateMode && tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://") && !tab.url.startsWith("about:")) {
+                        val path = HazeFaviconManager.saveFavicon(this@MainActivity, tab.url, icon)
+                        if (path != null) {
+                            HazeDatabase.getInstance(this@MainActivity).updateHistoryFavicon(tab.url, path)
+                        }
+                    }
                 }
             }
         }
@@ -1677,6 +2394,7 @@ class MainActivity : AppCompatActivity() {
         val menuItems = listOf(
             Pair("New Tab", R.drawable.ic_add),
             Pair("New InPrivate", R.drawable.ic_private),
+            Pair("Privacy Shield", R.drawable.ic_privacy_shield),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
             Pair("History", R.drawable.ic_history),
@@ -1716,6 +2434,7 @@ class MainActivity : AppCompatActivity() {
                         addNewTab(HAZE_HOME_URL)
                         Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
                     }
+                    "Privacy Shield" -> HazePrivacyShieldDashboard.showDashboard(this)
                     "Personalize" -> showPersonalizeDialog()
                     "Favorites" -> HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) }
                     "History" -> HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) }
@@ -1773,7 +2492,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun toggleReadingMode() {
+    fun toggleReadingMode() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
         if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
             Toast.makeText(this, "Reading mode is only available on web pages", Toast.LENGTH_SHORT).show()
@@ -1959,6 +2678,12 @@ class MainActivity : AppCompatActivity() {
         addTool("Capture Screenshot", R.drawable.ic_image) {
             captureCurrentTabScreenshot()
         }
+        addTool("Floating Miniplayer (PiP)", R.drawable.ic_fullscreen) {
+            val success = enterMiniplayerPip()
+            if (!success) {
+                Toast.makeText(this, "Miniplayer requires Android 8.0+ or active media playback", Toast.LENGTH_SHORT).show()
+            }
+        }
         addTool("Page Details", R.drawable.ic_globe) {
             showPageDetails()
         }
@@ -2033,22 +2758,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun clearBrowsingData() {
-        AlertDialog.Builder(this)
-            .setTitle("Clear Browsing Data")
-            .setMessage("This will clear all browsing history, cache, cookies, and local database records.")
-            .setPositiveButton("Clear All") { _, _ ->
-                triggerStrongHaptic(isHeavy = true)
-                HazeDatabase.getInstance(this).clearAllHistory()
-                HazeDatabase.getInstance(this).clearRecentSearches()
-                CookieManager.getInstance().removeAllCookies(null)
-                WebStorage.getInstance().deleteAllData()
-                for (tab in normalTabs) tab.webView.clearCache(true)
-                for (tab in privateTabs) tab.webView.clearCache(true)
-                Toast.makeText(this, "Browsing data cleared", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+    fun clearTabsCache() {
+        runOnUiThread {
+            for (tab in normalTabs) tab.webView.clearCache(true)
+            for (tab in privateTabs) tab.webView.clearCache(true)
+        }
+    }
+
+    fun clearBrowsingData(onCleared: (() -> Unit)? = null) {
+        HazeClearDataManager.showClearDataDialog(this, onCleared)
     }
 
     fun showPageDetails() {
@@ -2157,6 +2875,11 @@ class MainActivity : AppCompatActivity() {
             deactivateSearchMode()
             return
         }
+        if (query == "haze://shield" || query == "haze://privacy" || query == "haze://adblock") {
+            HazePrivacyShieldDashboard.showDashboard(this)
+            deactivateSearchMode()
+            return
+        }
 
         val searchEngine = prefs.getString("search_engine", "Google") ?: "Google"
         val searchEngineUrl = when (searchEngine) {
@@ -2181,9 +2904,193 @@ class MainActivity : AppCompatActivity() {
         tab.webView.loadUrl(url)
     }
 
+    fun toggleMediaPlayback() {
+        val currentTab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        val toggleScript = """
+            (function() {
+                var media = document.querySelectorAll('video, audio');
+                for (var i = 0; i < media.length; i++) {
+                    var m = media[i];
+                    if (!m.paused && !m.ended) {
+                        m.pause();
+                        return 'paused';
+                    }
+                }
+                for (var i = 0; i < media.length; i++) {
+                    var m = media[i];
+                    if (m.paused && m.readyState > 1) {
+                        m.play();
+                        return 'playing';
+                    }
+                }
+                return 'none';
+            })();
+        """.trimIndent()
+        currentTab.webView.evaluateJavascript(toggleScript) { result ->
+            val isPlaying = result?.contains("playing") == true
+            isMediaPlaying = isPlaying
+            updatePipAutoEnter()
+        }
+    }
+
+    fun buildPipParams(): PictureInPictureParams? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
+        val builder = PictureInPictureParams.Builder()
+
+        val w = if (lastVideoWidth > 0) lastVideoWidth else 16
+        val h = if (lastVideoHeight > 0) lastVideoHeight else 9
+        val rational = try {
+            val r = Rational(w, h)
+            val f = r.toFloat()
+            if (f in 0.42f..2.38f) r else Rational(16, 9)
+        } catch (e: Exception) {
+            Rational(16, 9)
+        }
+        builder.setAspectRatio(rational)
+
+        // Actions: Play / Pause in PiP window
+        try {
+            val isPlaying = isMediaPlaying
+            val iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            val title = if (isPlaying) "Pause" else "Play"
+            val intent = Intent(ACTION_PIP_PLAY_PAUSE).setPackage(packageName)
+            val pendingIntent = PendingIntent.getBroadcast(
+                this,
+                101,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val action = RemoteAction(
+                Icon.createWithResource(this, iconRes),
+                title,
+                title,
+                pendingIntent
+            )
+            builder.setActions(listOf(action))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Android 12+ (API 31+): auto-enter support
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
+            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+            val isHome = currentTab == null || isHomeTab(currentTab)
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val isAudioActive = audioManager?.isMusicActive == true
+            val shouldAutoEnter = isAutoPipEnabled && !isHome && (isMediaPlaying || customVideoView != null || isAudioActive)
+            builder.setAutoEnterEnabled(shouldAutoEnter)
+        }
+
+        return builder.build()
+    }
+
+    fun updatePipAutoEnter(enabled: Boolean = prefs.getBoolean("auto_pip_enabled", true)) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = buildPipParams()
+            if (params != null) {
+                try {
+                    setPictureInPictureParams(params)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun enterMiniplayerPip(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val isPipSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+            if (!isPipSupported) return false
+            val params = buildPipParams()
+            return try {
+                if (params != null) {
+                    enterPictureInPictureMode(params)
+                } else {
+                    @Suppress("DEPRECATION")
+                    enterPictureInPictureMode()
+                    true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+        return false
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
+        if (!isAutoPipEnabled) return
+
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        val isHome = currentTab == null || isHomeTab(currentTab)
+        if (isHome) return
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val isAudioActive = audioManager?.isMusicActive == true
+        val hasMedia = isMediaPlaying || customVideoView != null || isAudioActive
+
+        if (hasMedia) {
+            enterMiniplayerPip()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            addressBarContainer.visibility = View.GONE
+            findBarContainer.visibility = View.GONE
+            recentSearchesContainer.visibility = View.GONE
+            dimOverlay.visibility = View.GONE
+            if (::topRightActions.isInitialized) {
+                topRightActions.visibility = View.GONE
+            }
+            if (::floatingNavContainer.isInitialized) {
+                floatingNavContainer.visibility = View.GONE
+            }
+            if (customVideoView != null) {
+                fullscreenVideoContainer.visibility = View.VISIBLE
+                webContainer.visibility = View.GONE
+            } else {
+                webContainer.visibility = View.VISIBLE
+            }
+        } else {
+            if (customVideoView != null) {
+                fullscreenVideoContainer.visibility = View.VISIBLE
+                webContainer.visibility = View.GONE
+                addressBarContainer.visibility = View.GONE
+            } else {
+                fullscreenVideoContainer.visibility = View.GONE
+                webContainer.visibility = View.VISIBLE
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                updateChromeVisibility(currentTab?.url)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(pipReceiver)
+        } catch (e: Exception) {}
+    }
+
     private fun handleBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (customVideoView != null) {
+                    customViewCallback?.onCustomViewHidden()
+                    fullscreenVideoContainer.removeAllViews()
+                    fullscreenVideoContainer.visibility = View.GONE
+                    webContainer.visibility = View.VISIBLE
+                    customVideoView = null
+                    customViewCallback = null
+                    val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                    updateChromeVisibility(currentTab?.url)
+                    return
+                }
                 if (isSearchActive) {
                     deactivateSearchMode()
                 } else if (isFullScreenMode) {

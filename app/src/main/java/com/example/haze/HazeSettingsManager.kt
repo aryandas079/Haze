@@ -137,6 +137,26 @@ object HazeSettingsManager {
             content.addView(row)
         }
 
+        // Section 0: Google Account & Sync
+        addSectionHeader("Account & Sync")
+        val currentUser = HazeAccountManager.getUser(activity)
+        if (currentUser != null) {
+            addRow("Google Account", "${currentUser.displayName} (${currentUser.email})") {
+                dialog.dismiss()
+                HazeProfileDialogManager.showProfilePanel(activity)
+            }
+            val syncSubtitle = if (HazeSyncManager.isSyncEnabled(activity)) HazeSyncManager.getLastSyncFormatted(activity) else "Sync paused"
+            addRow("Cloud Synchronization", syncSubtitle) {
+                dialog.dismiss()
+                HazeProfileDialogManager.showProfilePanel(activity)
+            }
+        } else {
+            addRow("Sign in with Google", "Back up bookmarks and sync across devices") {
+                dialog.dismiss()
+                HazeProfileDialogManager.showProfilePanel(activity)
+            }
+        }
+
         // Section 1: Search & Navigation
         addSectionHeader("Search")
         val currentEngine = prefs.getString("search_engine", "Google") ?: "Google"
@@ -157,6 +177,13 @@ object HazeSettingsManager {
 
         // Section 2: Privacy & Security
         addSectionHeader("Privacy & Security")
+        val totalBlocked = HazePrivacyShieldEngine.getTotalBlocked(activity)
+        val dataSaved = HazePrivacyShieldEngine.formatDataSaved(HazePrivacyShieldEngine.getAllTimeStats(activity).dataSavedBytes)
+        val shieldSub = if (totalBlocked > 0) "$totalBlocked items blocked • $dataSaved saved" else "Active ad blocking, tracker protection & security"
+        addRow("Haze Privacy Shield", shieldSub) {
+            dialog.dismiss()
+            HazePrivacyShieldDashboard.showDashboard(activity)
+        }
         addSwitchRow("JavaScript Enabled", "Allow web pages to run scripts", "javascript_enabled", true) { isEnabled ->
             activity.updateWebSettings()
         }
@@ -164,18 +191,18 @@ object HazeSettingsManager {
             CookieManager.getInstance().setAcceptCookie(isEnabled)
         }
         addRow("Clear Browsing Data", "Clear cache, cookies, history, and storage") {
-            AlertDialog.Builder(activity)
-                .setTitle("Clear Browsing Data")
-                .setMessage("This will remove cached files, cookies, and local database entries.")
-                .setPositiveButton("Clear Everything") { _, _ ->
-                    activity.triggerStrongHaptic(isHeavy = true)
-                    HazeDatabase.getInstance(activity).clearAllHistory()
-                    CookieManager.getInstance().removeAllCookies(null)
-                    WebStorage.getInstance().deleteAllData()
-                    Toast.makeText(activity, "Browsing data cleared", Toast.LENGTH_SHORT).show()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            HazeClearDataManager.showClearDataDialog(activity)
+        }
+
+        // Section: Media & Miniplayer
+        addSectionHeader("Media & Miniplayer")
+        addSwitchRow(
+            "Automatic Miniplayer (PiP)",
+            "Pop out floating video player when minimizing the browser while playing videos or music",
+            "auto_pip_enabled",
+            true
+        ) { isEnabled ->
+            activity.updatePipAutoEnter(isEnabled)
         }
 
         // Section 3: General & System

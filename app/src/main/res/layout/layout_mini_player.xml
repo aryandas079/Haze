@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/miniPlayerRoot"
+    android:layout_width="320dp"
+    android:layout_height="180dp"
+    android:background="@drawable/bg_mini_player"
+    android:elevation="24dp"
+    android:visibility="gone">
+
+    <FrameLayout
+        android:id="@+id/miniPlayerVideoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000" />
+
+    <!-- Overlay Controls -->
+    <FrameLayout
+        android:id="@+id/miniPlayerControls"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80000000">
+
+        <!-- Top Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="8dp"
+            android:layout_gravity="top">
+
+            <TextView
+                android:id="@+id/tvMiniPlayerTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Video Player"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerMinimize"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_minimize"
+                android:contentDescription="Minimize" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerExpand"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_fullscreen"
+                android:contentDescription="Expand" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerClose"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                android:contentDescription="Close"
+                app:tint="#FFFFFF" />
+        </LinearLayout>
+
+        <!-- Center Controls -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_gravity="center"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerRewind"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_replay_10"
+                android:contentDescription="Rewind 10s" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerPlayPause"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:background="@drawable/bg_circle_gray"
+                android:src="@drawable/ic_pause"
+                android:contentDescription="Play/Pause"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerForward"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_forward_10"
+                android:contentDescription="Forward 10s" />
+        </LinearLayout>
+
+        <!-- Bottom Bar -->
+        <LinearLayout
+            android:id="@+id/miniPlayerBottomBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp"
+            android:layout_gravity="bottom">
+
+            <TextView
+                android:id="@+id/tvMiniPlayerTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00 / 0:00"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/miniPlayerSeekBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:progressDrawable="@android:drawable/progress_horizontal"
+                android:thumb="@android:drawable/presence_online" />
+
+            <ImageButton
+                android:id="@+id/btnMiniPlayerVolume"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_volume_up"
+                android:contentDescription="Volume" />
+        </LinearLayout>
+
+        <!-- Resize Handle -->
+        <ImageView
+            android:id="@+id/miniPlayerResizeHandle"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="bottom|end"
+            android:src="@drawable/ic_resize"
+            android:contentDescription="Resize"
+            android:padding="4dp" />
+    </FrameLayout>
+</FrameLayout>

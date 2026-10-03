@@ -40,6 +40,157 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <!-- Mini Player Container -->
+    <include layout="@layout/layout_mini_player" />
+
+    <!-- Fullscreen Video Container for HTML5 Video & Custom Views -->
+    <FrameLayout
+        android:id="@+id/fullscreenVideoContainer"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="#000000"
+        android:visibility="gone"
+        android:elevation="60dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Top-Left Floating Navigation Capsule (Back & Forward buttons while browsing) -->
+    <LinearLayout
+        android:id="@+id/floatingNavContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="14dp"
+        android:layout_marginStart="16dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:elevation="28dp"
+        android:visibility="gone"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:background="@drawable/bg_floating_nav_pill"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <!-- Floating Back Button -->
+        <FrameLayout
+            android:id="@+id/btnFloatingBack"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Navigate Back">
+
+            <ImageView
+                android:id="@+id/ivFloatingBackIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_arrow_back"
+                app:tint="#202124"
+                android:contentDescription="Navigate Back" />
+        </FrameLayout>
+
+        <!-- Subtle Vertical Divider -->
+        <View
+            android:id="@+id/floatingNavDivider"
+            android:layout_width="1dp"
+            android:layout_height="18dp"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
+            android:background="#DADCE0" />
+
+        <!-- Floating Forward Button -->
+        <FrameLayout
+            android:id="@+id/btnFloatingForward"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Navigate Forward">
+
+            <ImageView
+                android:id="@+id/ivFloatingForwardIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_arrow_forward"
+                app:tint="#202124"
+                android:contentDescription="Navigate Forward" />
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Top-Right Actions on Home Screen (Privacy Shield + Profile) -->
+    <LinearLayout
+        android:id="@+id/topRightActions"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="14dp"
+        android:layout_marginEnd="16dp"
+        android:elevation="28dp"
+        android:visibility="gone"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Circular Privacy Shield (i) Button -->
+        <FrameLayout
+            android:id="@+id/btnPrivacyShield"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginEnd="10dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/bg_circle_gray">
+
+            <ImageView
+                android:id="@+id/ivPrivacyShieldIcon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_privacy_shield"
+                android:contentDescription="Privacy Shield Dashboard" />
+
+            <!-- Notification / Active indicator dot -->
+            <View
+                android:id="@+id/shieldBadgeDot"
+                android:layout_width="9dp"
+                android:layout_height="9dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="7dp"
+                android:layout_marginEnd="7dp"
+                android:background="@drawable/bg_badge_dot"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <!-- Circular Profile Button -->
+        <FrameLayout
+            android:id="@+id/btnProfile"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/bg_circle_gray">
+
+            <ImageView
+                android:id="@+id/ivProfileAvatar"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_gravity="center"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_person"
+                android:contentDescription="Google Account Profile" />
+        </FrameLayout>
+    </LinearLayout>
+
     <!-- Dim Overlay for Search Active State -->
     <View
         android:id="@+id/dimOverlay"
@@ -47,7 +198,7 @@
         android:layout_height="0dp"
         android:background="#80000000"
         android:visibility="gone"
-        android:elevation="12dp"
+        android:elevation="10dp"
         android:clickable="true"
         android:focusable="true"
         app:layout_constraintTop_toTopOf="parent"
@@ -78,6 +229,7 @@
             android:layout_marginBottom="8dp">
 
             <TextView
+                android:id="@+id/tvRecentHeaderTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Recent Searches"
@@ -159,7 +311,7 @@
             android:contentDescription="Close Find" />
     </LinearLayout>
 
-    <!-- Address Bar Container at bottom of screen (Zero Elevation for Flat Shadowless Look) -->
+    <!-- Address Bar Container at bottom of screen -->
     <FrameLayout
         android:id="@+id/addressBarContainer"
         android:layout_width="0dp"
@@ -169,7 +321,7 @@
         android:paddingEnd="16dp"
         android:paddingTop="6dp"
         android:paddingBottom="12dp"
-        android:elevation="26dp"
+        android:elevation="30dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -229,7 +381,7 @@
                 android:id="@+id/btnVoiceSearch"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:background="@drawable/bg_circle_gray"
+                android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_mic"
                 android:layout_marginEnd="6dp"
                 android:contentDescription="Voice Search"
@@ -240,7 +392,7 @@
                 android:id="@+id/btnTabsCircular"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
-                android:background="@drawable/bg_circle_gray"
+                android:background="?attr/selectableItemBackgroundBorderless"
                 android:layout_marginEnd="6dp"
                 android:clickable="true"
                 android:focusable="true">

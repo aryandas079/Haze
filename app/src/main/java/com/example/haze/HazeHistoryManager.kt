@@ -25,16 +25,25 @@ import java.util.*
 object HazeHistoryManager {
 
     fun showHistoryDialog(activity: MainActivity, onNavigate: (String) -> Unit) {
-        val isDark = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false)
+        val isDark = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false) || activity.isPrivateMode
         val accentColor = Color.parseColor(activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getString("accent_color", "#0A56D0"))
-        val bgColor = if (isDark) Color.parseColor("#181818") else Color.parseColor("#FAFAFA")
-        val cardBgColor = if (isDark) Color.parseColor("#222222") else Color.parseColor("#FFFFFF")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
+        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
+        val surfaceColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
+        val textColor = if (isDark) Color.parseColor("#E3E3E3") else Color.parseColor("#1F1F1F")
+        val subTextColor = if (isDark) Color.parseColor("#9E9E9E") else Color.parseColor("#757575")
+        val strokeColor = if (isDark) Color.parseColor("#2C2C2C") else Color.parseColor("#E0E0E0")
 
         val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
+        dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bgColor))
         dialog.window?.statusBarColor = bgColor
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            dialog.window?.navigationBarColor = bgColor
+        }
+
+        // State
+        var isSelectionMode = false
+        val selectedIds = mutableSetOf<Long>()
+        var currentQuery = ""
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -42,9 +51,9 @@ object HazeHistoryManager {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
 
-        // Header Bar
-        val header = RelativeLayout(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 60))
+        // --- Normal Header ---
+        val normalHeader = RelativeLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 64))
             setPadding(dpToPx(activity, 16), 0, dpToPx(activity, 16), 0)
         }
 
@@ -62,10 +71,10 @@ object HazeHistoryManager {
                 dialog.dismiss()
             }
         }
-        header.addView(btnBack)
+        normalHeader.addView(btnBack)
 
         val tvTitle = TextView(activity).apply {
-            text = "Browsing History"
+            text = "History"
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
@@ -75,51 +84,122 @@ object HazeHistoryManager {
                 marginStart = dpToPx(activity, 16)
             }
         }
-        header.addView(tvTitle)
+        normalHeader.addView(tvTitle)
 
-        var refreshListAction: (() -> Unit)? = null
-
-        val btnClear = TextView(activity).apply {
-            text = "Clear Data"
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#EA4335"))
-            setPadding(dpToPx(activity, 8), dpToPx(activity, 6), dpToPx(activity, 8), dpToPx(activity, 6))
-            setBackgroundResource(getSelectableRes(activity))
+        val normalActions = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_END)
                 addRule(RelativeLayout.CENTER_VERTICAL)
             }
-            setOnClickListener {
-                activity.triggerStrongHaptic(it, true)
-                showClearHistoryOptions(activity) {
-                    refreshListAction?.invoke()
-                }
+        }
+
+        val btnSelect = TextView(activity).apply {
+            text = "Select"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentColor)
+            setPadding(dpToPx(activity, 12), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+            setBackgroundResource(getSelectableRes(activity))
+        }
+
+        val btnClearData = TextView(activity).apply {
+            text = "Clear Data"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.parseColor("#FF8A80") else Color.parseColor("#D93025"))
+            setPadding(dpToPx(activity, 10), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+            setBackgroundResource(getSelectableRes(activity))
+        }
+
+        normalActions.addView(btnSelect)
+        normalActions.addView(btnClearData)
+        normalHeader.addView(normalActions)
+        root.addView(normalHeader)
+
+        // --- Selection Mode Header ---
+        val selectionHeader = RelativeLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 64))
+            setPadding(dpToPx(activity, 16), 0, dpToPx(activity, 16), 0)
+            setBackgroundColor(if (isDark) Color.parseColor("#262626") else Color.parseColor("#E8F0FE"))
+            visibility = View.GONE
+        }
+
+        val btnCancelSelect = ImageButton(activity).apply {
+            id = View.generateViewId()
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(textColor)
+            setBackgroundResource(getSelectableRes(activity))
+            layoutParams = RelativeLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40)).apply {
+                addRule(RelativeLayout.ALIGN_PARENT_START)
+                addRule(RelativeLayout.CENTER_VERTICAL)
             }
         }
-        header.addView(btnClear)
-        root.addView(header)
+        selectionHeader.addView(btnCancelSelect)
 
-        // Search Bar
+        val tvSelectedCount = TextView(activity).apply {
+            text = "0 selected"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+                addRule(RelativeLayout.RIGHT_OF, btnCancelSelect.id)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+                marginStart = dpToPx(activity, 16)
+            }
+        }
+        selectionHeader.addView(tvSelectedCount)
+
+        val selectionActions = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
+                addRule(RelativeLayout.ALIGN_PARENT_END)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+            }
+        }
+
+        val btnSelectAll = TextView(activity).apply {
+            text = "Select All"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentColor)
+            setPadding(dpToPx(activity, 10), dpToPx(activity, 8), dpToPx(activity, 10), dpToPx(activity, 8))
+            setBackgroundResource(getSelectableRes(activity))
+        }
+
+        val btnDeleteSelected = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_delete)
+            setColorFilter(if (isDark) Color.parseColor("#FF8A80") else Color.parseColor("#D93025"))
+            setBackgroundResource(getSelectableRes(activity))
+            setPadding(dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40))
+        }
+
+        selectionActions.addView(btnSelectAll)
+        selectionActions.addView(btnDeleteSelected)
+        selectionHeader.addView(selectionActions)
+        root.addView(selectionHeader)
+
+        // --- Search Bar ---
         val searchContainer = FrameLayout(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 46)).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 48)).apply {
                 setMargins(dpToPx(activity, 16), 0, dpToPx(activity, 16), dpToPx(activity, 12))
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dpToPx(activity, 24).toFloat()
-                setColor(cardBgColor)
+                setColor(surfaceColor)
                 setStroke(dpToPx(activity, 1), strokeColor)
             }
         }
 
         val searchInput = EditText(activity).apply {
-            hint = "Search history..."
+            hint = "Search history by title or URL..."
             setHintTextColor(subTextColor)
             setTextColor(textColor)
             textSize = 14f
             background = null
-            setPadding(dpToPx(activity, 42), 0, dpToPx(activity, 36), 0)
+            setPadding(dpToPx(activity, 44), 0, dpToPx(activity, 40), 0)
             layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             isSingleLine = true
         }
@@ -149,7 +229,7 @@ object HazeHistoryManager {
         searchContainer.addView(btnClearSearch)
         root.addView(searchContainer)
 
-        // Content Area: RecyclerView & Empty View
+        // --- RecyclerView & Empty View ---
         val contentFrame = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         }
@@ -158,21 +238,44 @@ object HazeHistoryManager {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT).apply {
+                gravity = Gravity.CENTER
+            }
+            setPadding(dpToPx(activity, 32), 0, dpToPx(activity, 32), dpToPx(activity, 60))
 
             val emptyIcon = ImageView(activity).apply {
                 setImageResource(R.drawable.ic_history)
                 setColorFilter(subTextColor)
-                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 64), dpToPx(activity, 64))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 64), dpToPx(activity, 64)).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                }
             }
-            val emptyText = TextView(activity).apply {
+            val emptyTitle = TextView(activity).apply {
                 text = "No browsing history"
-                textSize = 16f
+                textSize = 18f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(textColor)
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = dpToPx(activity, 16)
+                    bottomMargin = dpToPx(activity, 6)
+                }
+            }
+            val emptySub = TextView(activity).apply {
+                text = "Websites you visit will appear here."
+                textSize = 14f
                 setTextColor(subTextColor)
-                setPadding(0, dpToPx(activity, 12), 0, 0)
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                }
             }
             addView(emptyIcon)
-            addView(emptyText)
+            addView(emptyTitle)
+            addView(emptySub)
         }
         contentFrame.addView(emptyView)
 
@@ -183,24 +286,110 @@ object HazeHistoryManager {
         contentFrame.addView(recyclerView)
         root.addView(contentFrame)
 
-        fun refreshList(query: String = "") {
+        var refreshListFunc: (() -> Unit)? = null
+
+        fun updateSelectionHeader() {
+            tvSelectedCount.text = "${selectedIds.size} selected"
+        }
+
+        fun exitSelectionMode() {
+            isSelectionMode = false
+            selectedIds.clear()
+            selectionHeader.visibility = View.GONE
+            normalHeader.visibility = View.VISIBLE
+            searchContainer.visibility = View.VISIBLE
+            refreshListFunc?.invoke()
+        }
+
+        fun enterSelectionMode(initialSelectedId: Long? = null) {
+            isSelectionMode = true
+            selectedIds.clear()
+            if (initialSelectedId != null) selectedIds.add(initialSelectedId)
+            normalHeader.visibility = View.GONE
+            selectionHeader.visibility = View.VISIBLE
+            searchContainer.visibility = View.GONE
+            updateSelectionHeader()
+            refreshListFunc?.invoke()
+        }
+
+        btnSelect.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            enterSelectionMode()
+        }
+
+        btnCancelSelect.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            exitSelectionMode()
+        }
+
+        btnDeleteSelected.setOnClickListener {
+            if (selectedIds.isEmpty()) return@setOnClickListener
+            activity.triggerStrongHaptic(it, isHeavy = true)
+            AlertDialog.Builder(activity)
+                .setTitle("Delete ${selectedIds.size} items?")
+                .setMessage("These entries will be permanently removed from your browsing history.")
+                .setPositiveButton("Delete") { _, _ ->
+                    HazeDatabase.getInstance(activity).deleteHistoryItems(selectedIds.toList())
+                    Toast.makeText(activity, "${selectedIds.size} entries deleted", Toast.LENGTH_SHORT).show()
+                    exitSelectionMode()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        btnClearData.setOnClickListener {
+            activity.triggerStrongHaptic(it, isHeavy = true)
+            showClearHistoryDialog(activity) {
+                exitSelectionMode()
+                refreshListFunc?.invoke()
+            }
+        }
+
+        fun refreshList() {
             val db = HazeDatabase.getInstance(activity)
-            if (query.trim().isNotEmpty()) {
-                val results = db.searchHistory(query.trim())
+            val query = currentQuery.trim()
+
+            if (query.isNotEmpty()) {
+                val results = db.searchHistory(query)
                 if (results.isEmpty()) {
                     emptyView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
                 } else {
                     emptyView.visibility = View.GONE
                     recyclerView.visibility = View.VISIBLE
-                    recyclerView.adapter = HistorySearchAdapter(activity, results, { item ->
-                        activity.triggerStrongHaptic()
-                        dialog.dismiss()
-                        onNavigate(item.url)
-                    }, { item ->
-                        db.deleteHistoryItem(item.id)
-                        refreshList(searchInput.text.toString())
-                    }, isDark, textColor, subTextColor, cardBgColor)
+                    recyclerView.adapter = HistoryItemAdapter(
+                        activity = activity,
+                        items = results,
+                        isSelectionMode = isSelectionMode,
+                        selectedIds = selectedIds,
+                        onItemClick = { item ->
+                            if (isSelectionMode) {
+                                activity.triggerStrongHaptic()
+                                if (selectedIds.contains(item.id)) selectedIds.remove(item.id) else selectedIds.add(item.id)
+                                updateSelectionHeader()
+                                recyclerView.adapter?.notifyDataSetChanged()
+                            } else {
+                                activity.triggerStrongHaptic()
+                                dialog.dismiss()
+                                onNavigate(item.url)
+                            }
+                        },
+                        onItemLongClick = { item ->
+                            if (!isSelectionMode) {
+                                activity.triggerStrongHaptic(isHeavy = true)
+                                showItemOptionsMenu(activity, item, onNavigate, { refreshListFunc?.invoke() }, { enterSelectionMode(item.id) })
+                            }
+                        },
+                        onItemDelete = { item ->
+                            activity.triggerStrongHaptic()
+                            db.deleteHistoryItem(item.id)
+                            refreshListFunc?.invoke()
+                        },
+                        isDark = isDark,
+                        textColor = textColor,
+                        subTextColor = subTextColor,
+                        accentColor = accentColor
+                    )
                 }
             } else {
                 val grouped = db.getHistoryGrouped()
@@ -210,24 +399,63 @@ object HazeHistoryManager {
                 } else {
                     emptyView.visibility = View.GONE
                     recyclerView.visibility = View.VISIBLE
-                    recyclerView.adapter = HistoryGroupedAdapter(activity, grouped, { item ->
-                        activity.triggerStrongHaptic()
-                        dialog.dismiss()
-                        onNavigate(item.url)
-                    }, { item ->
-                        db.deleteHistoryItem(item.id)
-                        refreshList()
-                    }, isDark, textColor, subTextColor, cardBgColor, accentColor)
+                    recyclerView.adapter = HistoryGroupedRecyclerAdapter(
+                        activity = activity,
+                        grouped = grouped,
+                        isSelectionMode = isSelectionMode,
+                        selectedIds = selectedIds,
+                        onItemClick = { item ->
+                            if (isSelectionMode) {
+                                activity.triggerStrongHaptic()
+                                if (selectedIds.contains(item.id)) selectedIds.remove(item.id) else selectedIds.add(item.id)
+                                updateSelectionHeader()
+                                recyclerView.adapter?.notifyDataSetChanged()
+                            } else {
+                                activity.triggerStrongHaptic()
+                                dialog.dismiss()
+                                onNavigate(item.url)
+                            }
+                        },
+                        onItemLongClick = { item ->
+                            if (!isSelectionMode) {
+                                activity.triggerStrongHaptic(isHeavy = true)
+                                showItemOptionsMenu(activity, item, onNavigate, { refreshListFunc?.invoke() }, { enterSelectionMode(item.id) })
+                            }
+                        },
+                        onItemDelete = { item ->
+                            activity.triggerStrongHaptic()
+                            db.deleteHistoryItem(item.id)
+                            refreshListFunc?.invoke()
+                        },
+                        isDark = isDark,
+                        textColor = textColor,
+                        subTextColor = subTextColor,
+                        accentColor = accentColor
+                    )
                 }
             }
         }
-        refreshListAction = { refreshList() }
+        refreshListFunc = { refreshList() }
+
+        btnSelectAll.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            val db = HazeDatabase.getInstance(activity)
+            val all = if (currentQuery.isNotEmpty()) db.searchHistory(currentQuery) else db.getAllHistory()
+            if (selectedIds.size == all.size) {
+                selectedIds.clear()
+            } else {
+                selectedIds.clear()
+                selectedIds.addAll(all.map { it.id })
+            }
+            updateSelectionHeader()
+            recyclerView.adapter?.notifyDataSetChanged()
+        }
 
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                val q = s?.toString() ?: ""
-                btnClearSearch.visibility = if (q.isNotEmpty()) View.VISIBLE else View.GONE
-                refreshList(q)
+                currentQuery = s?.toString() ?: ""
+                btnClearSearch.visibility = if (currentQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                refreshList()
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -238,41 +466,22 @@ object HazeHistoryManager {
         dialog.show()
     }
 
-    private fun showClearHistoryOptions(activity: MainActivity, onCleared: () -> Unit) {
-        val options = arrayOf("Last hour", "Today", "All time")
-        AlertDialog.Builder(activity)
-            .setTitle("Clear Browsing History")
-            .setItems(options) { _, which ->
-                activity.triggerStrongHaptic(isHeavy = true)
-                val db = HazeDatabase.getInstance(activity)
-                when (which) {
-                    0 -> { // Last hour
-                        val oneHourAgo = System.currentTimeMillis() - (60 * 60 * 1000)
-                        db.clearHistoryRange(oneHourAgo)
-                        Toast.makeText(activity, "Cleared history from the last hour", Toast.LENGTH_SHORT).show()
-                    }
-                    1 -> { // Today
-                        val cal = Calendar.getInstance()
-                        cal.set(Calendar.HOUR_OF_DAY, 0)
-                        cal.set(Calendar.MINUTE, 0)
-                        cal.set(Calendar.SECOND, 0)
-                        cal.set(Calendar.MILLISECOND, 0)
-                        db.clearHistoryRange(cal.timeInMillis)
-                        Toast.makeText(activity, "Cleared today's history", Toast.LENGTH_SHORT).show()
-                    }
-                    2 -> { // All time
-                        db.clearAllHistory()
-                        Toast.makeText(activity, "All browsing history cleared", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                onCleared()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
+    private fun showItemOptionsMenu(
+        activity: MainActivity,
+        item: HistoryItem,
+        onNavigate: (String) -> Unit,
+        onRefresh: () -> Unit,
+        onEnterSelect: () -> Unit
+    ) {
+        val options = arrayOf(
+            "Open in new tab",
+            "Open in private tab",
+            "Select items",
+            "Copy URL",
+            "Share link",
+            "Delete"
+        )
 
-    private fun showHistoryItemOptions(activity: MainActivity, item: HistoryItem, onDelete: () -> Unit, onNavigate: (String) -> Unit) {
-        val options = arrayOf("Open in new tab", "Open in private tab", "Copy URL", "Share", "Delete")
         AlertDialog.Builder(activity)
             .setTitle(item.title)
             .setItems(options) { _, which ->
@@ -287,11 +496,14 @@ object HazeHistoryManager {
                         Toast.makeText(activity, "Opened in private tab", Toast.LENGTH_SHORT).show()
                     }
                     2 -> {
+                        onEnterSelect()
+                    }
+                    3 -> {
                         val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         cm.setPrimaryClip(ClipData.newPlainText("URL", item.url))
                         Toast.makeText(activity, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
                     }
-                    3 -> {
+                    4 -> {
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, item.title)
@@ -299,9 +511,10 @@ object HazeHistoryManager {
                         }
                         activity.startActivity(Intent.createChooser(intent, "Share link"))
                     }
-                    4 -> {
-                        onDelete()
-                        Toast.makeText(activity, "Entry deleted", Toast.LENGTH_SHORT).show()
+                    5 -> {
+                        HazeDatabase.getInstance(activity).deleteHistoryItem(item.id)
+                        Toast.makeText(activity, "Deleted", Toast.LENGTH_SHORT).show()
+                        onRefresh()
                     }
                 }
             }
@@ -309,15 +522,23 @@ object HazeHistoryManager {
             .show()
     }
 
-    private class HistoryGroupedAdapter(
+    private fun showClearHistoryDialog(activity: MainActivity, onCleared: () -> Unit) {
+        HazeClearDataManager.showClearDataDialog(activity, onCleared)
+    }
+
+    // --- Adapters ---
+
+    private class HistoryGroupedRecyclerAdapter(
         private val activity: MainActivity,
         private val grouped: Map<String, List<HistoryItem>>,
+        private val isSelectionMode: Boolean,
+        private val selectedIds: Set<Long>,
         private val onItemClick: (HistoryItem) -> Unit,
+        private val onItemLongClick: (HistoryItem) -> Unit,
         private val onItemDelete: (HistoryItem) -> Unit,
         private val isDark: Boolean,
         private val textColor: Int,
         private val subTextColor: Int,
-        private val cardBgColor: Int,
         private val accentColor: Int
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -339,27 +560,33 @@ object HazeHistoryManager {
             if (viewType == 0) {
                 val tv = TextView(activity).apply {
                     layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                    setPadding(dpToPx(activity, 20), dpToPx(activity, 14), dpToPx(activity, 20), dpToPx(activity, 6))
+                    setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 6))
                     textSize = 13f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(accentColor)
                 }
-                return HeaderViewHolder(tv)
+                return HeaderHolder(tv)
             } else {
                 val row = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 62))
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 68))
                     setPadding(dpToPx(activity, 16), 0, dpToPx(activity, 12), 0)
                     setBackgroundResource(getSelectableRes(activity))
                 }
 
-                val icon = ImageView(activity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 24), dpToPx(activity, 24)).apply {
+                val checkbox = CheckBox(activity).apply {
+                    isClickable = false
+                    isFocusable = false
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 32), dpToPx(activity, 32)).apply {
+                        marginEnd = dpToPx(activity, 8)
+                    }
+                }
+
+                val favicon = ImageView(activity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 36), dpToPx(activity, 36)).apply {
                         marginEnd = dpToPx(activity, 14)
                     }
-                    setImageResource(R.drawable.ic_globe)
-                    setColorFilter(subTextColor)
                 }
 
                 val textCol = LinearLayout(activity).apply {
@@ -368,7 +595,6 @@ object HazeHistoryManager {
                 }
 
                 val titleTv = TextView(activity).apply {
-                    id = View.generateViewId()
                     textSize = 15f
                     setTextColor(textColor)
                     isSingleLine = true
@@ -376,112 +602,136 @@ object HazeHistoryManager {
 
                 val subRow = LinearLayout(activity).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    val urlTv = TextView(activity).apply {
-                        id = View.generateViewId()
+                    val domainTv = TextView(activity).apply {
                         textSize = 12f
                         setTextColor(subTextColor)
                         isSingleLine = true
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     }
                     val timeTv = TextView(activity).apply {
-                        id = View.generateViewId()
                         textSize = 11f
                         setTextColor(subTextColor)
                         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                             marginStart = dpToPx(activity, 8)
                         }
                     }
-                    addView(urlTv)
+                    addView(domainTv)
                     addView(timeTv)
                 }
+
                 textCol.addView(titleTv)
                 textCol.addView(subRow)
 
                 val btnDelete = ImageButton(activity).apply {
-                    id = View.generateViewId()
                     setImageResource(R.drawable.ic_close)
                     setColorFilter(subTextColor)
                     setBackgroundResource(getSelectableRes(activity))
                     layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 32), dpToPx(activity, 32))
                 }
 
-                row.addView(icon)
+                row.addView(checkbox)
+                row.addView(favicon)
                 row.addView(textCol)
                 row.addView(btnDelete)
 
-                return ItemViewHolder(row, titleTv, subRow.getChildAt(0) as TextView, subRow.getChildAt(1) as TextView, btnDelete)
+                return EntryHolder(row, checkbox, favicon, titleTv, subRow.getChildAt(0) as TextView, subRow.getChildAt(1) as TextView, btnDelete)
             }
         }
 
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-            if (holder is HeaderViewHolder) {
+            if (holder is HeaderHolder) {
                 holder.textView.text = items[position] as String
-            } else if (holder is ItemViewHolder) {
+            } else if (holder is EntryHolder) {
                 val item = items[position] as HistoryItem
                 holder.titleTv.text = item.title
-                val domain = try { Uri.parse(item.url).host ?: item.url } catch (e: Exception) { item.url }
-                holder.urlTv.text = domain
+                val domain = HazeFaviconManager.getDomain(item.url)
+                val visitStr = if (item.visitCount > 1) " • ${item.visitCount} visits" else ""
+                holder.domainTv.text = "$domain$visitStr"
                 holder.timeTv.text = timeFormat.format(Date(item.timestamp))
+
+                if (isSelectionMode) {
+                    holder.checkbox.visibility = View.VISIBLE
+                    holder.checkbox.isChecked = selectedIds.contains(item.id)
+                    holder.btnDelete.visibility = View.GONE
+                } else {
+                    holder.checkbox.visibility = View.GONE
+                    holder.btnDelete.visibility = View.VISIBLE
+                }
+
+                // Load Favicon asynchronously
+                HazeFaviconManager.loadFavicon(activity, item.url, holder.favicon, fallbackText = domain, isDark = isDark)
 
                 holder.itemView.setOnClickListener { onItemClick(item) }
                 holder.itemView.setOnLongClickListener {
-                    showHistoryItemOptions(activity, item, { onItemDelete(item) }, { onItemClick(item) })
+                    onItemLongClick(item)
                     true
                 }
                 holder.btnDelete.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
                     onItemDelete(item)
                 }
             }
         }
 
         override fun getItemCount(): Int = items.size
-        class HeaderViewHolder(val textView: TextView) : RecyclerView.ViewHolder(textView)
-        class ItemViewHolder(
+        class HeaderHolder(val textView: TextView) : RecyclerView.ViewHolder(textView)
+        class EntryHolder(
             val view: View,
+            val checkbox: CheckBox,
+            val favicon: ImageView,
             val titleTv: TextView,
-            val urlTv: TextView,
+            val domainTv: TextView,
             val timeTv: TextView,
             val btnDelete: ImageButton
         ) : RecyclerView.ViewHolder(view)
     }
 
-    private class HistorySearchAdapter(
+    private class HistoryItemAdapter(
         private val activity: MainActivity,
-        private val list: List<HistoryItem>,
+        private val items: List<HistoryItem>,
+        private val isSelectionMode: Boolean,
+        private val selectedIds: Set<Long>,
         private val onItemClick: (HistoryItem) -> Unit,
+        private val onItemLongClick: (HistoryItem) -> Unit,
         private val onItemDelete: (HistoryItem) -> Unit,
         private val isDark: Boolean,
         private val textColor: Int,
         private val subTextColor: Int,
-        private val cardBgColor: Int
-    ) : RecyclerView.Adapter<HistorySearchAdapter.SearchViewHolder>() {
+        private val accentColor: Int
+    ) : RecyclerView.Adapter<HistoryItemAdapter.EntryHolder>() {
 
         private val timeFormat = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
 
-        class SearchViewHolder(
+        class EntryHolder(
             val view: View,
+            val checkbox: CheckBox,
+            val favicon: ImageView,
             val titleTv: TextView,
-            val urlTv: TextView,
+            val domainTv: TextView,
             val timeTv: TextView,
             val btnDelete: ImageButton
         ) : RecyclerView.ViewHolder(view)
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SearchViewHolder {
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): EntryHolder {
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 62))
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 68))
                 setPadding(dpToPx(activity, 16), 0, dpToPx(activity, 12), 0)
                 setBackgroundResource(getSelectableRes(activity))
             }
 
-            val icon = ImageView(activity).apply {
-                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 24), dpToPx(activity, 24)).apply {
+            val checkbox = CheckBox(activity).apply {
+                isClickable = false
+                isFocusable = false
+                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 32), dpToPx(activity, 32)).apply {
+                    marginEnd = dpToPx(activity, 8)
+                }
+            }
+
+            val favicon = ImageView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 36), dpToPx(activity, 36)).apply {
                     marginEnd = dpToPx(activity, 14)
                 }
-                setImageResource(R.drawable.ic_globe)
-                setColorFilter(subTextColor)
             }
 
             val textCol = LinearLayout(activity).apply {
@@ -497,7 +747,7 @@ object HazeHistoryManager {
 
             val subRow = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
-                val urlTv = TextView(activity).apply {
+                val domainTv = TextView(activity).apply {
                     textSize = 12f
                     setTextColor(subTextColor)
                     isSingleLine = true
@@ -510,9 +760,10 @@ object HazeHistoryManager {
                         marginStart = dpToPx(activity, 8)
                     }
                 }
-                addView(urlTv)
+                addView(domainTv)
                 addView(timeTv)
             }
+
             textCol.addView(titleTv)
             textCol.addView(subRow)
 
@@ -523,31 +774,44 @@ object HazeHistoryManager {
                 layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 32), dpToPx(activity, 32))
             }
 
-            row.addView(icon)
+            row.addView(checkbox)
+            row.addView(favicon)
             row.addView(textCol)
             row.addView(btnDelete)
 
-            return SearchViewHolder(row, titleTv, subRow.getChildAt(0) as TextView, subRow.getChildAt(1) as TextView, btnDelete)
+            return EntryHolder(row, checkbox, favicon, titleTv, subRow.getChildAt(0) as TextView, subRow.getChildAt(1) as TextView, btnDelete)
         }
 
-        override fun onBindViewHolder(holder: SearchViewHolder, position: Int) {
-            val item = list[position]
+        override fun onBindViewHolder(holder: EntryHolder, position: Int) {
+            val item = items[position]
             holder.titleTv.text = item.title
-            holder.urlTv.text = item.url
+            val domain = HazeFaviconManager.getDomain(item.url)
+            val visitStr = if (item.visitCount > 1) " • ${item.visitCount} visits" else ""
+            holder.domainTv.text = "$domain$visitStr"
             holder.timeTv.text = timeFormat.format(Date(item.timestamp))
+
+            if (isSelectionMode) {
+                holder.checkbox.visibility = View.VISIBLE
+                holder.checkbox.isChecked = selectedIds.contains(item.id)
+                holder.btnDelete.visibility = View.GONE
+            } else {
+                holder.checkbox.visibility = View.GONE
+                holder.btnDelete.visibility = View.VISIBLE
+            }
+
+            HazeFaviconManager.loadFavicon(activity, item.url, holder.favicon, fallbackText = domain, isDark = isDark)
 
             holder.itemView.setOnClickListener { onItemClick(item) }
             holder.itemView.setOnLongClickListener {
-                showHistoryItemOptions(activity, item, { onItemDelete(item) }, { onItemClick(item) })
+                onItemLongClick(item)
                 true
             }
             holder.btnDelete.setOnClickListener {
-                activity.triggerStrongHaptic(it)
                 onItemDelete(item)
             }
         }
 
-        override fun getItemCount(): Int = list.size
+        override fun getItemCount(): Int = items.size
     }
 
     private fun dpToPx(context: Context, dp: Int): Int {

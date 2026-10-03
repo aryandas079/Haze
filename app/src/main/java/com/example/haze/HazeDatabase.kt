@@ -12,7 +12,8 @@ data class HistoryItem(
     val url: String,
     val title: String,
     val timestamp: Long,
-    val visitCount: Int = 1
+    val visitCount: Int = 1,
+    val faviconPath: String? = null
 )
 
 data class BookmarkFolder(
@@ -28,7 +29,8 @@ data class BookmarkItem(
     val url: String,
     val folderId: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
-    val position: Int = 0
+    val position: Int = 0,
+    val faviconPath: String? = null
 )
 
 data class DownloadItem(
@@ -39,7 +41,7 @@ data class DownloadItem(
     val fileSize: Long,
     val url: String,
     val mimeType: String,
-    val status: String, // ACTIVE, COMPLETED, FAILED, PAUSED
+    val status: String, // QUEUED, DOWNLOADING, PAUSED, COMPLETED, FAILED, CANCELLED
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -49,12 +51,36 @@ data class RecentSearchItem(
     val timestamp: Long
 )
 
+data class PrivacyShieldStats(
+    val adsBlocked: Long = 0L,
+    val trackersBlocked: Long = 0L,
+    val maliciousBlocked: Long = 0L,
+    val phishingBlocked: Long = 0L,
+    val unwantedScriptsBlocked: Long = 0L,
+    val thirdPartyBlocked: Long = 0L,
+    val totalBlocked: Long = 0L,
+    val dataSavedBytes: Long = 0L,
+    val timeSavedMs: Long = 0L,
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+data class BlockedEvent(
+    val id: Long = 0L,
+    val category: String, // ADS, TRACKERS, MALICIOUS, PHISHING, UNWANTED_SCRIPTS, THIRD_PARTY
+    val domain: String,
+    val url: String,
+    val resourceType: String,
+    val bytesSaved: Long,
+    val reason: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 class HazeDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "haze_browser.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 3
 
         @Volatile
         private var instance: HazeDatabase? = null
@@ -75,7 +101,8 @@ class HazeDatabase private constructor(context: Context) :
                 url TEXT NOT NULL,
                 title TEXT,
                 timestamp INTEGER NOT NULL,
-                visit_count INTEGER DEFAULT 1
+                visit_count INTEGER DEFAULT 1,
+                favicon_path TEXT
             )
             """.trimIndent()
         )
@@ -103,7 +130,8 @@ class HazeDatabase private constructor(context: Context) :
                 url TEXT NOT NULL,
                 folder_id INTEGER DEFAULT 0,
                 created_at INTEGER NOT NULL,
-                position INTEGER DEFAULT 0
+                position INTEGER DEFAULT 0,
+                favicon_path TEXT
             )
             """.trimIndent()
         )
@@ -139,38 +167,164 @@ class HazeDatabase private constructor(context: Context) :
         )
         db.execSQL("CREATE INDEX idx_searches_timestamp ON recent_searches(timestamp DESC)")
 
-        // Insert initial default bookmark folder if desired
+        // Insert initial default bookmark folder
         val values = ContentValues().apply {
             put("name", "Mobile Bookmarks")
             put("parent_id", 0)
             put("created_at", System.currentTimeMillis())
         }
         db.insert("bookmark_folders", null, values)
+
+        // 6. Privacy Shield Stats Table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS privacy_shield_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                ads_blocked INTEGER DEFAULT 0,
+                trackers_blocked INTEGER DEFAULT 0,
+                malicious_blocked INTEGER DEFAULT 0,
+                phishing_blocked INTEGER DEFAULT 0,
+                unwanted_scripts_blocked INTEGER DEFAULT 0,
+                third_party_blocked INTEGER DEFAULT 0,
+                total_blocked INTEGER DEFAULT 0,
+                data_saved_bytes INTEGER DEFAULT 0,
+                time_saved_ms INTEGER DEFAULT 0,
+                last_updated INTEGER DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        db.execSQL("INSERT OR IGNORE INTO privacy_shield_stats (id, ads_blocked, trackers_blocked, malicious_blocked, phishing_blocked, unwanted_scripts_blocked, third_party_blocked, total_blocked, data_saved_bytes, time_saved_ms, last_updated) VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)")
+
+        // 7. Privacy Shield Events Table (recent blocking events)
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS privacy_shield_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                url TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                bytes_saved INTEGER DEFAULT 0,
+                reason TEXT,
+                timestamp INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_ts ON privacy_shield_events(timestamp DESC)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_cat ON privacy_shield_events(category)")
+
+        // 8. Privacy Shield Whitelisted Domains / Exceptions Table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS privacy_shield_exceptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                domain TEXT UNIQUE NOT NULL,
+                created_at INTEGER NOT NULL,
+                is_whitelisted INTEGER DEFAULT 1
+            )
+            """.trimIndent()
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Future migrations
+        if (oldVersion < 2) {
+            try {
+                db.execSQL("ALTER TABLE history ADD COLUMN favicon_path TEXT")
+            } catch (ignored: Exception) {}
+            try {
+                db.execSQL("ALTER TABLE bookmarks ADD COLUMN favicon_path TEXT")
+            } catch (ignored: Exception) {}
+        }
+        if (oldVersion < 3) {
+            createPrivacyTables(db)
+        }
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        // Safety migration in case of version mismatches
+        try {
+            db.execSQL("ALTER TABLE history ADD COLUMN favicon_path TEXT")
+        } catch (ignored: Exception) {}
+        try {
+            db.execSQL("ALTER TABLE bookmarks ADD COLUMN favicon_path TEXT")
+        } catch (ignored: Exception) {}
+        createPrivacyTables(db)
+    }
+
+    private fun createPrivacyTables(db: SQLiteDatabase) {
+        try {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS privacy_shield_stats (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    ads_blocked INTEGER DEFAULT 0,
+                    trackers_blocked INTEGER DEFAULT 0,
+                    malicious_blocked INTEGER DEFAULT 0,
+                    phishing_blocked INTEGER DEFAULT 0,
+                    unwanted_scripts_blocked INTEGER DEFAULT 0,
+                    third_party_blocked INTEGER DEFAULT 0,
+                    total_blocked INTEGER DEFAULT 0,
+                    data_saved_bytes INTEGER DEFAULT 0,
+                    time_saved_ms INTEGER DEFAULT 0,
+                    last_updated INTEGER DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL("INSERT OR IGNORE INTO privacy_shield_stats (id, ads_blocked, trackers_blocked, malicious_blocked, phishing_blocked, unwanted_scripts_blocked, third_party_blocked, total_blocked, data_saved_bytes, time_saved_ms, last_updated) VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS privacy_shield_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    bytes_saved INTEGER DEFAULT 0,
+                    reason TEXT,
+                    timestamp INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_ts ON privacy_shield_events(timestamp DESC)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_cat ON privacy_shield_events(category)")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS privacy_shield_exceptions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT UNIQUE NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    is_whitelisted INTEGER DEFAULT 1
+                )
+                """.trimIndent()
+            )
+        } catch (ignored: Exception) {}
     }
 
     // ==========================================
     // HISTORY METHODS
     // ==========================================
 
-    fun addHistory(url: String, title: String, isPrivate: Boolean) {
+    fun addHistory(url: String, title: String, isPrivate: Boolean, faviconPath: String? = null) {
         if (isPrivate || url.isEmpty() || url.startsWith("haze://") || url.startsWith("about:")) return
         try {
             val db = writableDatabase
-            // Check if URL was visited very recently (update visit count and timestamp)
-            val cursor = db.rawQuery("SELECT id, visit_count FROM history WHERE url = ? ORDER BY timestamp DESC LIMIT 1", arrayOf(url))
+            val cursor = db.rawQuery("SELECT id, visit_count, favicon_path FROM history WHERE url = ? ORDER BY timestamp DESC LIMIT 1", arrayOf(url))
             if (cursor.moveToFirst()) {
                 val id = cursor.getLong(0)
                 val count = cursor.getInt(1)
+                val existingFavicon = cursor.getString(2)
                 cursor.close()
 
                 val cv = ContentValues().apply {
                     put("title", if (title.isNotEmpty()) title else url)
                     put("timestamp", System.currentTimeMillis())
                     put("visit_count", count + 1)
+                    if (faviconPath != null) {
+                        put("favicon_path", faviconPath)
+                    } else if (existingFavicon != null) {
+                        put("favicon_path", existingFavicon)
+                    }
                 }
                 db.update("history", cv, "id = ?", arrayOf(id.toString()))
             } else {
@@ -180,9 +334,21 @@ class HazeDatabase private constructor(context: Context) :
                     put("title", if (title.isNotEmpty()) title else url)
                     put("timestamp", System.currentTimeMillis())
                     put("visit_count", 1)
+                    if (faviconPath != null) put("favicon_path", faviconPath)
                 }
                 db.insert("history", null, cv)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun updateHistoryFavicon(url: String, faviconPath: String) {
+        try {
+            val cv = ContentValues().apply {
+                put("favicon_path", faviconPath)
+            }
+            writableDatabase.update("history", cv, "url = ?", arrayOf(url))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -194,7 +360,7 @@ class HazeDatabase private constructor(context: Context) :
             val db = readableDatabase
             val pattern = "%$query%"
             val cursor = db.rawQuery(
-                "SELECT id, url, title, timestamp, visit_count FROM history WHERE title LIKE ? OR url LIKE ? ORDER BY timestamp DESC LIMIT 100",
+                "SELECT id, url, title, timestamp, visit_count, favicon_path FROM history WHERE title LIKE ? OR url LIKE ? ORDER BY timestamp DESC LIMIT 150",
                 arrayOf(pattern, pattern)
             )
             while (cursor.moveToNext()) {
@@ -204,7 +370,8 @@ class HazeDatabase private constructor(context: Context) :
                         url = cursor.getString(1),
                         title = cursor.getString(2) ?: cursor.getString(1),
                         timestamp = cursor.getLong(3),
-                        visitCount = cursor.getInt(4)
+                        visitCount = cursor.getInt(4),
+                        faviconPath = cursor.getString(5)
                     )
                 )
             }
@@ -220,7 +387,7 @@ class HazeDatabase private constructor(context: Context) :
         try {
             val db = readableDatabase
             val cursor = db.rawQuery(
-                "SELECT id, url, title, timestamp, visit_count FROM history ORDER BY timestamp DESC LIMIT 300",
+                "SELECT id, url, title, timestamp, visit_count, favicon_path FROM history ORDER BY timestamp DESC LIMIT 400",
                 null
             )
             while (cursor.moveToNext()) {
@@ -230,7 +397,8 @@ class HazeDatabase private constructor(context: Context) :
                         url = cursor.getString(1),
                         title = cursor.getString(2) ?: cursor.getString(1),
                         timestamp = cursor.getLong(3),
-                        visitCount = cursor.getInt(4)
+                        visitCount = cursor.getInt(4),
+                        faviconPath = cursor.getString(5)
                     )
                 )
             }
@@ -275,7 +443,6 @@ class HazeDatabase private constructor(context: Context) :
             }
         }
 
-        // Return only sections that have items
         return grouped.filterValues { it.isNotEmpty() }
     }
 
@@ -284,6 +451,23 @@ class HazeDatabase private constructor(context: Context) :
             writableDatabase.delete("history", "id = ?", arrayOf(id.toString())) > 0
         } catch (e: Exception) {
             false
+        }
+    }
+
+    fun deleteHistoryItems(ids: List<Long>): Int {
+        if (ids.isEmpty()) return 0
+        return try {
+            val db = writableDatabase
+            db.beginTransaction()
+            var count = 0
+            for (id in ids) {
+                count += db.delete("history", "id = ?", arrayOf(id.toString()))
+            }
+            db.setTransactionSuccessful()
+            db.endTransaction()
+            count
+        } catch (e: Exception) {
+            0
         }
     }
 
@@ -304,20 +488,48 @@ class HazeDatabase private constructor(context: Context) :
         }
     }
 
+    fun clearAllBookmarks(): Boolean {
+        return try {
+            writableDatabase.delete("bookmarks", null, null)
+            writableDatabase.delete("bookmark_folders", null, null)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun clearAllDownloads(): Boolean {
+        return try {
+            writableDatabase.delete("downloads", null, null)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun clearDownloadsRange(sinceMillis: Long): Int {
+        return try {
+            writableDatabase.delete("downloads", "timestamp >= ?", arrayOf(sinceMillis.toString()))
+        } catch (e: Exception) {
+            0
+        }
+    }
+
     // ==========================================
     // BOOKMARKS & FOLDERS METHODS
     // ==========================================
 
-    fun addBookmark(title: String, url: String, folderId: Long = 0L): Long {
+    fun addBookmark(title: String, url: String, folderId: Long = 0L, faviconPath: String? = null): Long {
         return try {
             val db = writableDatabase
-            // Check if already bookmarked in this folder
             val cursor = db.rawQuery("SELECT id FROM bookmarks WHERE url = ? AND folder_id = ?", arrayOf(url, folderId.toString()))
             if (cursor.moveToFirst()) {
                 val existingId = cursor.getLong(0)
                 cursor.close()
-                // Update title
-                val cv = ContentValues().apply { put("title", title) }
+                val cv = ContentValues().apply {
+                    put("title", title)
+                    if (faviconPath != null) put("favicon_path", faviconPath)
+                }
                 db.update("bookmarks", cv, "id = ?", arrayOf(existingId.toString()))
                 return existingId
             }
@@ -329,6 +541,7 @@ class HazeDatabase private constructor(context: Context) :
                 put("folder_id", folderId)
                 put("created_at", System.currentTimeMillis())
                 put("position", 0)
+                if (faviconPath != null) put("favicon_path", faviconPath)
             }
             db.insert("bookmarks", null, cv)
         } catch (e: Exception) {
@@ -344,6 +557,23 @@ class HazeDatabase private constructor(context: Context) :
                 put("folder_id", newFolderId)
             }
             writableDatabase.update("bookmarks", cv, "id = ?", arrayOf(id.toString())) > 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun moveBookmarks(ids: List<Long>, targetFolderId: Long): Boolean {
+        if (ids.isEmpty()) return false
+        return try {
+            val db = writableDatabase
+            db.beginTransaction()
+            val cv = ContentValues().apply { put("folder_id", targetFolderId) }
+            for (id in ids) {
+                db.update("bookmarks", cv, "id = ?", arrayOf(id.toString()))
+            }
+            db.setTransactionSuccessful()
+            db.endTransaction()
+            true
         } catch (e: Exception) {
             false
         }
@@ -369,11 +599,27 @@ class HazeDatabase private constructor(context: Context) :
         }
     }
 
+    fun deleteBookmarks(ids: List<Long>): Boolean {
+        if (ids.isEmpty()) return false
+        return try {
+            val db = writableDatabase
+            db.beginTransaction()
+            for (id in ids) {
+                db.delete("bookmarks", "id = ?", arrayOf(id.toString()))
+            }
+            db.setTransactionSuccessful()
+            db.endTransaction()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     fun getBookmarks(folderId: Long): List<BookmarkItem> {
         val list = mutableListOf<BookmarkItem>()
         try {
             val cursor = readableDatabase.rawQuery(
-                "SELECT id, title, url, folder_id, created_at, position FROM bookmarks WHERE folder_id = ? ORDER BY position ASC, id DESC",
+                "SELECT id, title, url, folder_id, created_at, position, favicon_path FROM bookmarks WHERE folder_id = ? ORDER BY position ASC, id DESC",
                 arrayOf(folderId.toString())
             )
             while (cursor.moveToNext()) {
@@ -384,7 +630,67 @@ class HazeDatabase private constructor(context: Context) :
                         url = cursor.getString(2),
                         folderId = cursor.getLong(3),
                         createdAt = cursor.getLong(4),
-                        position = cursor.getInt(5)
+                        position = cursor.getInt(5),
+                        faviconPath = cursor.getString(6)
+                    )
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun getAllBookmarks(): List<BookmarkItem> {
+        val list = mutableListOf<BookmarkItem>()
+        try {
+            val cursor = readableDatabase.rawQuery(
+                "SELECT id, title, url, folder_id, created_at, position, favicon_path FROM bookmarks ORDER BY created_at DESC",
+                null
+            )
+            while (cursor.moveToNext()) {
+                list.add(
+                    BookmarkItem(
+                        id = cursor.getLong(0),
+                        title = cursor.getString(1),
+                        url = cursor.getString(2),
+                        folderId = cursor.getLong(3),
+                        createdAt = cursor.getLong(4),
+                        position = cursor.getInt(5),
+                        faviconPath = cursor.getString(6)
+                    )
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun getAllBookmarkFolders(): List<BookmarkFolder> = getAllFolders()
+
+    fun createBookmarkFolder(name: String, parentId: Long = 0L): Long = createFolder(name, parentId)
+
+    fun searchBookmarks(query: String): List<BookmarkItem> {
+        val list = mutableListOf<BookmarkItem>()
+        try {
+            val pattern = "%$query%"
+            val cursor = readableDatabase.rawQuery(
+                "SELECT id, title, url, folder_id, created_at, position, favicon_path FROM bookmarks WHERE title LIKE ? OR url LIKE ? ORDER BY title ASC LIMIT 100",
+                arrayOf(pattern, pattern)
+            )
+            while (cursor.moveToNext()) {
+                list.add(
+                    BookmarkItem(
+                        id = cursor.getLong(0),
+                        title = cursor.getString(1),
+                        url = cursor.getString(2),
+                        folderId = cursor.getLong(3),
+                        createdAt = cursor.getLong(4),
+                        position = cursor.getInt(5),
+                        faviconPath = cursor.getString(6)
                     )
                 )
             }
@@ -422,8 +728,11 @@ class HazeDatabase private constructor(context: Context) :
             val db = writableDatabase
             // Delete bookmarks inside this folder
             db.delete("bookmarks", "folder_id = ?", arrayOf(folderId.toString()))
-            // Delete child folders
-            db.delete("bookmark_folders", "parent_id = ?", arrayOf(folderId.toString()))
+            // Recursively delete subfolders
+            val children = getSubFolders(folderId)
+            for (c in children) {
+                deleteFolder(c.id)
+            }
             // Delete the folder itself
             db.delete("bookmark_folders", "id = ?", arrayOf(folderId.toString())) > 0
         } catch (e: Exception) {
@@ -479,6 +788,33 @@ class HazeDatabase private constructor(context: Context) :
         return list
     }
 
+    fun getFolderPath(folderId: Long): List<BookmarkFolder> {
+        val path = mutableListOf<BookmarkFolder>()
+        var currentId = folderId
+        try {
+            val db = readableDatabase
+            while (currentId != 0L) {
+                val cursor = db.rawQuery("SELECT id, name, parent_id, created_at FROM bookmark_folders WHERE id = ?", arrayOf(currentId.toString()))
+                if (cursor.moveToFirst()) {
+                    val folder = BookmarkFolder(
+                        id = cursor.getLong(0),
+                        name = cursor.getString(1),
+                        parentId = cursor.getLong(2),
+                        createdAt = cursor.getLong(3)
+                    )
+                    path.add(0, folder)
+                    currentId = folder.parentId
+                } else {
+                    break
+                }
+                cursor.close()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return path
+    }
+
     // ==========================================
     // DOWNLOADS METHODS
     // ==========================================
@@ -525,10 +861,12 @@ class HazeDatabase private constructor(context: Context) :
     fun getAllDownloads(statusFilter: String? = null): List<DownloadItem> {
         val list = mutableListOf<DownloadItem>()
         try {
-            val query = if (statusFilter == null || statusFilter == "ALL") {
-                "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads ORDER BY timestamp DESC"
-            } else {
-                "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads WHERE status = '$statusFilter' ORDER BY timestamp DESC"
+            val query = when (statusFilter?.uppercase()) {
+                null, "ALL" -> "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads ORDER BY timestamp DESC"
+                "ACTIVE" -> "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads WHERE status IN ('ACTIVE', 'DOWNLOADING', 'QUEUED') ORDER BY timestamp DESC"
+                "COMPLETED" -> "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads WHERE status = 'COMPLETED' ORDER BY timestamp DESC"
+                "FAILED" -> "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads WHERE status IN ('FAILED', 'CANCELLED') ORDER BY timestamp DESC"
+                else -> "SELECT id, download_id, file_name, file_path, file_size, url, mime_type, status, timestamp FROM downloads WHERE status = '$statusFilter' ORDER BY timestamp DESC"
             }
             val cursor = readableDatabase.rawQuery(query, null)
             while (cursor.moveToNext()) {
@@ -626,5 +964,301 @@ class HazeDatabase private constructor(context: Context) :
         } catch (e: Exception) {
             false
         }
+    }
+
+    // ==========================================
+    // PRIVACY SHIELD METHODS
+    // ==========================================
+
+    fun getPrivacyStats(): PrivacyShieldStats {
+        try {
+            val cursor = readableDatabase.rawQuery(
+                "SELECT ads_blocked, trackers_blocked, malicious_blocked, phishing_blocked, unwanted_scripts_blocked, third_party_blocked, total_blocked, data_saved_bytes, time_saved_ms, last_updated FROM privacy_shield_stats WHERE id = 1",
+                null
+            )
+            if (cursor.moveToFirst()) {
+                val stats = PrivacyShieldStats(
+                    adsBlocked = cursor.getLong(0),
+                    trackersBlocked = cursor.getLong(1),
+                    maliciousBlocked = cursor.getLong(2),
+                    phishingBlocked = cursor.getLong(3),
+                    unwantedScriptsBlocked = cursor.getLong(4),
+                    thirdPartyBlocked = cursor.getLong(5),
+                    totalBlocked = cursor.getLong(6),
+                    dataSavedBytes = cursor.getLong(7),
+                    timeSavedMs = cursor.getLong(8),
+                    lastUpdated = cursor.getLong(9)
+                )
+                cursor.close()
+                return stats
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return PrivacyShieldStats()
+    }
+
+    fun incrementPrivacyStats(category: String, bytesSaved: Long, timeSavedMs: Long) {
+        try {
+            val db = writableDatabase
+            val column = when (category) {
+                "ADS" -> "ads_blocked"
+                "TRACKERS" -> "trackers_blocked"
+                "MALICIOUS" -> "malicious_blocked"
+                "PHISHING" -> "phishing_blocked"
+                "UNWANTED_SCRIPTS" -> "unwanted_scripts_blocked"
+                "THIRD_PARTY" -> "third_party_blocked"
+                else -> "total_blocked"
+            }
+            val sql = """
+                UPDATE privacy_shield_stats 
+                SET $column = $column + 1,
+                    total_blocked = total_blocked + 1,
+                    data_saved_bytes = data_saved_bytes + ?,
+                    time_saved_ms = time_saved_ms + ?,
+                    last_updated = ?
+                WHERE id = 1
+            """.trimIndent()
+            db.execSQL(sql, arrayOf(bytesSaved, timeSavedMs, System.currentTimeMillis()))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun recordBlockedEvent(event: BlockedEvent) {
+        try {
+            val db = writableDatabase
+            val cv = ContentValues().apply {
+                put("category", event.category)
+                put("domain", event.domain)
+                put("url", event.url)
+                put("resource_type", event.resourceType)
+                put("bytes_saved", event.bytesSaved)
+                put("reason", event.reason)
+                put("timestamp", event.timestamp)
+            }
+            db.insert("privacy_shield_events", null, cv)
+
+            // Cap the table to the latest 500 events to prevent growth
+            db.execSQL("DELETE FROM privacy_shield_events WHERE id NOT IN (SELECT id FROM privacy_shield_events ORDER BY timestamp DESC LIMIT 500)")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getRecentBlockedEvents(limit: Int = 100, category: String? = null): List<BlockedEvent> {
+        val list = mutableListOf<BlockedEvent>()
+        try {
+            val query = if (category != null) {
+                "SELECT id, category, domain, url, resource_type, bytes_saved, reason, timestamp FROM privacy_shield_events WHERE category = ? ORDER BY timestamp DESC LIMIT ?"
+            } else {
+                "SELECT id, category, domain, url, resource_type, bytes_saved, reason, timestamp FROM privacy_shield_events ORDER BY timestamp DESC LIMIT ?"
+            }
+            val args = if (category != null) arrayOf(category, limit.toString()) else arrayOf(limit.toString())
+            val cursor = readableDatabase.rawQuery(query, args)
+            while (cursor.moveToNext()) {
+                list.add(
+                    BlockedEvent(
+                        id = cursor.getLong(0),
+                        category = cursor.getString(1),
+                        domain = cursor.getString(2),
+                        url = cursor.getString(3),
+                        resourceType = cursor.getString(4),
+                        bytesSaved = cursor.getLong(5),
+                        reason = cursor.getString(6) ?: "",
+                        timestamp = cursor.getLong(7)
+                    )
+                )
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun resetPrivacyStats(): Boolean {
+        return try {
+            val db = writableDatabase
+            db.execSQL("UPDATE privacy_shield_stats SET ads_blocked = 0, trackers_blocked = 0, malicious_blocked = 0, phishing_blocked = 0, unwanted_scripts_blocked = 0, third_party_blocked = 0, total_blocked = 0, data_saved_bytes = 0, time_saved_ms = 0, last_updated = ? WHERE id = 1", arrayOf(System.currentTimeMillis()))
+            db.delete("privacy_shield_events", null, null)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getWhitelistedDomains(): List<String> {
+        val list = mutableListOf<String>()
+        try {
+            val cursor = readableDatabase.rawQuery("SELECT domain FROM privacy_shield_exceptions WHERE is_whitelisted = 1 ORDER BY domain ASC", null)
+            while (cursor.moveToNext()) {
+                list.add(cursor.getString(0))
+            }
+            cursor.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    fun isDomainWhitelisted(domain: String): Boolean {
+        if (domain.isEmpty()) return false
+        val cleanDomain = domain.removePrefix("www.").lowercase()
+        try {
+            val cursor = readableDatabase.rawQuery(
+                "SELECT id FROM privacy_shield_exceptions WHERE (domain = ? OR domain = ?) AND is_whitelisted = 1 LIMIT 1",
+                arrayOf(domain.lowercase(), cleanDomain)
+            )
+            val exists = cursor.moveToFirst()
+            cursor.close()
+            return exists
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    fun setDomainWhitelisted(domain: String, whitelisted: Boolean): Boolean {
+        val cleanDomain = domain.trim().removePrefix("www.").lowercase()
+        if (cleanDomain.isEmpty()) return false
+        return try {
+            val db = writableDatabase
+            if (whitelisted) {
+                val cv = ContentValues().apply {
+                    put("domain", cleanDomain)
+                    put("created_at", System.currentTimeMillis())
+                    put("is_whitelisted", 1)
+                }
+                db.insertWithOnConflict("privacy_shield_exceptions", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            } else {
+                db.delete("privacy_shield_exceptions", "domain = ?", arrayOf(cleanDomain))
+            }
+            HazePrivacyShieldEngine.updateWhitelistCache(cleanDomain, whitelisted)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun getProtectionHistory(timeRange: String, categoryFilter: String?): Pair<FloatArray, Array<String>> {
+        val catClause = when (categoryFilter?.uppercase()) {
+            "ADS" -> "ADS"
+            "TRACKERS" -> "TRACKERS"
+            "CDN / OTHER", "CDN", "THIRD_PARTY" -> "THIRD_PARTY"
+            else -> null
+        }
+
+        val now = System.currentTimeMillis()
+        val numBuckets = when (timeRange) {
+            "24 hours" -> 6
+            "1 month" -> 4
+            "1 year" -> 4
+            else -> 7 // "7 days"
+        }
+
+        val counts = LongArray(numBuckets) { 0L }
+        val labels = Array(numBuckets) { "" }
+
+        try {
+            val db = readableDatabase
+            val calendar = java.util.Calendar.getInstance()
+
+            when (timeRange) {
+                "24 hours" -> {
+                    val fourHoursMs = 4 * 3600 * 1000L
+                    val dayFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+                    for (i in 0 until 6) {
+                        val endTime = now - (5 - i) * fourHoursMs
+                        val startTime = endTime - fourHoursMs
+                        calendar.timeInMillis = endTime
+                        labels[i] = dayFormat.format(calendar.time)
+
+                        val query = if (catClause != null) {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ? AND category = ?"
+                        } else {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ?"
+                        }
+                        val args = if (catClause != null) arrayOf(startTime.toString(), endTime.toString(), catClause) else arrayOf(startTime.toString(), endTime.toString())
+                        val cursor = db.rawQuery(query, args)
+                        if (cursor.moveToFirst()) counts[i] = cursor.getLong(0)
+                        cursor.close()
+                    }
+                }
+                "1 month" -> {
+                    val weekMs = 7 * 24 * 3600 * 1000L
+                    for (i in 0 until 4) {
+                        val endTime = now - (3 - i) * weekMs
+                        val startTime = endTime - weekMs
+                        labels[i] = "Wk ${i + 1}"
+
+                        val query = if (catClause != null) {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ? AND category = ?"
+                        } else {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ?"
+                        }
+                        val args = if (catClause != null) arrayOf(startTime.toString(), endTime.toString(), catClause) else arrayOf(startTime.toString(), endTime.toString())
+                        val cursor = db.rawQuery(query, args)
+                        if (cursor.moveToFirst()) counts[i] = cursor.getLong(0)
+                        cursor.close()
+                    }
+                }
+                "1 year" -> {
+                    val quarterMs = 91 * 24 * 3600 * 1000L
+                    for (i in 0 until 4) {
+                        val endTime = now - (3 - i) * quarterMs
+                        val startTime = endTime - quarterMs
+                        labels[i] = "Q${i + 1}"
+
+                        val query = if (catClause != null) {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ? AND category = ?"
+                        } else {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ?"
+                        }
+                        val args = if (catClause != null) arrayOf(startTime.toString(), endTime.toString(), catClause) else arrayOf(startTime.toString(), endTime.toString())
+                        val cursor = db.rawQuery(query, args)
+                        if (cursor.moveToFirst()) counts[i] = cursor.getLong(0)
+                        cursor.close()
+                    }
+                }
+                else -> { // "7 days"
+                    val dayMs = 24 * 3600 * 1000L
+                    val dayFormat = java.text.SimpleDateFormat("EEE", java.util.Locale.US)
+                    for (i in 0 until 7) {
+                        val endTime = now - (6 - i) * dayMs
+                        val startTime = endTime - dayMs
+                        calendar.timeInMillis = endTime
+                        labels[i] = dayFormat.format(calendar.time)
+
+                        val query = if (catClause != null) {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ? AND category = ?"
+                        } else {
+                            "SELECT COUNT(*) FROM privacy_shield_events WHERE timestamp >= ? AND timestamp < ?"
+                        }
+                        val args = if (catClause != null) arrayOf(startTime.toString(), endTime.toString(), catClause) else arrayOf(startTime.toString(), endTime.toString())
+                        val cursor = db.rawQuery(query, args)
+                        if (cursor.moveToFirst()) counts[i] = cursor.getLong(0)
+                        cursor.close()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Normalize points for curve
+        val maxVal = counts.maxOrNull() ?: 0L
+        val points = FloatArray(numBuckets)
+        if (maxVal == 0L) {
+            for (i in 0 until numBuckets) {
+                points[i] = 0.05f
+            }
+        } else {
+            for (i in 0 until numBuckets) {
+                points[i] = (counts[i].toFloat() / maxVal.toFloat()).coerceIn(0.08f, 0.95f)
+            }
+        }
+
+        return Pair(points, labels)
     }
 }

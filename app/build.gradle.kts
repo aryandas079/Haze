@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -37,6 +38,7 @@ dependencies {
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
+    implementation("com.google.android.gms:play-services-auth:21.2.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
