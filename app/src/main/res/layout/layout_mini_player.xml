@@ -23,6 +23,7 @@
 
         <!-- Top Bar -->
         <LinearLayout
+            android:id="@+id/miniPlayerTopBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -59,6 +60,15 @@
                 android:contentDescription="Expand" />
 
             <ImageButton
+                android:id="@+id/btnMiniPlayerFullscreen"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_fullscreen"
+                android:contentDescription="Fullscreen"
+                app:tint="#FFFFFF" />
+
+            <ImageButton
                 android:id="@+id/btnMiniPlayerClose"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
@@ -67,6 +77,25 @@
                 android:contentDescription="Close"
                 app:tint="#FFFFFF" />
         </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/miniPlayerBuffering"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:indeterminateTint="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/miniPlayerError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:padding="12dp"
+            android:text="Playback unavailable"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:visibility="gone" />
 
         <!-- Center Controls -->
         <LinearLayout

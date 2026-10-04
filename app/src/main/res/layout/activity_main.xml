@@ -8,6 +8,19 @@
     android:background="#FAFAFA"
     tools:context=".MainActivity">
 
+    <ProgressBar
+        android:id="@+id/pageProgressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="0dp"
+        android:layout_height="4dp"
+        android:progressDrawable="@drawable/bg_progress_bar"
+        android:max="100"
+        android:visibility="gone"
+        android:elevation="35dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
     <ImageView
         android:id="@+id/appBackgroundImageView"
         android:layout_width="0dp"
@@ -56,74 +69,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Top-Left Floating Navigation Capsule (Back & Forward buttons while browsing) -->
-    <LinearLayout
-        android:id="@+id/floatingNavContainer"
-        android:layout_width="wrap_content"
-        android:layout_height="40dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginTop="14dp"
-        android:layout_marginStart="16dp"
-        android:paddingStart="4dp"
-        android:paddingEnd="4dp"
-        android:elevation="28dp"
-        android:visibility="gone"
-        android:clipChildren="false"
-        android:clipToPadding="false"
-        android:background="@drawable/bg_floating_nav_pill"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
 
-        <!-- Floating Back Button -->
-        <FrameLayout
-            android:id="@+id/btnFloatingBack"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Navigate Back">
-
-            <ImageView
-                android:id="@+id/ivFloatingBackIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_arrow_back"
-                app:tint="#202124"
-                android:contentDescription="Navigate Back" />
-        </FrameLayout>
-
-        <!-- Subtle Vertical Divider -->
-        <View
-            android:id="@+id/floatingNavDivider"
-            android:layout_width="1dp"
-            android:layout_height="18dp"
-            android:layout_marginStart="2dp"
-            android:layout_marginEnd="2dp"
-            android:background="#DADCE0" />
-
-        <!-- Floating Forward Button -->
-        <FrameLayout
-            android:id="@+id/btnFloatingForward"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Navigate Forward">
-
-            <ImageView
-                android:id="@+id/ivFloatingForwardIcon"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_arrow_forward"
-                app:tint="#202124"
-                android:contentDescription="Navigate Forward" />
-        </FrameLayout>
-    </LinearLayout>
 
     <!-- Top-Right Actions on Home Screen (Privacy Shield + Profile) -->
     <LinearLayout

@@ -103,7 +103,24 @@ object HazeAccountManager {
             .putLong(KEY_SIGNED_IN_AT, user.signedInAt)
             .apply()
 
+        syncGoogleAccountToCookieManager(context)
         notifyAccountChanged(user)
+    }
+
+    fun syncGoogleAccountToCookieManager(context: Context) {
+        val user = getUser(context) ?: return
+        val cookieManager = android.webkit.CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        try {
+            cookieManager.setCookie(".google.com", "haze_user_email=${user.email}; Domain=.google.com; Path=/; Secure")
+            cookieManager.setCookie(".google.com", "haze_user_name=${Uri.encode(user.displayName)}; Domain=.google.com; Path=/; Secure")
+            cookieManager.setCookie(".youtube.com", "haze_user_email=${user.email}; Domain=.youtube.com; Path=/; Secure")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.flush()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun clearUser(context: Context) {

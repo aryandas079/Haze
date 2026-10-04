@@ -42,6 +42,13 @@ object HazePrivacyShieldEngine {
 
     private val whitelistedDomainsCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    // Bounded LRU Decision Cache (Capacity 1024) for ultra-fast O(1) request evaluation
+    private val decisionCache = object : java.util.LinkedHashMap<String, BlockDecision>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, BlockDecision>?): Boolean {
+            return size > 1024
+        }
+    }
+
     private val TRANSPARENT_1X1_PNG = byteArrayOf(
         0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
         0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -92,7 +99,7 @@ object HazePrivacyShieldEngine {
     fun init(context: Context) {
         dbExecutor.execute {
             try {
-                HazeFilterListManager.getRules(context)
+                val rules = HazeFilterListManager.getRules(context)
                 val db = HazeDatabase.getInstance(context)
                 val domains = db.getWhitelistedDomains()
                 whitelistedDomainsCache.clear()
@@ -101,6 +108,15 @@ object HazePrivacyShieldEngine {
                 }
                 val stats = db.getPrivacyStats()
                 cachedAllTimeTotal.set(stats.totalBlocked)
+
+                if (com.example.haze.native_engine.HazeNativeBridge.isNativeLoaded()) {
+                    com.example.haze.native_engine.HazeNativeBridge.nativeClearRules()
+                    rules.adDomains.forEach { com.example.haze.native_engine.HazeNativeBridge.nativeAddDomain(it, CATEGORY_ADS) }
+                    rules.trackerDomains.forEach { com.example.haze.native_engine.HazeNativeBridge.nativeAddDomain(it, CATEGORY_TRACKERS) }
+                    rules.maliciousDomains.forEach { com.example.haze.native_engine.HazeNativeBridge.nativeAddDomain(it, CATEGORY_MALICIOUS) }
+                    rules.phishingDomains.forEach { com.example.haze.native_engine.HazeNativeBridge.nativeAddDomain(it, CATEGORY_PHISHING) }
+                    rules.pathPatterns.forEach { com.example.haze.native_engine.HazeNativeBridge.nativeAddPatternRule(it, CATEGORY_ADS, false) }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -188,19 +204,57 @@ object HazePrivacyShieldEngine {
 
         val requestUri = try { Uri.parse(requestUrl) } catch (e: Exception) { return BlockDecision.ALLOW }
         val reqHost = requestUri.host?.lowercase()?.removePrefix("www.") ?: return BlockDecision.ALLOW
+        val pageHost = pageUrl?.let {
+            try { Uri.parse(it).host?.lowercase()?.removePrefix("www.") } catch (_: Exception) { null }
+        }
 
         // 1. Check user whitelisted domains from in-memory cache
         if (whitelistedDomainsCache.contains(reqHost)) return BlockDecision.ALLOW
-        if (!pageUrl.isNullOrEmpty()) {
-            val pageHost = try { Uri.parse(pageUrl).host?.lowercase()?.removePrefix("www.") } catch (e: Exception) { null }
-            if (pageHost != null && whitelistedDomainsCache.contains(pageHost)) {
-                return BlockDecision.ALLOW
-            }
+        if (pageHost != null && whitelistedDomainsCache.contains(pageHost)) {
+            return BlockDecision.ALLOW
         }
 
         // 2. Check essential services
         if (matchesDomainOrSuffix(reqHost, essentialDomains)) {
             return BlockDecision.ALLOW
+        }
+
+        val isYouTubePage = isYouTubeHost(pageHost)
+        if (isYouTubePage) {
+            // YouTube delivers the actual player through googlevideo.com. Never
+            // send those media segments through generic ad/path filters.
+            if (isYouTubeMediaRequest(requestUrl)) return BlockDecision.ALLOW
+
+            if (isYouTubeAdRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+                val decision = BlockDecision(
+                    shouldBlock = true,
+                    category = CATEGORY_ADS,
+                    reason = "YouTube advertising request",
+                    bytesSaved = 48_000L,
+                    timeSavedMs = 120L,
+                    targetUrl = requestUrl
+                )
+                recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate)
+                return decision
+            }
+        }
+
+        // Native C++ HazeShieldCore Execution
+        if (com.example.haze.native_engine.HazeNativeBridge.isNativeLoaded()) {
+            val nativeDec = com.example.haze.native_engine.HazeNativeBridge.nativeEvaluateRequest(requestUrl, pageUrl, isMainFrame)
+            if (nativeDec != null && nativeDec.shouldBlock) {
+                val decision = BlockDecision(
+                    shouldBlock = true,
+                    category = nativeDec.category,
+                    reason = nativeDec.reason,
+                    bytesSaved = nativeDec.bytesSaved,
+                    timeSavedMs = nativeDec.timeSavedMs,
+                    isHarmfulPageNavigation = isMainFrame && (nativeDec.category == CATEGORY_PHISHING || nativeDec.category == CATEGORY_MALICIOUS),
+                    targetUrl = requestUrl
+                )
+                recordEvent(context, decision, reqHost, requestUrl, "NATIVE_C_ENGINE", isPrivate)
+                return decision
+            }
         }
 
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -329,7 +383,6 @@ object HazePrivacyShieldEngine {
 
         // 9. Third-party Tracking Detection (Enhanced Privacy Mode)
         if (blockThirdParty && enhancedPrivacy && !pageUrl.isNullOrEmpty()) {
-            val pageHost = try { Uri.parse(pageUrl).host?.lowercase()?.removePrefix("www.") } catch (e: Exception) { null }
             if (pageHost != null && !isSameRegisteredDomain(reqHost, pageHost)) {
                 if (reqHost.contains("track") || reqHost.contains("pixel") || reqHost.contains("telemetry") ||
                     reqHost.contains("metric") || reqHost.contains("beacon") || path.contains("telemetry")) {
@@ -344,10 +397,41 @@ object HazePrivacyShieldEngine {
                     recordEvent(context, decision, reqHost, requestUrl, "CROSS_SITE_TRACKER", isPrivate)
                     return decision
                 }
+
             }
         }
 
         return BlockDecision.ALLOW
+    }
+
+    internal fun isYouTubeHost(host: String?): Boolean {
+        return host == "youtube.com" || host?.endsWith(".youtube.com") == true ||
+            host == "youtube-nocookie.com" || host?.endsWith(".youtube-nocookie.com") == true
+    }
+
+    internal fun isYouTubeMediaRequest(requestUrl: String): Boolean {
+        val uri = try { Uri.parse(requestUrl) } catch (_: Exception) { return false }
+        val host = uri.host?.lowercase()?.removePrefix("www.") ?: return false
+        val path = uri.path.orEmpty().lowercase()
+        return (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) &&
+            (path == "/videoplayback" || path.startsWith("/videoplayback/") ||
+                path.contains("/manifest/") || uri.getQueryParameter("mime")?.startsWith("video/") == true)
+    }
+
+    private fun isYouTubeAdRequest(host: String, path: String, url: String): Boolean {
+        val adHosts = host == "doubleclick.net" || host.endsWith(".doubleclick.net") ||
+            host == "googleadservices.com" || host.endsWith(".googleadservices.com") ||
+            host == "googlesyndication.com" || host.endsWith(".googlesyndication.com") ||
+            host == "ads.youtube.com" || host.endsWith(".ads.youtube.com")
+        if (adHosts) return true
+
+        val lowerUrl = url.lowercase()
+        val lowerPath = path.lowercase()
+        return (host == "youtube.com" || host.endsWith(".youtube.com")) &&
+            (lowerPath.contains("/api/stats/ads") ||
+                lowerPath.contains("/pagead/") ||
+                lowerUrl.contains("ad_break") ||
+                lowerUrl.contains("adformat="))
     }
 
     private fun matchesDomainOrSuffix(host: String, domainSet: Set<String>): Boolean {

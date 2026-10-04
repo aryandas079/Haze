@@ -47,7 +47,7 @@ object HazePrivacyShieldDashboard {
             color = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
             style = Paint.Style.STROKE
             strokeWidth = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1f, context.resources.displayMetrics)
-            pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
+            pathEffect = DashPathEffect(floatArrayOf(6f, 6f), 0f)
         }
 
         private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -65,22 +65,32 @@ object HazePrivacyShieldDashboard {
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val w = width.toFloat()
-            val graphHeight = height.toFloat() - TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
-            if (w <= 0 || graphHeight <= 0) return
+            val h = height.toFloat()
+            if (w <= 0 || h <= 0) return
+
+            val horizontalPadding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, resources.displayMetrics)
+            val topPadding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics)
+            val bottomPadding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32f, resources.displayMetrics)
+
+            val graphLeft = horizontalPadding
+            val graphRight = w - horizontalPadding
+            val graphBottom = h - bottomPadding
+            val usableWidth = graphRight - graphLeft
+            val usableHeight = graphBottom - topPadding
 
             val numPoints = dataPoints.size
             if (numPoints < 2) return
 
-            val stepX = w / (numPoints - 1)
+            val stepX = usableWidth / (numPoints - 1)
 
-            // 1. Vertical Grid Lines & Labels
+            // 1. Vertical Grid Lines & Timeline Labels (No Clipping on Left or Right)
             for (i in 0 until numPoints) {
-                val x = i * stepX
-                canvas.drawLine(x, 10f, x, graphHeight, gridPaint)
+                val x = graphLeft + i * stepX
+                canvas.drawLine(x, topPadding, x, graphBottom, gridPaint)
                 canvas.drawText(
                     dayLabels.getOrElse(i) { "" },
                     x,
-                    graphHeight + TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics),
+                    graphBottom + TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics),
                     textPaint
                 )
             }
@@ -91,17 +101,17 @@ object HazePrivacyShieldDashboard {
 
             fun getY(index: Int): Float {
                 val normY = dataPoints.getOrElse(index) { 0.05f }
-                return graphHeight - (normY * (graphHeight - 20f))
+                return graphBottom - (normY * usableHeight)
             }
 
-            path.moveTo(0f, getY(0))
-            fillPath.moveTo(0f, graphHeight)
-            fillPath.lineTo(0f, getY(0))
+            path.moveTo(graphLeft, getY(0))
+            fillPath.moveTo(graphLeft, graphBottom)
+            fillPath.lineTo(graphLeft, getY(0))
 
             for (i in 0 until numPoints - 1) {
-                val x1 = i * stepX
+                val x1 = graphLeft + i * stepX
                 val y1 = getY(i)
-                val x2 = (i + 1) * stepX
+                val x2 = graphLeft + (i + 1) * stepX
                 val y2 = getY(i + 1)
 
                 val cx1 = x1 + stepX / 2f
@@ -113,13 +123,13 @@ object HazePrivacyShieldDashboard {
                 fillPath.cubicTo(cx1, cy1, cx2, cy2, x2, y2)
             }
 
-            fillPath.lineTo(w, graphHeight)
+            fillPath.lineTo(graphRight, graphBottom)
             fillPath.close()
 
             // 3. Fill Gradient
-            val startAlpha = Color.argb(70, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-            val endAlpha = Color.argb(5, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-            fillPaint.shader = LinearGradient(0f, 0f, 0f, graphHeight, startAlpha, endAlpha, Shader.TileMode.CLAMP)
+            val startAlpha = Color.argb(65, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+            val endAlpha = Color.argb(0, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+            fillPaint.shader = LinearGradient(0f, topPadding, 0f, graphBottom, startAlpha, endAlpha, Shader.TileMode.CLAMP)
 
             canvas.drawPath(fillPath, fillPaint)
             canvas.drawPath(path, linePaint)
@@ -142,6 +152,7 @@ object HazePrivacyShieldDashboard {
 
         val bgColor = if (isDark) Color.parseColor("#1C1C1C") else Color.WHITE
         val cardColor = if (isDark) Color.parseColor("#252525") else Color.parseColor("#F6F8FA")
+        val cardBorderColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E8EAED")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
@@ -176,7 +187,7 @@ object HazePrivacyShieldDashboard {
         // --- Handle Pill ---
         val handleWrapper = FrameLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 18)).apply {
-                bottomMargin = dpToPx(activity, 8)
+                bottomMargin = dpToPx(activity, 10)
             }
         }
         val handlePill = View(activity).apply {
@@ -203,7 +214,7 @@ object HazePrivacyShieldDashboard {
         scrollView.addView(content)
         root.addView(scrollView)
 
-        // --- 1. Clean Header ---
+        // --- 1. Header Section ---
         val headerRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -261,9 +272,14 @@ object HazePrivacyShieldDashboard {
         headerRow.addView(masterSwitch)
         content.addView(headerRow)
 
-        // --- 2. Real Session Stats Card ---
-        val stats = HazePrivacyShieldEngine.getSessionStats()
-        val totalBlocked = HazePrivacyShieldEngine.getTotalBlocked(activity)
+        // --- 2. Real Session & Persistent Database Stats Card ---
+        val dbStats = HazeDatabase.getInstance(activity).getPrivacyStats()
+        val rawStats = HazePrivacyShieldEngine.getSessionStats()
+        val rawTotal = HazePrivacyShieldEngine.getTotalBlocked(activity)
+
+        val effectiveAds = dbStats.adsBlocked + rawStats.adsBlocked + dbStats.unwantedScriptsBlocked + rawStats.unwantedScriptsBlocked
+        val effectiveTrackers = dbStats.trackersBlocked + rawStats.trackersBlocked + dbStats.thirdPartyBlocked + rawStats.thirdPartyBlocked + dbStats.maliciousBlocked + rawStats.maliciousBlocked + dbStats.phishingBlocked + rawStats.phishingBlocked
+        val effectiveTotal = maxOf(rawTotal, effectiveAds + effectiveTrackers)
 
         val heroCard = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -271,6 +287,7 @@ object HazePrivacyShieldDashboard {
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(activity, 18).toFloat()
                 setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
             }
             setPadding(dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -285,7 +302,7 @@ object HazePrivacyShieldDashboard {
         fun createStatColumn(label: String, initialVal: String): Pair<LinearLayout, TextView> {
             val tvVal = TextView(activity).apply {
                 text = initialVal
-                textSize = 22f
+                textSize = 21f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(accentColor)
             }
@@ -304,9 +321,9 @@ object HazePrivacyShieldDashboard {
             return Pair(col, tvVal)
         }
 
-        val (adsCol, tvAds) = createStatColumn("Ads Blocked", String.format(java.util.Locale.US, "%,d", stats.adsBlocked))
-        val (trackersCol, tvTrackers) = createStatColumn("Trackers Blocked", String.format(java.util.Locale.US, "%,d", stats.trackersBlocked))
-        val (totalCol, tvTotal) = createStatColumn("Total Shielded", String.format(java.util.Locale.US, "%,d", totalBlocked))
+        val (adsCol, tvAds) = createStatColumn("Ads Blocked", String.format(java.util.Locale.US, "%,d", effectiveAds))
+        val (trackersCol, tvTrackers) = createStatColumn("Trackers Blocked", String.format(java.util.Locale.US, "%,d", effectiveTrackers))
+        val (totalCol, tvTotal) = createStatColumn("Total Shielded", String.format(java.util.Locale.US, "%,d", effectiveTotal))
 
         tvAdsVal = tvAds
         tvTrackersVal = tvTrackers
@@ -320,7 +337,7 @@ object HazePrivacyShieldDashboard {
         // --- 3. Filter Dropdown Chips ---
         val filterRow = RelativeLayout(activity).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dpToPx(activity, 12)
+                bottomMargin = dpToPx(activity, 8)
             }
         }
 
@@ -335,7 +352,7 @@ object HazePrivacyShieldDashboard {
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
             background = chipBg
-            setPadding(dpToPx(activity, 12), dpToPx(activity, 6), dpToPx(activity, 12), dpToPx(activity, 6))
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 6), dpToPx(activity, 14), dpToPx(activity, 6))
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_START)
             }
@@ -346,7 +363,7 @@ object HazePrivacyShieldDashboard {
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
             background = chipBg
-            setPadding(dpToPx(activity, 12), dpToPx(activity, 6), dpToPx(activity, 12), dpToPx(activity, 6))
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 6), dpToPx(activity, 14), dpToPx(activity, 6))
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_END)
             }
@@ -357,8 +374,8 @@ object HazePrivacyShieldDashboard {
 
         // --- 4. Protection Smooth Graph ---
         val graphView = ProtectionGraphView(activity, accentColor, isDark).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 175)).apply {
-                bottomMargin = dpToPx(activity, 20)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 190)).apply {
+                bottomMargin = dpToPx(activity, 18)
             }
         }
         content.addView(graphView)
@@ -405,7 +422,7 @@ object HazePrivacyShieldDashboard {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(activity, 14).toFloat()
-                setColor(if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#EFEFEF"))
+                setColor(if (isDark) Color.parseColor("#282828") else Color.parseColor("#EFEFEF"))
             }
             setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 44)).apply {
@@ -446,6 +463,7 @@ object HazePrivacyShieldDashboard {
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(activity, 18).toFloat()
                 setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
             }
             setPadding(dpToPx(activity, 16), dpToPx(activity, 8), dpToPx(activity, 16), dpToPx(activity, 8))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -546,10 +564,10 @@ object HazePrivacyShieldDashboard {
             }, tvVal)
         }
 
-        val (rowAdsStat, tvAdsR) = createBreakdownRow(R.drawable.ic_close, "Ads", String.format(java.util.Locale.US, "%,d", stats.adsBlocked))
-        val (rowTrackersStat, tvTrackersR) = createBreakdownRow(R.drawable.ic_private, "Trackers & Other", String.format(java.util.Locale.US, "%,d", stats.trackersBlocked))
-        val (rowCdnStat, tvCdnR) = createBreakdownRow(R.drawable.ic_download, "CDN / Third-Party", String.format(java.util.Locale.US, "%,d", stats.thirdPartyBlocked))
-        val (rowDataStat, tvDataR) = createBreakdownRow(R.drawable.ic_history, "Data Saved", HazePrivacyShieldEngine.formatDataSaved(stats.dataSavedBytes))
+        val (rowAdsStat, tvAdsR) = createBreakdownRow(R.drawable.ic_close, "Ads", String.format(java.util.Locale.US, "%,d", effectiveAds))
+        val (rowTrackersStat, tvTrackersR) = createBreakdownRow(R.drawable.ic_private, "Trackers & Other", String.format(java.util.Locale.US, "%,d", effectiveTrackers))
+        val (rowCdnStat, tvCdnR) = createBreakdownRow(R.drawable.ic_download, "CDN / Third-Party", String.format(java.util.Locale.US, "%,d", rawStats.thirdPartyBlocked))
+        val (rowDataStat, tvDataR) = createBreakdownRow(R.drawable.ic_history, "Data Saved", HazePrivacyShieldEngine.formatDataSaved(rawStats.dataSavedBytes))
 
         tvAdsRowVal = tvAdsR
         tvTrackersRowVal = tvTrackersR
@@ -612,14 +630,18 @@ object HazePrivacyShieldDashboard {
             override fun onShieldEvent(category: String, totalBlocked: Long) {
                 activity.runOnUiThread {
                     val currentStats = HazePrivacyShieldEngine.getSessionStats()
-                    val totalVal = HazePrivacyShieldEngine.getTotalBlocked(activity)
+                    val currentTotal = HazePrivacyShieldEngine.getTotalBlocked(activity)
 
-                    tvAdsVal.text = String.format(java.util.Locale.US, "%,d", currentStats.adsBlocked)
-                    tvTrackersVal.text = String.format(java.util.Locale.US, "%,d", currentStats.trackersBlocked)
-                    tvTotalVal.text = String.format(java.util.Locale.US, "%,d", totalVal)
+                    val curAds = currentStats.adsBlocked + currentStats.unwantedScriptsBlocked
+                    val curTrackers = currentStats.trackersBlocked + currentStats.thirdPartyBlocked + currentStats.maliciousBlocked + currentStats.phishingBlocked
+                    val curTotal = maxOf(currentTotal, curAds + curTrackers)
 
-                    tvAdsRowVal.text = String.format(java.util.Locale.US, "%,d", currentStats.adsBlocked)
-                    tvTrackersRowVal.text = String.format(java.util.Locale.US, "%,d", currentStats.trackersBlocked)
+                    tvAdsVal.text = String.format(java.util.Locale.US, "%,d", curAds)
+                    tvTrackersVal.text = String.format(java.util.Locale.US, "%,d", curTrackers)
+                    tvTotalVal.text = String.format(java.util.Locale.US, "%,d", curTotal)
+
+                    tvAdsRowVal.text = String.format(java.util.Locale.US, "%,d", curAds)
+                    tvTrackersRowVal.text = String.format(java.util.Locale.US, "%,d", curTrackers)
                     tvCdnRowVal.text = String.format(java.util.Locale.US, "%,d", currentStats.thirdPartyBlocked)
                     tvDataRowVal.text = HazePrivacyShieldEngine.formatDataSaved(currentStats.dataSavedBytes)
 
@@ -640,9 +662,9 @@ object HazePrivacyShieldDashboard {
             setTypeface(null, Typeface.BOLD)
             setTextColor(accentColor)
             gravity = Gravity.CENTER
-            setPadding(dpToPx(activity, 12), dpToPx(activity, 12), dpToPx(activity, 12), dpToPx(activity, 12))
+            setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 14).toFloat()
+                cornerRadius = dpToPx(activity, 12).toFloat()
                 setColor(alphaAccentColor)
             }
             setOnClickListener {

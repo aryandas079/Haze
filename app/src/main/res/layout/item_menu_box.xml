@@ -1,17 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
-    android:clickable="true"
-    android:focusable="true"
+    android:layout_width="72dp"
+    android:layout_height="76dp"
     android:gravity="center"
     android:orientation="vertical"
-    android:paddingTop="16dp"
-    android:paddingBottom="16dp"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp">
+    android:padding="6dp"
+    android:background="@drawable/bg_menu_item_ripple"
+    android:clickable="true"
+    android:focusable="true">
 
     <ImageView
         android:id="@+id/menuIcon"
@@ -19,15 +16,20 @@
         android:layout_height="24dp"
         android:src="@drawable/ic_search"
         app:tint="#5F6368"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="6dp"
+        android:contentDescription="Menu Icon" />
 
     <TextView
         android:id="@+id/menuText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
         android:gravity="center"
         android:text="Menu Item"
         android:textColor="#202124"
-        android:textSize="12sp" />
+        android:textSize="11sp"
+        android:textStyle="normal"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:lineSpacingExtra="1dp" />
 
 </LinearLayout>

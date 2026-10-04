@@ -3,6 +3,7 @@ package com.example.haze
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.app.Dialog
+import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.SharedPreferences
@@ -11,14 +12,19 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import java.util.Locale
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
@@ -65,8 +71,106 @@ import android.media.AudioManager
 import android.util.Rational
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
+
+    private val googleTtsEngine = "com.google.android.tts"
+    private var pendingPasswordUnlock: (() -> Unit)? = null
+    private val passwordUnlockLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val callback = pendingPasswordUnlock
+        pendingPasswordUnlock = null
+        if (result.resultCode == RESULT_OK) callback?.invoke()
+        else Toast.makeText(this, "Password access cancelled", Toast.LENGTH_SHORT).show()
+    }
+    private val passwordImportLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: SecurityException) {
+        }
+        Thread {
+            val count = runCatching { HazePasswordManager.importCsv(this, uri) }.getOrElse { -1 }
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    if (count >= 0) "$count passwords imported securely" else "Could not import that file",
+                    Toast.LENGTH_LONG
+                ).show()
+                if (count >= 0) {
+                    showPasswordManagerList()
+                }
+            }
+        }.start()
+    }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun launchPasswordImport() {
+        passwordImportLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
+    }
+
+    private fun showPasswordManagerList() {
+        HazePasswordManager.show(this) { launchPasswordImport() }
+    }
+
+    fun requestPasswordUnlock(item: PasswordItem, onUnlocked: () -> Unit) {
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        if (!keyguard.isKeyguardSecure) {
+            AlertDialog.Builder(this)
+                .setTitle("Set a screen lock")
+                .setMessage("Haze uses your Android screen lock to protect saved passwords. Set a PIN, pattern, or password in system settings first.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open settings") { _, _ ->
+                    startActivity(Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS))
+                }
+                .show()
+            return
+        }
+        pendingPasswordUnlock = onUnlocked
+        val intent = keyguard.createConfirmDeviceCredentialIntent(
+            "Verify to open password",
+            item.title.ifBlank { "Haze Password Manager" }
+        )
+        if (intent == null) {
+            pendingPasswordUnlock = null
+            Toast.makeText(this, "System lock is unavailable", Toast.LENGTH_LONG).show()
+        } else {
+            passwordUnlockLauncher.launch(intent)
+        }
+    }
+    private var pageLoadingGeneration = 0
+    private val suggestionExecutor = Executors.newFixedThreadPool(2)
+    private val suggestionCache = Collections.synchronizedMap(
+        object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean {
+                return size > 64
+            }
+        }
+    )
+    private var suggestionRequestId = 0L
+    private val suggestionDebounce = Runnable {
+        val query = addressBar.text.toString().trim()
+        if (isSearchActive && query.isNotEmpty()) {
+            val requestId = ++suggestionRequestId
+            fetchSearchSuggestions(query) { suggestions ->
+                if (requestId == suggestionRequestId &&
+                    isSearchActive &&
+                    addressBar.text.toString().trim() == query
+                ) {
+                    renderSearchSuggestions(query, suggestions)
+                }
+            }
+        }
+
+    }
 
     private lateinit var webContainer: FrameLayout
     private lateinit var addressBar: EditText
@@ -227,38 +331,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun updateNavigationButtons() {
-        runOnUiThread {
-            if (!::btnFloatingBack.isInitialized || !::btnFloatingForward.isInitialized || !::floatingNavContainer.isInitialized) return@runOnUiThread
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            val isHome = currentTab == null || isHomeTab(currentTab)
-
-            if (isHome || isSearchActive || customVideoView != null || miniPlayerManager?.isActive == true) {
-                floatingNavContainer.visibility = View.GONE
-                return@runOnUiThread
-            }
-
-            floatingNavContainer.visibility = View.VISIBLE
-            val webView = currentTab.webView
-            val canBack = webView.canGoBack()
-            val canForward = webView.canGoForward()
-
-            btnFloatingBack.isEnabled = canBack
-            btnFloatingBack.alpha = if (canBack) 1.0f else 0.35f
-
-            btnFloatingForward.isEnabled = canForward
-            btnFloatingForward.alpha = if (canForward) 1.0f else 0.35f
-        }
+        // Floating navigation capsule removed per user request for a cleaner UI
     }
 
     private lateinit var prefs: SharedPreferences
     private var miniPlayerManager: HazeMiniPlayer? = null
     private var miniPlayerTab: Tab? = null
+    private var activeMediaTab: Tab? = null
+
+    private fun showMiniPlayer(tab: Tab, createBrowsingTab: Boolean) {
+        if (isHomeTab(tab) || miniPlayerManager?.isActive == true) return
+        miniPlayerTab = tab
+        miniPlayerManager?.attach(tab.webView, tab.title)
+        if (createBrowsingTab) addNewTab(HAZE_HOME_URL)
+    }
 
     data class TabGroup(var id: String, var name: String, var color: Int)
     data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
     data class Tab(
         val id: Long = System.currentTimeMillis(),
         val webView: WebView,
+        val swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null,
         var title: String = "New Tab",
         var url: String = "haze://home",
         var favicon: Bitmap? = null,
@@ -345,7 +438,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
     }
 
-    inner class WebAppInterface {
+    inner class WebAppInterface(private val ownerWebView: WebView) {
         @JavascriptInterface
         fun triggerHaptic(heavy: Boolean) {
             runOnUiThread { triggerStrongHaptic(isHeavy = heavy) }
@@ -361,12 +454,8 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun launchMiniPlayer() { 
             runOnUiThread { 
-                val currentTab = currentTabsList.getOrNull(activeTabIndex)
-                if (currentTab != null && !isHomeTab(currentTab)) {
-                    miniPlayerTab = currentTab
-                    miniPlayerManager?.attach(currentTab.webView, currentTab.title)
-                    addNewTab(HAZE_HOME_URL) // Keep browsing in a new tab
-                }
+                val tab = getTabFromWebView(ownerWebView) ?: return@runOnUiThread
+                showMiniPlayer(tab, createBrowsingTab = true)
             }
         }
         @JavascriptInterface
@@ -433,6 +522,8 @@ class MainActivity : AppCompatActivity() {
         fun onMediaStateChange(isPlaying: Boolean, width: Int, height: Int) {
             runOnUiThread {
                 isMediaPlaying = isPlaying
+                if (isPlaying) activeMediaTab = getTabFromWebView(ownerWebView)
+                else if (activeMediaTab?.webView == ownerWebView) activeMediaTab = null
                 if (width > 0 && height > 0) {
                     lastVideoWidth = width
                     lastVideoHeight = height
@@ -489,8 +580,21 @@ class MainActivity : AppCompatActivity() {
         addressBar.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
                 val text = s?.toString() ?: ""
+                val trimmed = text.trim()
                 btnClearQuery.visibility = if (text.isNotEmpty() && isSearchActive) View.VISIBLE else View.GONE
-                currentTabsList.getOrNull(activeTabIndex)?.webView?.findAllAsync(text)
+                
+                if (isSearchActive) {
+                    if (trimmed.isEmpty()) {
+                        suggestionRequestId++
+                        mainHandler.removeCallbacks(suggestionDebounce)
+                        renderRecentSearches()
+                    } else {
+                        mainHandler.removeCallbacks(suggestionDebounce)
+                        mainHandler.postDelayed(suggestionDebounce, 150L)
+                    }
+                } else {
+                    currentTabsList.getOrNull(activeTabIndex)?.webView?.findAllAsync(text)
+                }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -568,50 +672,29 @@ class MainActivity : AppCompatActivity() {
                 onExpand = {
                     val tab = miniPlayerTab
                     if (tab != null) {
-                        if (tab.webView.parent == null) webContainer.addView(tab.webView)
+                        if (tab.webView.parent == null) {
+                            val tabContainer = tab.swipeRefreshLayout
+                            if (tabContainer != null) {
+                                if (tabContainer.parent == null) webContainer.addView(tabContainer)
+                                tabContainer.addView(tab.webView)
+                            } else {
+                                webContainer.addView(tab.webView)
+                            }
+                        }
                         val index = currentTabsList.indexOfFirst { it === tab }
                         if (index >= 0) switchTab(index)
                     }
+                    activeMediaTab = null
                     miniPlayerTab = null
                 },
                 onClose = {
                     val tab = miniPlayerTab
                     val index = tab?.let { currentTabsList.indexOfFirst { candidate -> candidate === it } } ?: -1
                     if (index >= 0) closeTab(index)
+                    activeMediaTab = null
                     miniPlayerTab = null
                 }
             )
-        }
-
-        floatingNavContainer = findViewById(R.id.floatingNavContainer)
-        btnFloatingBack = findViewById(R.id.btnFloatingBack)
-        ivFloatingBackIcon = findViewById(R.id.ivFloatingBackIcon)
-        btnFloatingForward = findViewById(R.id.btnFloatingForward)
-        ivFloatingForwardIcon = findViewById(R.id.ivFloatingForwardIcon)
-        floatingNavDivider = findViewById(R.id.floatingNavDivider)
-
-        btnFloatingBack.setOnClickListener {
-            triggerStrongHaptic(it)
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            if (currentTab?.webView?.canGoBack() == true) {
-                currentTab.webView.goBack()
-            }
-            it.postDelayed({ updateNavigationButtons() }, 300)
-        }
-
-        btnFloatingBack.setOnLongClickListener {
-            triggerStrongHaptic(it)
-            HazeHistoryManager.showHistoryDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
-            true
-        }
-
-        btnFloatingForward.setOnClickListener {
-            triggerStrongHaptic(it)
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            if (currentTab?.webView?.canGoForward() == true) {
-                currentTab.webView.goForward()
-            }
-            it.postDelayed({ updateNavigationButtons() }, 300)
         }
 
         topRightActions = findViewById(R.id.topRightActions)
@@ -663,7 +746,7 @@ class MainActivity : AppCompatActivity() {
 
         val rootLayout = findViewById<ConstraintLayout>(R.id.main)
         val autoTransition = AutoTransition().apply {
-            duration = 240
+            duration = 300
             interpolator = FastOutSlowInInterpolator()
         }
         TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
@@ -676,7 +759,7 @@ class MainActivity : AppCompatActivity() {
 
         dimOverlay.visibility = View.VISIBLE
         dimOverlay.alpha = 0f
-        dimOverlay.animate().alpha(1f).setDuration(240).start()
+        dimOverlay.animate().alpha(1f).setDuration(300).start()
 
         if (::topRightActions.isInitialized) {
             topRightActions.visibility = View.GONE
@@ -685,8 +768,42 @@ class MainActivity : AppCompatActivity() {
             floatingNavContainer.visibility = View.GONE
         }
 
-        renderRecentSearches()
+        // Fade out Haze logo & shortcuts if on home tab
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        if (currentTab != null && isHomeTab(currentTab)) {
+            currentTab.webView.evaluateJavascript(
+                "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.2s ease'; document.querySelector('.container').style.opacity = '0'; }",
+                null
+            )
+        }
+
+        dimOverlay.bringToFront()
+        recentSearchesContainer.bringToFront()
+        addressBarContainer.bringToFront()
+        addressBarContainer.elevation = dpToPx(30).toFloat()
+
+        val text = addressBar.text.toString().trim()
+        if (text.isEmpty()) {
+            renderRecentSearches()
+        } else {
+            mainHandler.removeCallbacks(suggestionDebounce)
+            mainHandler.post(suggestionDebounce)
+        }
+
         recentSearchesContainer.visibility = View.VISIBLE
+        recentSearchesContainer.alpha = 0f
+        recentSearchesContainer.translationY = -40f
+        recentSearchesContainer.scaleX = 0.96f
+        recentSearchesContainer.scaleY = 0.96f
+        recentSearchesContainer.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(280)
+            .setInterpolator(FastOutSlowInInterpolator())
+            .start()
+
         btnClearQuery.visibility = if (addressBar.text.isNotEmpty()) View.VISIBLE else View.GONE
 
         addressBar.requestFocus()
@@ -700,7 +817,7 @@ class MainActivity : AppCompatActivity() {
 
         val rootLayout = findViewById<ConstraintLayout>(R.id.main)
         val autoTransition = AutoTransition().apply {
-            duration = 200
+            duration = 300
             interpolator = FastOutSlowInInterpolator()
         }
         TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
@@ -711,7 +828,7 @@ class MainActivity : AppCompatActivity() {
         params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
         addressBarContainer.layoutParams = params
 
-        dimOverlay.animate().alpha(0f).setDuration(200).withEndAction {
+        dimOverlay.animate().alpha(0f).setDuration(250).withEndAction {
             dimOverlay.visibility = View.GONE
         }.start()
 
@@ -720,6 +837,13 @@ class MainActivity : AppCompatActivity() {
 
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         val isHome = currentTab != null && isHomeTab(currentTab)
+        if (isHome) {
+            currentTab.webView.evaluateJavascript(
+                "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.25s ease'; document.querySelector('.container').style.opacity = '1'; }",
+                null
+            )
+        }
+
         if (::topRightActions.isInitialized) {
             topRightActions.visibility = if (isHome && !isPrivateMode) View.VISIBLE else View.GONE
             if (isHome && !isPrivateMode) {
@@ -761,6 +885,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderRecentSearches() {
+        val tvHeaderTitle = findViewById<TextView>(R.id.tvRecentHeaderTitle)
+        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
+        tvHeaderTitle?.text = "Recent Searches"
+        btnClearHistory?.visibility = View.VISIBLE
+
         recentSearchesList.removeAllViews()
         val searches = getRecentSearches()
         if (searches.isEmpty()) {
@@ -778,7 +907,9 @@ class MainActivity : AppCompatActivity() {
             val rowView = layoutInflater.inflate(R.layout.item_recent_search, recentSearchesList, false)
             val tvQuery = rowView.findViewById<TextView>(R.id.tvRecentQuery)
             val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
+            val ivIcon = rowView.findViewById<ImageView>(R.id.ivRecentIcon)
 
+            ivIcon?.setImageResource(R.drawable.ic_history)
             tvQuery.text = query
             rowView.setOnClickListener {
                 triggerStrongHaptic(it)
@@ -788,6 +919,86 @@ class MainActivity : AppCompatActivity() {
             btnDelete.setOnClickListener {
                 triggerStrongHaptic(it)
                 deleteRecentSearch(query)
+            }
+            recentSearchesList.addView(rowView)
+        }
+    }
+
+    private fun fetchSearchSuggestions(query: String, callback: (List<String>) -> Unit) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("haze://")) {
+            callback(emptyList())
+            return
+        }
+        suggestionCache[trimmed]?.let {
+            callback(it)
+            return
+        }
+        suggestionExecutor.execute {
+            var conn: java.net.HttpURLConnection? = null
+            try {
+                val encoded = Uri.encode(trimmed)
+                val url = java.net.URL("https://suggestqueries.google.com/complete/search?client=chrome&q=$encoded")
+                conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 1500
+                conn.readTimeout = 1500
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                val jsonArray = JSONArray(text)
+                val suggestionsArray = jsonArray.getJSONArray(1)
+                val list = mutableListOf<String>()
+                for (i in 0 until suggestionsArray.length()) {
+                    list.add(suggestionsArray.getString(i))
+                }
+                val result = list.toList()
+                suggestionCache[trimmed] = result
+                mainHandler.post { callback(result) }
+            } catch (e: Exception) {
+                mainHandler.post { callback(emptyList()) }
+            } finally {
+                conn?.disconnect()
+            }
+        }
+    }
+
+    private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
+        val tvHeaderTitle = findViewById<TextView>(R.id.tvRecentHeaderTitle)
+        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
+        tvHeaderTitle?.text = "Search Suggestions"
+        btnClearHistory?.visibility = View.GONE
+
+        recentSearchesList.removeAllViews()
+        if (suggestions.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "Search for \"$query\""
+                setTextColor(Color.parseColor("#9AA0A6"))
+                textSize = 13.5f
+                setPadding(0, 16, 0, 16)
+            }
+            recentSearchesList.addView(emptyTv)
+            return
+        }
+
+        for (suggestion in suggestions) {
+            val rowView = layoutInflater.inflate(R.layout.item_recent_search, recentSearchesList, false)
+            val tvQuery = rowView.findViewById<TextView>(R.id.tvRecentQuery)
+            val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
+            val ivIcon = rowView.findViewById<ImageView>(R.id.ivRecentIcon)
+
+            ivIcon?.setImageResource(R.drawable.ic_search)
+            tvQuery.text = suggestion
+
+            btnDelete.setImageResource(R.drawable.ic_wide_arrow_down)
+            btnDelete.rotation = 135f
+            btnDelete.setOnClickListener {
+                triggerStrongHaptic(it)
+                addressBar.setText(suggestion)
+                addressBar.setSelection(suggestion.length)
+            }
+
+            rowView.setOnClickListener {
+                triggerStrongHaptic(it)
+                addressBar.setText(suggestion)
+                loadUrlFromInput(suggestion)
             }
             recentSearchesList.addView(rowView)
         }
@@ -1313,10 +1524,24 @@ class MainActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT, 
             FrameLayout.LayoutParams.MATCH_PARENT
         )
-        val tab = Tab(webView = webView, isPrivate = isPrivateMode)
+
+        val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setOnRefreshListener {
+                triggerStrongHaptic()
+                webView.reload()
+                postDelayed({ isRefreshing = false }, 1000)
+            }
+        }
+        swipeRefreshLayout.addView(webView)
+
+        val tab = Tab(webView = webView, swipeRefreshLayout = swipeRefreshLayout, isPrivate = isPrivateMode)
         
         currentTabsList.add(tab)
-        webContainer.addView(webView)
+        webContainer.addView(swipeRefreshLayout)
         
         setupWebView(webView)
         
@@ -1366,20 +1591,32 @@ class MainActivity : AppCompatActivity() {
             tabCountBtn.text = currentTabsList.size.toString()
             return
         }
+
+        val previousTab = currentTabsList.getOrNull(activeTabIndex)
+        val nextTab = currentTabsList[index]
+        if (previousTab != null &&
+            previousTab !== nextTab &&
+            activeMediaTab === previousTab &&
+            miniPlayerManager?.isActive != true
+        ) {
+            showMiniPlayer(previousTab, createBrowsingTab = false)
+        }
         
         if (isPrivateMode) activePrivateTabIndex = index else activeNormalTabIndex = index
         
         for (i in 0 until webContainer.childCount) {
             val child = webContainer.getChildAt(i)
-            val isCurrentTabWebView = child == currentTabsList[index].webView
-            child.visibility = if (isCurrentTabWebView) View.VISIBLE else View.GONE
+            val currentTab = currentTabsList.getOrNull(index)
+            val isCurrentTabContainer = currentTab?.swipeRefreshLayout?.let { child == it } ?: (child == currentTab?.webView)
+            child.visibility = if (isCurrentTabContainer) View.VISIBLE else View.GONE
         }
         
         tabCountBtn.text = currentTabsList.size.toString()
         val currentTab = currentTabsList[index]
-        val currentUrl = currentTab.url
         val isHome = isHomeTab(currentTab)
-        
+        currentTab.swipeRefreshLayout?.isEnabled = !isHome
+
+        val currentUrl = currentTab.url
         updateChromeVisibility(currentUrl)
         
         if (isHome) {
@@ -1465,11 +1702,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeTab(index: Int) {
         if (currentTabsList.size <= 1) {
-            Toast.makeText(this, "Cannot close the last tab", Toast.LENGTH_SHORT).show()
+            addNewTab(HAZE_HOME_URL)
+            val tabToRemove = currentTabsList[0]
+            if (tabToRemove.swipeRefreshLayout != null) {
+                webContainer.removeView(tabToRemove.swipeRefreshLayout)
+            } else {
+                webContainer.removeView(tabToRemove.webView)
+            }
+            tabToRemove.webView.destroy()
+            currentTabsList.removeAt(0)
+            switchTab(0)
             return
         }
         val tabToRemove = currentTabsList[index]
-        webContainer.removeView(tabToRemove.webView)
+        if (tabToRemove.swipeRefreshLayout != null) {
+            webContainer.removeView(tabToRemove.swipeRefreshLayout)
+        } else {
+            webContainer.removeView(tabToRemove.webView)
+        }
         tabToRemove.webView.destroy()
         currentTabsList.removeAt(index)
         
@@ -1491,7 +1741,7 @@ class MainActivity : AppCompatActivity() {
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
 
-        webView.addJavascriptInterface(WebAppInterface(), "Android")
+        webView.addJavascriptInterface(WebAppInterface(webView), "Android")
 
         val jsEnabled = prefs.getBoolean("javascript_enabled", true)
         webView.settings.apply {
@@ -1510,7 +1760,9 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
             loadWithOverviewMode = true
             cacheMode = if (isPrivateMode) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
-            offscreenPreRaster = true
+            // Pre-rasterizing every tab consumes significant memory and competes
+            // with the active tab for rendering time.
+            offscreenPreRaster = false
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             @Suppress("DEPRECATION")
             setRenderPriority(WebSettings.RenderPriority.HIGH)
@@ -1522,6 +1774,10 @@ class MainActivity : AppCompatActivity() {
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             WebView.startSafeBrowsing(this) { }
+        }
+
+        if (HazeAccountManager.isSignedIn(this)) {
+            HazeAccountManager.syncGoogleAccountToCookieManager(this)
         }
 
         // Web download listener
@@ -1640,7 +1896,22 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 if (!url.isNullOrEmpty()) topLevelUrl = url
+                showPageLoading(5)
                 super.onPageStarted(view, url, favicon)
+                
+                if (url != null) {
+                    val earlyCss = """
+                        (function() {
+                            if (window.__hazeEarlyCssInjected) return;
+                            window.__hazeEarlyCssInjected = true;
+                            var style = document.createElement('style');
+                            style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                            if (document.documentElement) document.documentElement.appendChild(style);
+                            else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(earlyCss, null)
+                }
             }
 
             override fun onSafeBrowsingHit(view: WebView?, request: WebResourceRequest?, threatType: Int, callback: SafeBrowsingResponse?) {
@@ -1651,8 +1922,21 @@ class MainActivity : AppCompatActivity() {
                 callback?.backToSafety(false)
             }
 
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                super.onReceivedError(view, request, error)
+                if (request?.isForMainFrame == true) {
+                    val failingUrl = request.url?.toString() ?: ""
+                    val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                    val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
+                    view?.post {
+                        view.loadDataWithBaseURL("file:///android_asset/", offlineHtml, "text/html", "UTF-8", null)
+                    }
+                }
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                finishPageLoading()
                 val tab = getTabFromWebView(webView)
                 if (tab != null && url != null) {
                     val isHome = url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url == "about:blank" || url.startsWith("about:") || url.startsWith("haze://home")
@@ -1677,6 +1961,96 @@ class MainActivity : AppCompatActivity() {
                         val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
                         val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
                         HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
+                    }
+
+                    // 1. Advanced Cosmetic Filtering (Element Hiding CSS) across all websites
+                    val cosmeticCss = """
+                        (function() {
+                            if (window.__hazeCosmeticInjected) return;
+                            window.__hazeCosmeticInjected = true;
+                            var style = document.createElement('style');
+                            style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                            if (document.head) document.head.appendChild(style);
+                            else document.documentElement.appendChild(style);
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(cosmeticCss, null)
+
+                    // 2. Safe & Reliable YouTube Ad Skipper
+                    if (url.contains("youtube.com", ignoreCase = true)) {
+                        val safeYtSkips = """
+                            (function() {
+                                if (window.__hazeSafeYtSkipper) return;
+                                window.__hazeSafeYtSkipper = true;
+
+                                var adWasActive = false;
+                                var normalPlaybackRate = 1;
+                                var adSelectors = [
+                                    '.ytp-ad-skip-button',
+                                    '.ytp-ad-skip-button-modern',
+                                    '.ytp-ad-overlay-close-button',
+                                    '.videoAdUiSkipButton'
+                                ];
+
+                                function skipYouTubeAd() {
+                                    var adPlayer = document.querySelector('.ad-showing');
+                                    if (!adPlayer) {
+                                        if (adWasActive) {
+                                            var normalVideo = document.querySelector('video');
+                                            if (normalVideo && normalVideo.playbackRate > 1) {
+                                                normalVideo.playbackRate = normalPlaybackRate;
+                                            }
+                                        }
+                                        adWasActive = false;
+                                        return;
+                                    }
+
+                                    adWasActive = true;
+                                    for (var i = 0; i < adSelectors.length; i++) {
+                                        var button = document.querySelector(adSelectors[i]);
+                                        if (button) {
+                                            button.click();
+                                            return;
+                                        }
+                                    }
+
+                                    var video = document.querySelector('video');
+                                    if (video) {
+                                        if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
+                                        // Seek as soon as metadata exists. Do not wait for
+                                        // the ad duration or a timer tied to playback.
+                                        if (isFinite(video.duration) && video.duration > 0) {
+                                            video.currentTime = video.duration;
+                                        } else {
+                                            video.currentTime = 2147483647;
+                                        }
+                                        video.play().catch(function() {});
+                                        video.playbackRate = 16;
+                                    }
+
+                                    var overlays = document.querySelectorAll(
+                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay'
+                                    );
+                                    for (var j = 0; j < overlays.length; j++) {
+                                        overlays[j].style.setProperty('display', 'none', 'important');
+                                    }
+                                }
+
+                                setInterval(skipYouTubeAd, 25);
+                                document.addEventListener('click', function() {
+                                    setTimeout(skipYouTubeAd, 0);
+                                }, true);
+                                var observer = new MutationObserver(skipYouTubeAd);
+                                observer.observe(document.documentElement, {
+                                    childList: true,
+                                    subtree: true,
+                                    attributes: true,
+                                    attributeFilter: ['class']
+                                });
+                                skipYouTubeAd();
+                            })();
+                        """.trimIndent()
+                        view?.evaluateJavascript(safeYtSkips, null)
                     }
 
                     // Text Selection Listener injection
@@ -1770,6 +2144,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                if (newProgress < 100) showPageLoading(newProgress.coerceAtLeast(5))
+                else finishPageLoading()
+            }
+
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
                 if (customVideoView != null) {
                     callback?.onCustomViewHidden()
@@ -1842,6 +2222,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val tab = activeMediaTab
+        if (tab != null && isMediaPlaying && miniPlayerManager?.isActive != true) {
+            showMiniPlayer(tab, createBrowsingTab = false)
         }
     }
 
@@ -2089,8 +2477,13 @@ class MainActivity : AppCompatActivity() {
                 holder.rowContainer.setBackgroundColor(Color.TRANSPARENT)
             }
 
-            if (tab.favicon != null) holder.tabIcon.setImageBitmap(tab.favicon)
-            else holder.tabIcon.setImageResource(R.drawable.ic_globe)
+            if (isHomeTab(tab)) {
+                holder.tabIcon.setImageResource(R.drawable.ic_haze_logo)
+            } else if (tab.favicon != null) {
+                holder.tabIcon.setImageBitmap(tab.favicon)
+            } else {
+                holder.tabIcon.setImageResource(R.drawable.ic_globe)
+            }
             
             holder.tabTitle.text = tab.title
             holder.tabUrl.text = if (isHomeTab(tab)) "Home" else tab.url
@@ -2138,14 +2531,24 @@ class MainActivity : AppCompatActivity() {
         var selectedColor = accentColor
         var selectedBg = currentBg
 
+        val surfaceColor = if (isDark) Color.parseColor("#292A24") else Color.parseColor("#FFFFFF")
+        val cardColor = if (isDark) Color.parseColor("#37382D") else Color.parseColor("#F1F3F4")
+        val textColor = if (isDark) Color.parseColor("#F1F3E8") else Color.parseColor("#202124")
+        val secondaryTextColor = if (isDark) Color.parseColor("#C4C6B8") else Color.parseColor("#5F6368")
+        val accent = Color.parseColor(accentColor)
+
         val dialogView = ScrollView(this).apply {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            overScrollMode = View.OVER_SCROLL_NEVER
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(28).toFloat()
+                setColor(surfaceColor)
+            }
         }
         
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(24))
+            setPadding(dpToPx(24), dpToPx(26), dpToPx(24), dpToPx(18))
         }
         dialogView.addView(content)
         
@@ -2153,15 +2556,41 @@ class MainActivity : AppCompatActivity() {
             text = "Personalize"
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
-            setPadding(0, 0, 0, dpToPx(20))
+            setTextColor(textColor)
+            setPadding(0, 0, 0, dpToPx(4))
         }
         content.addView(titleText)
+
+        val subtitleText = TextView(this).apply {
+            text = "Customize the look of your Haze home page"
+            textSize = 13f
+            setTextColor(secondaryTextColor)
+            setPadding(0, 0, 0, dpToPx(20))
+        }
+        content.addView(subtitleText)
+
+        fun addSectionCard(view: View, bottomMargin: Int = 16) {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(18).toFloat()
+                    setColor(cardColor)
+                }
+                setPadding(dpToPx(16), dpToPx(14), dpToPx(16), dpToPx(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { this.bottomMargin = dpToPx(bottomMargin) }
+            }
+            (view.parent as? ViewGroup)?.removeView(view)
+            card.addView(view)
+            content.addView(card)
+        }
         
         // Theme Toggle (Light / Dark)
         val themeLabel = TextView(this).apply {
             text = "Theme"
-            setTextColor(Color.GRAY)
+            setTextColor(secondaryTextColor)
             textSize = 13f
             setPadding(0, 0, 0, dpToPx(8))
         }
@@ -2171,17 +2600,25 @@ class MainActivity : AppCompatActivity() {
             orientation = RadioGroup.HORIZONTAL
             setPadding(0, 0, 0, dpToPx(16)) 
         }
-        val rbLight = RadioButton(this).apply { text = "Light Mode"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
-        val rbDark = RadioButton(this).apply { text = "Dark Mode"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        val rbLight = RadioButton(this).apply {
+            text = "Light"
+            setTextColor(textColor)
+            buttonTintList = ColorStateList.valueOf(accent)
+        }
+        val rbDark = RadioButton(this).apply {
+            text = "Dark"
+            setTextColor(textColor)
+            buttonTintList = ColorStateList.valueOf(accent)
+        }
         themeGroup.addView(rbLight)
         themeGroup.addView(rbDark)
         if (isDark) rbDark.isChecked = true else rbLight.isChecked = true
-        content.addView(themeGroup)
+        addSectionCard(themeGroup)
         
         // Shortcuts Mode Selector
         val shortcutsLabel = TextView(this).apply {
             text = "Shortcuts Rows"
-            setTextColor(Color.GRAY)
+            setTextColor(secondaryTextColor)
             textSize = 13f
             setPadding(0, 0, 0, dpToPx(8))
         }
@@ -2191,9 +2628,21 @@ class MainActivity : AppCompatActivity() {
             orientation = RadioGroup.HORIZONTAL
             setPadding(0, 0, 0, dpToPx(20)) 
         }
-        val rbOff = RadioButton(this).apply { text = "Off"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
-        val rb1Row = RadioButton(this).apply { text = "1 Row"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
-        val rb2Row = RadioButton(this).apply { text = "2 Rows"; setTextColor(if(isDark) Color.WHITE else Color.BLACK) }
+        val rbOff = RadioButton(this).apply {
+            text = "Off"
+            setTextColor(textColor)
+            buttonTintList = ColorStateList.valueOf(accent)
+        }
+        val rb1Row = RadioButton(this).apply {
+            text = "1 Row"
+            setTextColor(textColor)
+            buttonTintList = ColorStateList.valueOf(accent)
+        }
+        val rb2Row = RadioButton(this).apply {
+            text = "2 Rows"
+            setTextColor(textColor)
+            buttonTintList = ColorStateList.valueOf(accent)
+        }
         shortcutsGroup.addView(rbOff)
         shortcutsGroup.addView(rb1Row)
         shortcutsGroup.addView(rb2Row)
@@ -2202,12 +2651,12 @@ class MainActivity : AppCompatActivity() {
             "1" -> rb1Row.isChecked = true
             else -> rb2Row.isChecked = true
         }
-        content.addView(shortcutsGroup)
+        addSectionCard(shortcutsGroup)
         
         // Accent Colors (Round circles: Default + 5 solid colors)
         val accentLabel = TextView(this).apply {
             text = "Accent Color (Default + 5 Solid Colors)"
-            setTextColor(Color.GRAY)
+            setTextColor(secondaryTextColor)
             textSize = 13f
             setPadding(0, 0, 0, dpToPx(10))
         }
@@ -2271,12 +2720,12 @@ class MainActivity : AppCompatActivity() {
             colorLayout.addView(frame)
         }
         refreshColorBorders()
-        content.addView(colorScroll)
+        addSectionCard(colorScroll)
         
         // Background Themes (Round circles: Default + 5 Photo Themes)
         val bgLabel = TextView(this).apply {
             text = "Background Theme (Default + 5 Photos)"
-            setTextColor(Color.GRAY)
+            setTextColor(secondaryTextColor)
             textSize = 13f
             setPadding(0, 0, 0, dpToPx(10))
         }
@@ -2343,7 +2792,7 @@ class MainActivity : AppCompatActivity() {
             bgLayout.addView(frame)
         }
         refreshBgBorders()
-        content.addView(bgScroll)
+        addSectionCard(bgScroll, 8)
         
         val dialog = AlertDialog.Builder(this)
             .setView(dialogView)
@@ -2366,6 +2815,20 @@ class MainActivity : AppCompatActivity() {
             .create()
             
         dialog.show()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.94f).toInt(),
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+            setTextColor(accent)
+            isAllCaps = false
+            setTypeface(null, Typeface.BOLD)
+        }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.apply {
+            setTextColor(secondaryTextColor)
+            isAllCaps = false
+        }
     }
 
     private fun showBrowserMenu() {
@@ -2378,15 +2841,62 @@ class MainActivity : AppCompatActivity() {
         )
         popupWindow.elevation = 24f
         
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         val menuRoot = popupView.findViewById<LinearLayout>(R.id.menuRoot)
         val menuLogo = popupView.findViewById<ImageView>(R.id.menuLogo)
         val menuDivider = popupView.findViewById<View>(R.id.menuDivider)
-        
-        if (isDark) {
-            menuLogo.setImageResource(R.drawable.haze_logo_dark)
-            menuDivider.setBackgroundColor(Color.parseColor("#333333"))
-            menuRoot.setBackgroundColor(Color.parseColor("#1E1E1E"))
+        val btnMenuBack = popupView.findViewById<ImageButton>(R.id.btnMenuBack)
+        val btnMenuForward = popupView.findViewById<ImageButton>(R.id.btnMenuForward)
+        val btnMenuStar = popupView.findViewById<ImageButton>(R.id.btnMenuStar)
+        val btnMenuReload = popupView.findViewById<ImageButton>(R.id.btnMenuReload)
+        val btnMenuHome = popupView.findViewById<ImageButton>(R.id.btnMenuHome)
+
+        val iconColor = if (isDark) Color.parseColor("#CCCCCC") else Color.parseColor("#5F6368")
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+        btnMenuBack?.setColorFilter(iconColor)
+        btnMenuForward?.setColorFilter(iconColor)
+        btnMenuStar?.setColorFilter(accentColor)
+        btnMenuReload?.setColorFilter(iconColor)
+        btnMenuHome?.setColorFilter(iconColor)
+
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        btnMenuBack?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            if (currentTab?.webView?.canGoBack() == true) {
+                currentTab.webView.goBack()
+            }
+        }
+        btnMenuForward?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            if (currentTab?.webView?.canGoForward() == true) {
+                currentTab.webView.goForward()
+            }
+        }
+        btnMenuStar?.setOnClickListener {
+            triggerStrongHaptic(it)
+            showStarBookmarkDialog(popupWindow)
+        }
+        btnMenuReload?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            currentTab?.webView?.reload()
+        }
+        btnMenuHome?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            loadUrlFromInput(HAZE_HOME_URL)
+        }
+
+        val menuSurface = if (isDark) Color.parseColor("#292A24") else Color.parseColor("#FFFFFF")
+        val menuStroke = if (isDark) Color.parseColor("#454638") else Color.parseColor("#DADCE0")
+        menuLogo.setImageResource(if (isDark) R.drawable.haze_logo_dark else R.drawable.haze_logo)
+        menuDivider.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
+        menuRoot.background = GradientDrawable().apply {
+            cornerRadius = dpToPx(22).toFloat()
+            setColor(menuSurface)
+            setStroke(dpToPx(1), menuStroke)
         }
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)
@@ -2404,6 +2914,7 @@ class MainActivity : AppCompatActivity() {
             Pair("Extra", R.drawable.ic_extra),
             Pair("Find on Page", R.drawable.ic_search),
             Pair("Settings", R.drawable.ic_settings),
+            Pair("Password Manager", R.drawable.ic_key),
             Pair("Close Haze", R.drawable.ic_close)
         )
         
@@ -2419,8 +2930,8 @@ class MainActivity : AppCompatActivity() {
             }
             
             val params = GridLayout.LayoutParams()
-            params.width = (88 * resources.displayMetrics.density).toInt()
-            params.height = GridLayout.LayoutParams.WRAP_CONTENT
+            params.width = (74 * resources.displayMetrics.density).toInt()
+            params.height = (76 * resources.displayMetrics.density).toInt()
             params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
             itemView.layoutParams = params
             
@@ -2449,8 +2960,10 @@ class MainActivity : AppCompatActivity() {
                         imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT)
                     }
                     "Settings" -> HazeSettingsManager.showSettingsDialog(this)
+                    "Password Manager" -> openPasswordManager()
                     "Close Haze" -> popupWindow.dismiss()
                 }
+
             }
             grid.addView(itemView)
         }
@@ -2464,6 +2977,105 @@ class MainActivity : AppCompatActivity() {
         } else {
             popupWindow.showAtLocation(webContainer, Gravity.TOP or Gravity.END, 32, 140)
         }
+    }
+
+    private fun openPasswordManager() {
+        HazePasswordManager.show(this) {
+            passwordImportLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
+        }
+    }
+
+    private fun showStarBookmarkDialog(popupWindow: PopupWindow) {
+        popupWindow.dismiss()
+        val tab = currentTabsList.getOrNull(activeTabIndex)
+        if (tab == null || isHomeTab(tab) || tab.url.startsWith("haze://")) {
+            Toast.makeText(this, "Cannot bookmark internal or home pages", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#F8F9FA")
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(24), dpToPx(20), dpToPx(24), dpToPx(16))
+        }
+
+        val titleTv = TextView(this).apply {
+            text = "Add to Favorites"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        layout.addView(titleTv)
+
+        val titleInput = EditText(this).apply {
+            setText(tab.title)
+            hint = "Bookmark Name"
+            setTextColor(textColor)
+            setHintTextColor(subTextColor)
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(12).toFloat()
+                setColor(cardColor)
+                setStroke(1, if (isDark) Color.parseColor("#383838") else Color.parseColor("#DADCE0"))
+            }
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+            textSize = 14.5f
+            isSingleLine = true
+        }
+        layout.addView(titleInput)
+
+        val urlTv = TextView(this).apply {
+            text = tab.url
+            textSize = 12f
+            setTextColor(subTextColor)
+            setPadding(0, dpToPx(8), 0, dpToPx(16))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        layout.addView(urlTv)
+
+        val folders = HazeDatabase.getInstance(this).getAllBookmarkFolders()
+        val folderNames = mutableListOf("Root (No Folder)")
+        val folderIds = mutableListOf(0L)
+        for (f in folders) {
+            folderNames.add(f.name)
+            folderIds.add(f.id)
+        }
+
+        val spinnerLabel = TextView(this).apply {
+            text = "Save in folder:"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(subTextColor)
+            setPadding(0, 0, 0, dpToPx(6))
+        }
+        layout.addView(spinnerLabel)
+
+        val spinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, folderNames)
+        }
+        layout.addView(spinner)
+
+        AlertDialog.Builder(this)
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                triggerStrongHaptic()
+                val name = titleInput.text.toString().trim().ifEmpty { tab.title }
+                val selectedPos = spinner.selectedItemPosition
+                val folderId = if (selectedPos in folderIds.indices) folderIds[selectedPos] else 0L
+
+                val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this, tab.url)
+                val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
+
+                HazeDatabase.getInstance(this).addBookmark(name, tab.url, folderId, faviconPath)
+                Toast.makeText(this, "Added to Favorites!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun toggleFullScreenMode() {
@@ -2495,16 +3107,44 @@ class MainActivity : AppCompatActivity() {
     fun toggleReadingMode() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
         if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
-            Toast.makeText(this, "Reading mode is only available on web pages", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Reading mode is only available on readable articles.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val pageHost = runCatching { Uri.parse(tab.url).host?.lowercase()?.removePrefix("www.") }.getOrNull()
+        if (pageHost == "youtube.com" || pageHost?.endsWith(".youtube.com") == true ||
+            pageHost == "youtube-nocookie.com" || pageHost?.endsWith(".youtube-nocookie.com") == true ||
+            pageHost == "netflix.com" || pageHost?.endsWith(".netflix.com") == true ||
+            pageHost == "twitch.tv" || pageHost?.endsWith(".twitch.tv") == true
+        ) {
+            Toast.makeText(this, "Reading mode is not available for video and streaming pages.", Toast.LENGTH_LONG).show()
             return
         }
         
         val readerScript = """
             (function() {
-                var article = document.querySelector('article') || document.querySelector('main') || document.querySelector('.post-content') || document.querySelector('.article-content') || document.querySelector('#content');
-                var text = article ? article.innerHTML : document.body.innerHTML;
+                var selectors = ['article', 'main', '[role="main"]', '.post-content', '.article-content', '.entry-content', '#content'];
+                var article = null;
+                var bestLength = 0;
+                for (var i = 0; i < selectors.length; i++) {
+                    var candidates = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < candidates.length; j++) {
+                        var candidate = candidates[j];
+                        var length = (candidate.innerText || '').replace(/\s+/g, ' ').trim().length;
+                        if (length > bestLength) {
+                            bestLength = length;
+                            article = candidate;
+                        }
+                    }
+                }
+                if (!article) article = document.body;
+                var copy = article.cloneNode(true);
+                var unwanted = copy.querySelectorAll('script, style, noscript, iframe, video, audio, canvas, nav, footer, form, aside');
+                for (var k = 0; k < unwanted.length; k++) unwanted[k].remove();
+                var plain = (copy.innerText || '').replace(/\s+/g, ' ').trim();
+                var paragraphs = copy.querySelectorAll('p').length;
                 var title = document.title;
-                return JSON.stringify({ title: title, html: text });
+                var readable = plain.length >= 500 && (paragraphs >= 3 || plain.length >= 1100);
+                return JSON.stringify({ title: title, html: copy.innerHTML, readable: readable, characters: plain.length });
             })();
         """.trimIndent()
         
@@ -2514,6 +3154,10 @@ class MainActivity : AppCompatActivity() {
                     org.json.JSONTokener(result).nextValue().toString()
                 } else result
                 val json = JSONObject(cleanResult)
+                if (!json.optBoolean("readable", false)) {
+                    Toast.makeText(this, "This page does not contain enough readable article content.", Toast.LENGTH_LONG).show()
+                    return@evaluateJavascript
+                }
                 val title = json.optString("title", "Reader Mode")
                 val contentHtml = json.optString("html", "")
                 
@@ -2524,13 +3168,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var tts: TextToSpeech? = null
+    private var isTtsSpeaking = false
+    private var ttsSpeed = 1.0f
+
     private fun showReaderModeDialog(title: String, contentHtml: String) {
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
         val isDark = prefs.getBoolean("is_dark", false)
-        
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+
+        // Start with a readable surface that follows the browser theme.
+        var currentBg = if (isDark) "#121212" else "#FFF3E0"
+        var currentText = if (isDark) "#F1F3F4" else "#5D1A00"
+        var currentFont = "'Outfit', sans-serif"
+        var currentFontSize = "18px"
+        var maxWidth = "680px"
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(if (isDark) Color.parseColor("#181818") else Color.parseColor("#FAFAFA"))
+            setBackgroundColor(Color.parseColor(currentBg))
         }
         
         val header = LinearLayout(this).apply {
@@ -2548,6 +3204,10 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
             setOnClickListener {
                 triggerStrongHaptic(it)
+                tts?.stop()
+                tts?.shutdown()
+                tts = null
+                isTtsSpeaking = false
                 dialog.dismiss()
             }
         }
@@ -2560,8 +3220,37 @@ class MainActivity : AppCompatActivity() {
                 marginStart = dpToPx(12)
             }
         }
+
+        // Toolbar Action Buttons (Read Aloud, Translate, Appearance)
+        val btnReadAloud = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_volume_up)
+            setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setBackgroundResource(getSelectableRes())
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36)).apply { marginEnd = dpToPx(8) }
+            contentDescription = "Read Aloud (Long press for 5+ voices)"
+        }
+
+        val btnTranslate = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_translate)
+            setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setBackgroundResource(getSelectableRes())
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36)).apply { marginEnd = dpToPx(8) }
+            contentDescription = "Translate"
+        }
+
+        val btnAppearance = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_palette)
+            setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            setBackgroundResource(getSelectableRes())
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+            contentDescription = "Appearance Settings"
+        }
+
         header.addView(btnClose)
         header.addView(headerTitle)
+        header.addView(btnReadAloud)
+        header.addView(btnTranslate)
+        header.addView(btnAppearance)
         root.addView(header)
         
         val webView = WebView(this).apply {
@@ -2569,41 +3258,330 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptEnabled = false
             setBackgroundColor(Color.TRANSPARENT)
         }
-        
-        val readerHtml = """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
-                    body {
-                        font-family: 'Outfit', sans-serif;
-                        line-height: 1.8;
-                        font-size: 18px;
-                        padding: 24px 20px 60px 20px;
-                        margin: 0 auto;
-                        max-width: 680px;
-                        color: ${if (isDark) "#E0E0E0" else "#202124"};
-                        background: ${if (isDark) "#181818" else "#FAFAFA"};
-                    }
-                    h1 { font-size: 26px; line-height: 1.35; margin-bottom: 24px; font-weight: 600; color: ${if (isDark) "#FFFFFF" else "#111111"}; }
-                    h2, h3 { color: ${if (isDark) "#FFFFFF" else "#222222"}; margin-top: 28px; }
-                    img { max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; }
-                    p { margin-bottom: 20px; }
-                    a { color: ${prefs.getString("accent_color", "#0A56D0")}; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <h1>$title</h1>
-                $contentHtml
-            </body>
-            </html>
-        """.trimIndent()
-        
-        webView.loadDataWithBaseURL(null, readerHtml, "text/html", "UTF-8", null)
+
+        fun reloadReaderContent() {
+            val readerHtml = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Outfit:wght@300;400;500;600&family=Georgia&family=Sitka+Text&display=swap');
+                        body {
+                            font-family: $currentFont;
+                            line-height: 1.85;
+                            font-size: $currentFontSize;
+                            padding: 28px 20px 80px 20px;
+                            margin: 0 auto;
+                            max-width: $maxWidth;
+                            color: $currentText;
+                            background: $currentBg;
+                        }
+                        h1 { font-size: 28px; line-height: 1.35; margin-bottom: 24px; font-weight: 700; color: $currentText; }
+                        h2, h3 { color: $currentText; margin-top: 28px; }
+                        img { max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; }
+                        p { margin-bottom: 20px; }
+                        a { color: $accentColor; text-decoration: none; }
+                    </style>
+                </head>
+                <body>
+                    <h1>$title</h1>
+                    $contentHtml
+                </body>
+                </html>
+            """.trimIndent()
+            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+            webView.loadDataWithBaseURL(currentTab?.url, readerHtml, "text/html", "UTF-8", null)
+            root.setBackgroundColor(Color.parseColor(currentBg))
+        }
+
+        reloadReaderContent()
         root.addView(webView)
-        
+
+        // --- TTS Implementation (Google TTS Engine) ---
+        tts = TextToSpeech(this, { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.getDefault()
+            } else {
+                Toast.makeText(this, "Google Text-to-Speech is unavailable on this device.", Toast.LENGTH_LONG).show()
+            }
+        }, googleTtsEngine)
+
+        btnReadAloud.setOnClickListener {
+            triggerStrongHaptic(it)
+            if (isTtsSpeaking) {
+                tts?.stop()
+                isTtsSpeaking = false
+                Toast.makeText(this, "Read aloud paused", Toast.LENGTH_SHORT).show()
+            } else {
+                val plainText = contentHtml.replace(Regex("<[^>]*>"), "")
+                tts?.setSpeechRate(ttsSpeed)
+                tts?.speak(plainText, TextToSpeech.QUEUE_FLUSH, null, null)
+                isTtsSpeaking = true
+                Toast.makeText(this, "Reading aloud...", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnReadAloud.setOnLongClickListener {
+            triggerStrongHaptic(it)
+            val availableVoices = tts?.voices
+                ?.filter { it.locale.language == Locale.getDefault().language && !it.isNetworkConnectionRequired }
+                ?: emptyList()
+            if (availableVoices.isEmpty()) {
+                Toast.makeText(this, "Install Google Text-to-Speech voices to customize reading aloud.", Toast.LENGTH_LONG).show()
+                return@setOnLongClickListener true
+            }
+            val female = availableVoices.filter {
+                val name = it.name.lowercase()
+                name.contains("female") || name.contains("woman") || name.contains("f1") ||
+                    name.contains("f2") || name.contains("f3")
+            }
+            val male = availableVoices.filter {
+                val name = it.name.lowercase()
+                name.contains("male") || name.contains("man") || name.contains("m1") ||
+                    name.contains("m2")
+            }
+            val selectedVoices = (female.take(3) + male.take(2) +
+                availableVoices.filterNot { it in female || it in male }).distinct().take(5)
+            val labels = selectedVoices.mapIndexed { index, voice ->
+                val group = if (voice in female.take(3)) "Female ${index + 1}" else "Male ${index + 1}"
+                "$group - ${voice.locale.displayName}"
+            }
+            val settings = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dpToPx(20), dpToPx(4), dpToPx(20), dpToPx(8))
+            }
+            val voiceGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+            selectedVoices.forEachIndexed { index, voice ->
+                voiceGroup.addView(RadioButton(this).apply {
+                    text = labels[index]
+                    setTextColor(if (prefs.getBoolean("is_dark", false)) Color.WHITE else Color.parseColor("#202124"))
+                    isChecked = tts?.voice?.name == voice.name
+                    setOnClickListener {
+                        tts?.voice = voice
+                    }
+                })
+            }
+            settings.addView(voiceGroup)
+            val speedLabel = TextView(this).apply {
+                text = "Playback speed: ${"%.1f".format(Locale.US, ttsSpeed)}x"
+                setTextColor(if (prefs.getBoolean("is_dark", false)) Color.WHITE else Color.parseColor("#202124"))
+                setPadding(0, dpToPx(12), 0, 0)
+            }
+            settings.addView(speedLabel)
+            val speedSeek = SeekBar(this).apply {
+                max = 15
+                progress = ((ttsSpeed - 0.5f) * 10).toInt()
+                progressTintList = ColorStateList.valueOf(accentColor)
+                thumbTintList = ColorStateList.valueOf(accentColor)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        ttsSpeed = 0.5f + progress / 10f
+                        speedLabel.text = "Playback speed: ${"%.1f".format(Locale.US, ttsSpeed)}x"
+                        tts?.setSpeechRate(ttsSpeed)
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                })
+            }
+            settings.addView(speedSeek)
+            AlertDialog.Builder(this)
+                .setTitle("Google TTS Voice & Speed")
+                .setView(settings)
+                .setPositiveButton("Done", null)
+                .show()
+            true
+        }
+
+        // --- Translate Implementation ---
+        btnTranslate.setOnClickListener {
+            triggerStrongHaptic(it)
+            val languages = arrayOf("Spanish", "French", "German", "Hindi", "Japanese", "Chinese", "Arabic", "Portuguese", "Russian")
+            AlertDialog.Builder(this)
+                .setTitle("Translate Article To")
+                .setItems(languages) { _, which ->
+                    val langCode = when (languages[which]) {
+                        "Spanish" -> "es"
+                        "French" -> "fr"
+                        "German" -> "de"
+                        "Hindi" -> "hi"
+                        "Japanese" -> "ja"
+                        "Chinese" -> "zh"
+                        "Arabic" -> "ar"
+                        "Portuguese" -> "pt"
+                        "Russian" -> "ru"
+                        else -> "es"
+                    }
+                    val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                    if (currentTab != null) {
+                        val transUrl = "https://translate.google.com/translate?sl=auto&tl=$langCode&u=${Uri.encode(currentTab.url)}"
+                        dialog.dismiss()
+                        loadUrlFromInput(transUrl)
+                    }
+                }
+                .show()
+        }
+
+        // --- Appearance Settings Popup (Fonts, Font Size, Column Width, Themes) ---
+        btnAppearance.setOnClickListener {
+            triggerStrongHaptic(it)
+            val appearanceSurface = if (isDark) Color.parseColor("#292A24") else Color.WHITE
+            val appearanceText = if (isDark) Color.parseColor("#F1F3E8") else Color.parseColor("#202124")
+            val popView = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dpToPx(20), dpToPx(20), dpToPx(20), dpToPx(20))
+                background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(24).toFloat()
+                    setColor(appearanceSurface)
+                }
+            }
+
+            // Font Family Selector
+            val tvFontLbl = TextView(this).apply {
+                text = "Font Family"
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(appearanceText)
+            }
+            val fontSpinner = Spinner(this).apply {
+                val fonts = arrayOf("Outfit (Default)", "Serif (Georgia)", "Sitka", "Merriweather", "Monospace")
+                adapter = object : ArrayAdapter<String>(
+                    this@MainActivity,
+                    android.R.layout.simple_spinner_item,
+                    fonts
+                ) {
+                    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        return super.getView(position, convertView, parent).apply {
+                            (this as? TextView)?.setTextColor(appearanceText)
+                        }
+                    }
+
+                    override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        return super.getDropDownView(position, convertView, parent).apply {
+                            (this as? TextView)?.setTextColor(appearanceText)
+                        }
+                    }
+                }.also {
+                    it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                }
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                        currentFont = when (position) {
+                            1 -> "'Georgia', serif"
+                            2 -> "'Sitka Text', serif"
+                            3 -> "'Merriweather', serif"
+                            4 -> "monospace"
+                            else -> "'Outfit', sans-serif"
+                        }
+                        reloadReaderContent()
+                    }
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                }
+            }
+            popView.addView(tvFontLbl)
+            popView.addView(fontSpinner)
+
+            // Font Size
+            val tvSizeLbl = TextView(this).apply {
+                text = "Font Size"
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(appearanceText)
+                setPadding(0, dpToPx(16), 0, 0)
+            }
+            val sizeSeek = SeekBar(this).apply {
+                max = 16
+                progress = 4 // default 18px
+                progressTintList = ColorStateList.valueOf(accentColor)
+                thumbTintList = ColorStateList.valueOf(accentColor)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        currentFontSize = "${14 + progress}px"
+                        reloadReaderContent()
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            popView.addView(tvSizeLbl)
+            popView.addView(sizeSeek)
+
+            // Column Width
+            val tvWidthLbl = TextView(this).apply {
+                text = "Column Width"
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(appearanceText)
+                setPadding(0, dpToPx(16), 0, 0)
+            }
+            val widthSeek = SeekBar(this).apply {
+                max = 5
+                progress = 2 // default 680px
+                progressTintList = ColorStateList.valueOf(accentColor)
+                thumbTintList = ColorStateList.valueOf(accentColor)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        maxWidth = "${500 + progress * 80}px"
+                        reloadReaderContent()
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            popView.addView(tvWidthLbl)
+            popView.addView(widthSeek)
+
+            // Color Themes
+            val tvThemeLbl = TextView(this).apply {
+                text = "Reading Theme"
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(appearanceText)
+                setPadding(0, dpToPx(16), 0, dpToPx(8))
+            }
+            popView.addView(tvThemeLbl)
+
+            val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val themes = listOf(
+                Pair("Paper Cream", Pair("#FDFBF7", "#202124")),
+                Pair("White", Pair("#FFFFFF", "#202124")),
+                Pair("Dark", Pair("#121212", "#E0E0E0")),
+                Pair("Mint", Pair("#E6F4EA", "#137333")),
+                Pair("Blue", Pair("#E8F0FE", "#1967D2")),
+                Pair("Yellow", Pair("#FEF7E0", "#B06000"))
+            )
+            for (th in themes) {
+                val btn = Button(this).apply {
+                    text = th.first.take(1)
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36)).apply { marginEnd = dpToPx(6) }
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(Color.parseColor(th.second.first))
+                        setStroke(2, Color.parseColor(th.second.second))
+                    }
+                    setOnClickListener {
+                        currentBg = th.second.first
+                        currentText = th.second.second
+                        reloadReaderContent()
+                    }
+                }
+                themeRow.addView(btn)
+            }
+            popView.addView(themeRow)
+
+            val appearanceDialog = AlertDialog.Builder(this)
+                .setTitle("Appearance Settings")
+                .setView(popView)
+                .setPositiveButton("Done", null)
+                .create()
+            appearanceDialog.show()
+            appearanceDialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            appearanceDialog.findViewById<TextView>(
+                resources.getIdentifier("alertTitle", "id", "android")
+            )?.setTextColor(appearanceText)
+            appearanceDialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
+                setTextColor(accentColor)
+                isAllCaps = false
+                setTypeface(null, Typeface.BOLD)
+            }
+        }
+
         dialog.setContentView(root)
         dialog.show()
     }
@@ -2772,14 +3750,18 @@ class MainActivity : AppCompatActivity() {
     fun showPageDetails() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
         val cert = tab.webView.certificate
-        val isSecure = tab.url.startsWith("https://")
+        val isSecure = tab.url.startsWith("https://") || tab.url.startsWith("haze://") || tab.url == HAZE_HOME_URL
         val message = StringBuilder().apply {
             append("URL: ${tab.url}\n\n")
-            append("Security: ${if (isSecure) "Secure (HTTPS)" else "Not Secure (HTTP)"}\n\n")
+            append("Security: ${if (isSecure) "Secure Haze Page (HTTPS)" else "Not Secure (HTTP)"}\n\n")
             if (cert != null) {
                 append("Issued to: ${cert.issuedTo.cName}\n")
                 append("Issued by: ${cert.issuedBy.cName}\n")
                 append("Valid until: ${cert.validNotAfterDate}\n")
+            } else if (tab.url.startsWith("haze://") || tab.url == HAZE_HOME_URL) {
+                append("Issued to: Haze Private Root Authority\n")
+                append("Issued by: Haze Core Security\n")
+                append("Status: Verified & Secure Internal Page\n")
             }
         }.toString()
         
@@ -2806,6 +3788,84 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(url)
         tabCountBtn.text = currentTabsList.size.toString()
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun getOfflineErrorHtml(url: String, isDark: Boolean): String {
+        val bgColor = if (isDark) "#121212" else "#FFFFFF"
+        val textColor = if (isDark) "#FFFFFF" else "#202124"
+        val subTextColor = if (isDark) "#9AA0A6" else "#5F6368"
+        val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val artworkFilter = if (isDark) "filter: invert(0.88) hue-rotate(180deg); opacity: 0.92;" else ""
+
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+                    html, body {
+                        margin: 0; padding: 0; height: 100vh; width: 100vw;
+                        display: flex; flex-direction: column; align-items: center; justify-content: center;
+                        background: $bgColor;
+                        font-family: 'Outfit', sans-serif;
+                        color: $textColor;
+                        text-align: center;
+                        overflow: hidden;
+                    }
+                    .container {
+                        display: flex; flex-direction: column; align-items: center; max-width: 380px; padding: 24px;
+                    }
+                    .astronaut-art {
+                        width: 280px; height: 186px; margin-bottom: 24px; object-fit: contain;
+                        $artworkFilter
+                    }
+                    h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+                    p { font-size: 14px; color: $subTextColor; margin-bottom: 28px; line-height: 1.5; }
+                    .btn-reload {
+                        background: $accentColor; color: white; border: none; border-radius: 24px;
+                        padding: 12px 32px; font-size: 15px; font-weight: 600; cursor: pointer;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: transform 0.1s ease;
+                    }
+                    .btn-reload:active { transform: scale(0.96); }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <img class="astronaut-art" src="file:///android_asset/offline_astronaut_cat.png" alt="Astronaut and cat offline illustration">
+                    <h1>No internet connection</h1>
+                    <p>You're offline. Check your connection or Wi-Fi and try again.</p>
+                    <button class="btn-reload" onclick="location.reload()">Try Again</button>
+                </div>
+            </body>
+            </html>
+        """.trimIndent()
+    }
+
+    private fun showPageLoading(progress: Int) {
+        val progressBar = findViewById<ProgressBar>(R.id.pageProgressBar) ?: return
+        pageLoadingGeneration++
+        progressBar.animate().cancel()
+        progressBar.visibility = View.VISIBLE
+        progressBar.alpha = 1f
+        progressBar.progress = progress.coerceIn(1, 99)
+        progressBar.bringToFront()
+    }
+
+    private fun finishPageLoading() {
+        val progressBar = findViewById<ProgressBar>(R.id.pageProgressBar) ?: return
+        val completedGeneration = pageLoadingGeneration
+        progressBar.progress = 100
+        progressBar.animate()
+            .alpha(0f)
+            .setDuration(180L)
+            .withEndAction {
+                if (completedGeneration != pageLoadingGeneration) return@withEndAction
+                progressBar.visibility = View.GONE
+                progressBar.alpha = 1f
+                progressBar.progress = 0
+            }
+            .start()
     }
 
     fun updateWebSettings() {
@@ -2854,6 +3914,17 @@ class MainActivity : AppCompatActivity() {
         if (activeTabIndex == -1) return
         val query = input.trim()
         if (query.isEmpty()) return
+
+        if (query == HAZE_HOME_URL || query == "haze://home" || query.startsWith("haze://home")) {
+            val tab = currentTabsList[activeTabIndex]
+            tab.url = HAZE_HOME_URL
+            tab.title = "New Tab"
+            tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+            deactivateSearchMode()
+            addressBar.setText("")
+            updateChromeVisibility(HAZE_HOME_URL)
+            return
+        }
 
         if (query == "haze://favorites" || query == "haze://bookmarks") {
             HazeBookmarksManager.showBookmarksDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
@@ -2905,6 +3976,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun toggleMediaPlayback() {
+        if (miniPlayerManager?.isActive == true) {
+            miniPlayerManager?.togglePlayback()
+            return
+        }
         val currentTab = currentTabsList.getOrNull(activeTabIndex) ?: return
         val toggleScript = """
             (function() {
@@ -2975,7 +4050,7 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
             val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            val isHome = currentTab == null || isHomeTab(currentTab)
+            val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             val isAudioActive = audioManager?.isMusicActive == true
             val shouldAutoEnter = isAutoPipEnabled && !isHome && (isMediaPlaying || customVideoView != null || isAudioActive)
@@ -3025,7 +4100,7 @@ class MainActivity : AppCompatActivity() {
         if (!isAutoPipEnabled) return
 
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        val isHome = currentTab == null || isHomeTab(currentTab)
+        val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
         if (isHome) return
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -3071,6 +4146,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(suggestionDebounce)
+        suggestionExecutor.shutdownNow()
+        miniPlayerManager?.release()
         super.onDestroy()
         try {
             unregisterReceiver(pipReceiver)

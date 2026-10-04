@@ -75,12 +75,20 @@ data class BlockedEvent(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class PasswordItem(
+    val id: Long,
+    val site: String,
+    val username: String,
+    val encryptedPassword: String,
+    val title: String = ""
+)
+
 class HazeDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
 
     companion object {
         private const val DATABASE_NAME = "haze_browser.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
 
         @Volatile
         private var instance: HazeDatabase? = null
@@ -224,6 +232,7 @@ class HazeDatabase private constructor(context: Context) :
             )
             """.trimIndent()
         )
+        createPasswordTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -238,6 +247,9 @@ class HazeDatabase private constructor(context: Context) :
         if (oldVersion < 3) {
             createPrivacyTables(db)
         }
+        if (oldVersion < 4) {
+            createPasswordTable(db)
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -250,7 +262,64 @@ class HazeDatabase private constructor(context: Context) :
             db.execSQL("ALTER TABLE bookmarks ADD COLUMN favicon_path TEXT")
         } catch (ignored: Exception) {}
         createPrivacyTables(db)
+        createPasswordTable(db)
     }
+
+    private fun createPasswordTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS password_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                site TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL,
+                encrypted_password TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(site, username)
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_password_items_site ON password_items(site)")
+    }
+
+    fun upsertPassword(site: String, title: String, username: String, encryptedPassword: String): Long {
+        val now = System.currentTimeMillis()
+        val values = ContentValues().apply {
+            put("site", site.trim())
+            put("title", title.trim())
+            put("username", username)
+            put("encrypted_password", encryptedPassword)
+            put("created_at", now)
+            put("updated_at", now)
+        }
+        return writableDatabase.insertWithOnConflict(
+            "password_items", null, values, SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun getPasswords(): List<PasswordItem> {
+        val result = mutableListOf<PasswordItem>()
+        readableDatabase.query(
+            "password_items",
+            arrayOf("id", "site", "title", "username", "encrypted_password"),
+            null, null, null, null, "site COLLATE NOCASE ASC, username COLLATE NOCASE ASC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += PasswordItem(
+                    id = cursor.getLong(0),
+                    site = cursor.getString(1),
+                    title = cursor.getString(2),
+                    username = cursor.getString(3),
+                    encryptedPassword = cursor.getString(4)
+                )
+            }
+        }
+        return result
+    }
+
+    fun deletePassword(id: Long): Boolean =
+        writableDatabase.delete("password_items", "id = ?", arrayOf(id.toString())) > 0
 
     private fun createPrivacyTables(db: SQLiteDatabase) {
         try {
