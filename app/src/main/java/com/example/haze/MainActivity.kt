@@ -565,7 +565,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 isMediaPlaying = isPlaying
                 if (isPlaying) activeMediaTab = getTabFromWebView(ownerWebView)
-                else if (activeMediaTab?.webView == ownerWebView) activeMediaTab = null
+                else if (activeMediaTab?.browserTab?.renderView == ownerWebView) activeMediaTab = null
                 if (width > 0 && height > 0) {
                     lastVideoWidth = width
                     lastVideoHeight = height
@@ -1155,6 +1155,17 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_privacy_shield", false)) {
             webContainer.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 200)
         }
+        if (intent.getBooleanExtra("open_tabs", false)) {
+            webContainer.postDelayed({ showFullScreenTabs() }, 200)
+        }
+        if (intent.getBooleanExtra("open_private_tab", false)) {
+            val pUrl = intent.getStringExtra("private_url") ?: HAZE_HOME_URL
+            webContainer.postDelayed({ openPrivateTab(pUrl) }, 200)
+        }
+        if (intent.getBooleanExtra("new_tab", false)) {
+            val tUrl = intent.getStringExtra("tab_url") ?: HAZE_HOME_URL
+            webContainer.postDelayed({ addNewTab(tUrl) }, 200)
+        }
     }
 
     private fun getCustomShortcuts(): List<Shortcut> {
@@ -1615,30 +1626,30 @@ class MainActivity : AppCompatActivity() {
             }
             "haze://favorites", "haze://bookmarks" -> {
                 tab.title = "Favorites"
-                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazeBookmarksManager.showBookmarksDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
             }
             "haze://history" -> {
                 tab.title = "History"
-                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazeHistoryManager.showHistoryDialog(this) { navigateUrl -> loadUrlFromInput(navigateUrl) }
             }
             "haze://downloads" -> {
                 tab.title = "Downloads"
-                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazeDownloadsManager.showDownloadsDialog(this)
             }
             "haze://settings" -> {
                 tab.title = "Settings"
-                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazeSettingsManager.showSettingsDialog(this)
             }
             "haze://shield", "haze://privacy", "haze://adblock" -> {
                 tab.title = "Privacy Shield"
-                webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 HazePrivacyShieldDashboard.showDashboard(this)
             }
-            else -> webView.loadUrl(url)
+            else -> browserTab.navigationController.loadUrl(url)
         }
         tab.url = url
     }
@@ -1876,8 +1887,11 @@ class MainActivity : AppCompatActivity() {
                     val currentUrl = webView.url ?: ""
                     if (currentUrl.isNotEmpty() && currentUrl != HAZE_HOME_URL && !currentUrl.startsWith("haze://")) {
                         val currentTitle = webView.title ?: "Web Page"
-                        HazeContextMenuManager.showPageContextMenu(this, currentUrl, currentTitle, webView)
-                        true
+                        val currentTab = getTabFromWebView(webView)
+                        if (currentTab != null) {
+                            HazeContextMenuManager.showPageContextMenu(this, currentUrl, currentTitle, currentTab.browserTab)
+                            true
+                        } else false
                     } else false
                 }
             }
@@ -3312,6 +3326,7 @@ class MainActivity : AppCompatActivity() {
         """.trimIndent()
         
         tab.browserTab.evaluateJavascript(readerScript) { result ->
+            if (result == null) return@evaluateJavascript
             try {
                 val cleanResult = if (result.startsWith("\"") && result.endsWith("\"")) {
                     org.json.JSONTokener(result).nextValue().toString()
@@ -3837,18 +3852,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun toggleDesktopSite(tab: Tab) {
-        tab.isDesktop = !tab.isDesktop
-        val settings = tab.webView.settings
-        if (tab.isDesktop) {
-            settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
-            Toast.makeText(this, "Desktop site enabled", Toast.LENGTH_SHORT).show()
-        } else {
-            settings.userAgentString = null
-            Toast.makeText(this, "Mobile site enabled", Toast.LENGTH_SHORT).show()
-        }
-        tab.webView.reload()
+        tab.browserTab.isDesktop = !tab.browserTab.isDesktop
+        tab.isDesktop = tab.browserTab.isDesktop
+        Toast.makeText(this, if (tab.isDesktop) "Desktop site enabled" else "Mobile site enabled", Toast.LENGTH_SHORT).show()
+        tab.browserTab.reload()
     }
 
     fun shareCurrentPage() {
@@ -3872,37 +3879,41 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val printManager = getSystemService(PRINT_SERVICE) as? android.print.PrintManager
-        val printAdapter = tab.webView.createPrintDocumentAdapter("Haze - " + tab.title)
-        printManager?.print("Haze - " + tab.title, printAdapter, android.print.PrintAttributes.Builder().build())
+        val printAdapter = tab.browserTab.createPrintDocumentAdapter("Haze - " + tab.title) as? android.print.PrintDocumentAdapter
+        if (printAdapter != null) {
+            printManager?.print("Haze - " + tab.title, printAdapter, android.print.PrintAttributes.Builder().build())
+        }
     }
 
     fun captureCurrentTabScreenshot() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        try {
-            val bitmap = Bitmap.createBitmap(tab.webView.width, tab.webView.height, Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(bitmap)
-            tab.webView.draw(canvas)
-            
-            val file = File(cacheDir, "screenshot_${System.currentTimeMillis()}.png")
-            FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+        tab.browserTab.captureThumbnail { bitmap ->
+            if (bitmap != null) {
+                try {
+                    val file = File(cacheDir, "screenshot_${System.currentTimeMillis()}.png")
+                    FileOutputStream(file).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+                    }
+                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(shareIntent, "Share Screenshot"))
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Failed to capture screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Could not capture tab screenshot", Toast.LENGTH_SHORT).show()
             }
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(shareIntent, "Share Screenshot"))
-        } catch (e: Exception) {
-            Toast.makeText(this, "Failed to capture screenshot: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun clearTabsCache() {
         runOnUiThread {
-            for (tab in normalTabs) tab.webView.clearCache(true)
-            for (tab in privateTabs) tab.webView.clearCache(true)
+            for (tab in normalTabs) tab.browserTab.clearCache(true)
+            for (tab in privateTabs) tab.browserTab.clearCache(true)
         }
     }
 
@@ -3912,15 +3923,15 @@ class MainActivity : AppCompatActivity() {
 
     fun showPageDetails() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val cert = tab.webView.certificate
+        val cert = tab.browserTab.getCertificateInfo()
         val isSecure = tab.url.startsWith("https://") || tab.url.startsWith("haze://") || tab.url == HAZE_HOME_URL
         val message = StringBuilder().apply {
             append("URL: ${tab.url}\n\n")
             append("Security: ${if (isSecure) "Secure Haze Page (HTTPS)" else "Not Secure (HTTP)"}\n\n")
             if (cert != null) {
-                append("Issued to: ${cert.issuedTo.cName}\n")
-                append("Issued by: ${cert.issuedBy.cName}\n")
-                append("Valid until: ${cert.validNotAfterDate}\n")
+                append("Issued to: ${cert.issuedTo}\n")
+                append("Issued by: ${cert.issuedBy}\n")
+                append("Valid until: ${cert.validNotAfter}\n")
             } else if (tab.url.startsWith("haze://") || tab.url == HAZE_HOME_URL) {
                 append("Issued to: Haze Private Root Authority\n")
                 append("Issued by: Haze Core Security\n")
@@ -3942,13 +3953,13 @@ class MainActivity : AppCompatActivity() {
 
     fun addNewBackgroundTab(url: String) {
         val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
-        val webView = (browserTab as ChromiumBrowserTab).webView
-        webView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        val renderView = browserTab.renderView
+        renderView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         val tab = Tab(id = browserTab.id, browserTab = browserTab, isPrivate = isPrivateMode, url = url, title = "New Tab")
         currentTabsList.add(tab)
-        webContainer.addView(webView)
-        setupWebView(webView)
-        webView.visibility = View.GONE
+        webContainer.addView(renderView)
+        (browserTab as? ChromiumBrowserTab)?.let { setupWebView(it.webView) }
+        renderView.visibility = View.GONE
         tab.browserTab.navigationController.loadUrl(url)
         tabCountBtn.text = currentTabsList.size.toString()
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
@@ -4193,10 +4204,10 @@ class MainActivity : AppCompatActivity() {
     fun updateWebSettings() {
         val jsEnabled = prefs.getBoolean("javascript_enabled", true)
         for (tab in normalTabs) {
-            tab.webView.settings.javaScriptEnabled = jsEnabled
+            tab.browserTab.setJavaScriptEnabled(jsEnabled)
         }
         for (tab in privateTabs) {
-            tab.webView.settings.javaScriptEnabled = jsEnabled
+            tab.browserTab.setJavaScriptEnabled(jsEnabled)
         }
     }
 
@@ -4241,7 +4252,7 @@ class MainActivity : AppCompatActivity() {
             val tab = currentTabsList[activeTabIndex]
             tab.url = HAZE_HOME_URL
             tab.title = "New Tab"
-            tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+            tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
             deactivateSearchMode()
             addressBar.setText("")
             updateChromeVisibility(HAZE_HOME_URL)
@@ -4297,13 +4308,13 @@ class MainActivity : AppCompatActivity() {
         if (!isNetworkAvailable()) {
             val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
             tab.title = "Offline"
-            tab.webView.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
+            tab.browserTab.navigationController.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
             updateChromeVisibility(url)
             addressBar.setText(url)
             return
         }
 
-        tab.webView.loadUrl(url)
+        tab.browserTab.navigationController.loadUrl(url)
     }
 
     fun toggleMediaPlayback() {
@@ -4332,7 +4343,7 @@ class MainActivity : AppCompatActivity() {
                 return 'none';
             })();
         """.trimIndent()
-        currentTab.webView.evaluateJavascript(toggleScript) { result ->
+        currentTab.browserTab.evaluateJavascript(toggleScript) { result ->
             val isPlaying = result?.contains("playing") == true
             isMediaPlaying = isPlaying
             updatePipAutoEnter()
@@ -4506,19 +4517,19 @@ class MainActivity : AppCompatActivity() {
                     toggleFullScreenMode()
                 } else if (findBarContainer.visibility == View.VISIBLE) {
                     findBarContainer.visibility = View.GONE
-                    currentTabsList.getOrNull(activeTabIndex)?.webView?.clearMatches()
+                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
                     val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                     imm.hideSoftInputFromWindow(findInput.windowToken, 0)
-                } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].webView.canGoBack()) {
+                } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].browserTab.navigationController.canGoBack()) {
                     val tab = currentTabsList[activeTabIndex]
-                    if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.webView.goBack() 
+                    if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.browserTab.navigationController.goBack() 
                     else {
                         isEnabled = false; onBackPressedDispatcher.onBackPressed()
                     }
                 } else if (currentTabsList.size > 1) {
                     val tabToRemove = currentTabsList[activeTabIndex]
-                    webContainer.removeView(tabToRemove.webView)
-                    tabToRemove.webView.destroy()
+                    webContainer.removeView(tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView)
+                    tabToRemove.browserTab.destroy()
                     currentTabsList.removeAt(activeTabIndex)
                     
                     if (isPrivateMode) {
