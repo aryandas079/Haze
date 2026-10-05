@@ -277,8 +277,28 @@ class ChromiumBrowserTab(
         if (forward) webView.findNext(true)
     }
 
+    override fun findAllAsync(query: String) {
+        webView.findAllAsync(query)
+    }
+
+    override fun findNext(forward: Boolean) {
+        webView.findNext(forward)
+    }
+
     override fun clearMatches() {
         webView.clearMatches()
+    }
+
+    override fun addJavascriptInterface(obj: Any, name: String) {
+        webView.addJavascriptInterface(obj, name)
+    }
+
+    override fun removeJavascriptInterface(name: String) {
+        webView.removeJavascriptInterface(name)
+    }
+
+    override fun setBackgroundColor(color: Int) {
+        webView.setBackgroundColor(color)
     }
 
     override fun zoomIn(): Boolean = webView.zoomIn()
@@ -307,30 +327,6 @@ class ChromiumBrowserTab(
         }
     }
 
-    override fun findAllAsync(find: String) {
-        webView.findAllAsync(find)
-    }
-
-    override fun findNext(forward: Boolean) {
-        webView.findNext(forward)
-    }
-
-    override fun clearCache(includeDiskFiles: Boolean) {
-        webView.clearCache(includeDiskFiles)
-    }
-
-    override fun setBackgroundColor(color: Int) {
-        webView.setBackgroundColor(color)
-    }
-
-    override fun setJavaScriptEnabled(enabled: Boolean) {
-        webView.settings.javaScriptEnabled = enabled
-    }
-
-    override fun createPrintDocumentAdapter(documentName: String): Any? {
-        return webView.createPrintDocumentAdapter(documentName)
-    }
-
     override fun onPause() {
         webView.onPause()
         webView.pauseTimers()
@@ -344,17 +340,36 @@ class ChromiumBrowserTab(
     override fun destroy() {
         try {
             observer = null
-            if (isPrivate) {
-                webView.clearHistory()
-                webView.clearCache(true)
-                webView.clearFormData()
-                webView.clearSslPreferences()
-            }
             webView.stopLoading()
             webView.clearHistory()
             (webView.parent as? android.view.ViewGroup)?.removeView(webView)
             webView.destroy()
         } catch (_: Exception) {}
+    }
+
+    override fun setJavaScriptEnabled(enabled: Boolean) {
+        webView.settings.javaScriptEnabled = enabled
+    }
+
+    override fun getCertificateInfo(): SslErrorInfo? {
+        val cert = webView.certificate ?: return null
+        return SslErrorInfo(
+            primaryError = 0,
+            url = url,
+            certificateSummary = cert.toString(),
+            issuedTo = cert.issuedTo?.dName ?: "Unknown",
+            issuedBy = cert.issuedBy?.dName ?: "Unknown",
+            validNotBefore = cert.validNotBeforeDate?.toString() ?: "",
+            validNotAfter = cert.validNotAfterDate?.toString() ?: ""
+        )
+    }
+
+    override fun clearCache(includeDiskFiles: Boolean) {
+        webView.clearCache(includeDiskFiles)
+    }
+
+    override fun createPrintDocumentAdapter(documentName: String): Any? {
+        return webView.createPrintDocumentAdapter(documentName)
     }
 
     override fun reload() {

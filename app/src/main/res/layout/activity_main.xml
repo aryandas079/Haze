@@ -87,35 +87,7 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- Circular Privacy Shield (i) Button -->
-        <FrameLayout
-            android:id="@+id/btnPrivacyShield"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginEnd="10dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="@drawable/bg_circle_gray">
 
-            <ImageView
-                android:id="@+id/ivPrivacyShieldIcon"
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_privacy_shield"
-                android:contentDescription="Privacy Shield Dashboard" />
-
-            <!-- Notification / Active indicator dot -->
-            <View
-                android:id="@+id/shieldBadgeDot"
-                android:layout_width="9dp"
-                android:layout_height="9dp"
-                android:layout_gravity="top|end"
-                android:layout_marginTop="7dp"
-                android:layout_marginEnd="7dp"
-                android:background="@drawable/bg_badge_dot"
-                android:visibility="gone" />
-        </FrameLayout>
 
         <!-- Circular Profile Button -->
         <FrameLayout

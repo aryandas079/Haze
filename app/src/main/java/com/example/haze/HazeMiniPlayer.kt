@@ -12,7 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
-import android.webkit.WebView
+import com.example.haze.engine.IBrowserTab
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -50,7 +50,7 @@ class HazeMiniPlayer(
     private val hideControls = Runnable {
         if (isPlaying && !isCompactMode) controlsOverlay.animate().alpha(0f).setDuration(220).start()
     }
-    private var webView: WebView? = null
+    private var browserTab: IBrowserTab? = null
     private var session: MediaSession? = null
     private var isPlaying = false
     private var isMuted = false
@@ -158,8 +158,9 @@ class HazeMiniPlayer(
         }
     }
 
-    fun attach(view: WebView, videoTitle: String) {
-        webView = view
+    fun attach(tab: IBrowserTab, videoTitle: String) {
+        browserTab = tab
+        val view = tab.renderView
         title.text = videoTitle.ifBlank { "Video Player" }
         isActive = true
         error.visibility = View.GONE
@@ -210,16 +211,17 @@ class HazeMiniPlayer(
     private fun releaseVideo() {
         handler.removeCallbacks(hideControls)
         evaluate("if(window.hazeActiveVideo){window.hazeActiveVideo.setAttribute('style',window.hazeActiveVideo.dataset.hazeMiniStyle||'');window.hazeActiveVideo=null}")
-        webView?.removeJavascriptInterface("HazeMiniPlayerBridge")
-        videoContainer.removeView(webView)
+        browserTab?.removeJavascriptInterface("HazeMiniPlayerBridge")
+        browserTab?.renderView?.let { videoContainer.removeView(it) }
         session?.run { isActive = false; release() }
         session = null
         isActive = false
+        browserTab = null
         rootLayout.visibility = View.GONE
     }
 
     private fun injectBridge() {
-        webView?.addJavascriptInterface(Bridge(), "HazeMiniPlayerBridge")
+        browserTab?.addJavascriptInterface(Bridge(), "HazeMiniPlayerBridge")
         evaluate("""
             (function(){
               var v=window.hazeActiveVideo;
@@ -235,7 +237,7 @@ class HazeMiniPlayer(
         """.trimIndent())
     }
 
-    private fun evaluate(script: String) { webView?.evaluateJavascript(script, null) }
+    private fun evaluate(script: String) { browserTab?.evaluateJavascript(script, null) }
     private fun seekBy(seconds: Int) { evaluate("if(window.hazeActiveVideo) window.hazeActiveVideo.currentTime=Math.max(0,window.hazeActiveVideo.currentTime+$seconds)") }
 
     private fun setCompactMode(compact: Boolean) {

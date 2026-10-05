@@ -68,12 +68,12 @@ interface IBrowserTab {
     fun findInPage(query: String, forward: Boolean)
 
     /**
-     * Asynchronously finds all occurrences of the query.
+     * Finds all instances of query string asynchronously.
      */
-    fun findAllAsync(find: String)
+    fun findAllAsync(query: String)
 
     /**
-     * Highlights and moves to the next or previous found search match.
+     * Highlights and moves to the next or previous search match.
      */
     fun findNext(forward: Boolean)
 
@@ -81,6 +81,21 @@ interface IBrowserTab {
      * Clears all search highlighting from the page.
      */
     fun clearMatches()
+
+    /**
+     * Injects an object as a JavaScript global bridge.
+     */
+    fun addJavascriptInterface(obj: Any, name: String)
+
+    /**
+     * Removes an injected JavaScript bridge.
+     */
+    fun removeJavascriptInterface(name: String)
+
+    /**
+     * Sets the tab background color.
+     */
+    fun setBackgroundColor(color: Int)
 
     /**
      * Zooms into the page content.
@@ -96,26 +111,6 @@ interface IBrowserTab {
      * Resets the zoom level to 100%.
      */
     fun resetZoom()
-
-    /**
-     * Clears cached resources for this tab.
-     */
-    fun clearCache(includeDiskFiles: Boolean = true)
-
-    /**
-     * Sets background color of the render surface.
-     */
-    fun setBackgroundColor(color: Int)
-
-    /**
-     * Dynamically enables or disables JavaScript execution for this tab.
-     */
-    fun setJavaScriptEnabled(enabled: Boolean)
-
-    /**
-     * Creates a print document adapter for Android printing services.
-     */
-    fun createPrintDocumentAdapter(documentName: String): Any?
 
     /**
      * Captures a snapshot bitmap of the visible viewport.
@@ -138,24 +133,32 @@ interface IBrowserTab {
     fun destroy()
 
     /**
+     * Toggles JavaScript execution for this tab.
+     */
+    fun setJavaScriptEnabled(enabled: Boolean)
+
+    /**
+     * Retrieves SSL/TLS certificate details for the currently loaded page.
+     */
+    fun getCertificateInfo(): SslErrorInfo?
+
+    /**
+     * Clears cache for this individual tab.
+     */
+    fun clearCache(includeDiskFiles: Boolean)
+
+    /**
+     * Creates an Android PrintDocumentAdapter for the page.
+     */
+    fun createPrintDocumentAdapter(documentName: String): Any?
+
+    /**
      * Reloads the current page.
      */
-    fun reload() {
-        navigationController.reload()
-    }
+    fun reload()
 
     /**
      * Stops loading the current page.
      */
-    fun stopLoading() {
-        navigationController.stopLoading()
-    }
-
-    fun canGoBack(): Boolean = navigationController.canGoBack()
-    fun canGoForward(): Boolean = navigationController.canGoForward()
-    fun goBack() = navigationController.goBack()
-    fun goForward() = navigationController.goForward()
-    fun loadUrl(targetUrl: String, headers: Map<String, String>? = null) = navigationController.loadUrl(targetUrl, headers)
-    fun loadDataWithBaseURL(baseUrl: String?, data: String, mimeType: String?, encoding: String?, historyUrl: String?) =
-        navigationController.loadDataWithBaseURL(baseUrl, data, mimeType, encoding, historyUrl)
+    fun stopLoading()
 }

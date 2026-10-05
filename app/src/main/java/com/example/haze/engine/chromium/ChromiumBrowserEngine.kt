@@ -79,6 +79,26 @@ class ChromiumBrowserEngine private constructor() : IBrowserEngine {
         }.start()
     }
 
+    override fun clearPrivateSession(onComplete: (() -> Unit)?) {
+        Thread {
+            try {
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.removeSessionCookies {
+                    cookieManager.flush()
+                }
+            } catch (_: Exception) {}
+            onComplete?.invoke()
+        }.start()
+    }
+
+    override fun clearFormData(context: Context) {
+        try {
+            val webDb = WebViewDatabase.getInstance(context.applicationContext)
+            webDb.clearFormData()
+            webDb.clearHttpAuthUsernamePassword()
+        } catch (_: Exception) {}
+    }
+
     override fun getEngineName(): String = "Chromium Engine"
 
     override fun getEngineVersion(): String {

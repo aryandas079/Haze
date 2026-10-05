@@ -469,17 +469,19 @@ object HazeClearDataManager {
                     }
                 }
 
+                val engine = com.example.haze.engine.chromium.ChromiumEngineManager.getEngine(activity)
+
                 // 2. Cookies and site data
                 if (categories.find { it.id == "cookies" }?.isSelected == true) {
-                    try {
-                        CookieManager.getInstance().removeAllCookies(null)
-                        CookieManager.getInstance().flush()
-                        WebStorage.getInstance().deleteAllData()
-                    } catch (e: Exception) {
-                    }
+                    engine.clearData(
+                        clearHistory = false,
+                        clearCookies = true,
+                        clearCache = false,
+                        clearStorage = true
+                    )
                 }
 
-                // 3. Cached images and files (clears real WebView cache + cache dir)
+                // 3. Cached images and files (clears real engine cache + cache dir)
                 if (categories.find { it.id == "cache" }?.isSelected == true) {
                     try {
                         activity.clearTabsCache()
@@ -499,12 +501,7 @@ object HazeClearDataManager {
 
                 // 5. Saved form data
                 if (categories.find { it.id == "forms" }?.isSelected == true) {
-                    try {
-                        val webDb = WebViewDatabase.getInstance(activity)
-                        webDb.clearFormData()
-                        webDb.clearHttpAuthUsernamePassword()
-                    } catch (e: Exception) {
-                    }
+                    engine.clearFormData(activity)
                 }
 
                 // 6. Site permissions

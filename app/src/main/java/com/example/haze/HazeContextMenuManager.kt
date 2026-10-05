@@ -272,7 +272,7 @@ object HazeContextMenuManager {
     // ==========================================
     // WEBPAGE EMPTY AREA CONTEXT MENU
     // ==========================================
-    fun showPageContextMenu(activity: MainActivity, currentUrl: String, currentTitle: String, webView: WebView) {
+    fun showPageContextMenu(activity: MainActivity, currentUrl: String, currentTitle: String, tab: com.example.haze.engine.IBrowserTab) {
         activity.triggerStrongHaptic(isHeavy = true)
         val dialog = BottomSheetDialog(activity)
         val isDark = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false)
@@ -311,9 +311,9 @@ object HazeContextMenuManager {
             quickActions.addView(btn)
         }
 
-        addQuickButton(R.drawable.ic_chevron_up, "Back") { if (webView.canGoBack()) webView.goBack() }
-        addQuickButton(R.drawable.ic_chevron_down, "Forward") { if (webView.canGoForward()) webView.goForward() }
-        addQuickButton(R.drawable.ic_close, "Reload") { webView.reload() }
+        addQuickButton(R.drawable.ic_chevron_up, "Back") { if (tab.navigationController.canGoBack()) tab.navigationController.goBack() }
+        addQuickButton(R.drawable.ic_chevron_down, "Forward") { if (tab.navigationController.canGoForward()) tab.navigationController.goForward() }
+        addQuickButton(R.drawable.ic_close, "Reload") { tab.reload() }
         val isStarred = HazeDatabase.getInstance(activity).isBookmarked(currentUrl)
         addQuickButton(if (isStarred) R.drawable.ic_star_filled else R.drawable.ic_star, "Bookmark") {
             HazeBookmarksManager.showBookmarkThisPageDialog(activity, currentTitle, currentUrl)
@@ -356,7 +356,7 @@ object HazeContextMenuManager {
         }
 
         addItem("Read aloud", R.drawable.ic_volume_up) {
-            webView.evaluateJavascript("(function() { return document.body.innerText.substring(0, 3000); })();") { text ->
+            tab.evaluateJavascript("(function() { return document.body.innerText.substring(0, 3000); })();") { text ->
                 val clean = text?.trim('"', '\'') ?: ""
                 speakText(activity, clean)
             }
@@ -398,7 +398,7 @@ object HazeContextMenuManager {
                     }
                 })();
             """.trimIndent()
-            webView.evaluateJavascript(erudaJs, null)
+            tab.evaluateJavascript(erudaJs, null)
             Toast.makeText(activity, "DevTools Console loaded", Toast.LENGTH_SHORT).show()
         }
 

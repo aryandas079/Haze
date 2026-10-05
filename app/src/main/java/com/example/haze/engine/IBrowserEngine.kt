@@ -29,6 +29,16 @@ interface IBrowserEngine {
     )
 
     /**
+     * Clears all session cookies, local storage, and caches associated with private browsing.
+     */
+    fun clearPrivateSession(onComplete: (() -> Unit)? = null)
+
+    /**
+     * Clears saved form data and HTTP authentication credentials.
+     */
+    fun clearFormData(context: Context)
+
+    /**
      * Engine branding name (e.g. "Chromium Engine").
      */
     fun getEngineName(): String
