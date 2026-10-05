@@ -679,7 +679,7 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.postDelayed(suggestionDebounce, 150L)
                     }
                 } else {
-                    currentTabsList.getOrNull(activeTabIndex)?.webView?.findAllAsync(text)
+                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findAllAsync(text)
                 }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -707,22 +707,22 @@ class MainActivity : AppCompatActivity() {
         btnFindClose.setOnClickListener {
             triggerStrongHaptic(it)
             findBarContainer.visibility = View.GONE
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.clearMatches()
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(findInput.windowToken, 0)
         }
         btnFindNext.setOnClickListener { 
             triggerStrongHaptic(it)
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.findNext(true) 
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findNext(true) 
         }
         btnFindPrev.setOnClickListener { 
             triggerStrongHaptic(it)
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.findNext(false) 
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findNext(false) 
         }
 
         findInput.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                currentTabsList.getOrNull(activeTabIndex)?.webView?.findAllAsync(s.toString())
+                currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findAllAsync(s.toString())
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -758,13 +758,14 @@ class MainActivity : AppCompatActivity() {
                 onExpand = {
                     val tab = miniPlayerTab
                     if (tab != null) {
-                        if (tab.webView.parent == null) {
+                        val renderView = tab.browserTab.renderView
+                        if (renderView.parent == null) {
                             val tabContainer = tab.swipeRefreshLayout
                             if (tabContainer != null) {
                                 if (tabContainer.parent == null) webContainer.addView(tabContainer)
-                                tabContainer.addView(tab.webView)
+                                tabContainer.addView(renderView)
                             } else {
-                                webContainer.addView(tab.webView)
+                                webContainer.addView(renderView)
                             }
                         }
                         val index = currentTabsList.indexOfFirst { it === tab }
@@ -857,7 +858,7 @@ class MainActivity : AppCompatActivity() {
         // Fade out Haze logo & shortcuts if on home tab
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         if (currentTab != null && isHomeTab(currentTab)) {
-            currentTab.webView.evaluateJavascript(
+            currentTab.browserTab.evaluateJavascript(
                 "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.2s ease'; document.querySelector('.container').style.opacity = '0'; }",
                 null
             )
@@ -924,7 +925,7 @@ class MainActivity : AppCompatActivity() {
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         val isHome = currentTab != null && isHomeTab(currentTab)
         if (isHome) {
-            currentTab.webView.evaluateJavascript(
+            currentTab.browserTab.evaluateJavascript(
                 "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.25s ease'; document.querySelector('.container').style.opacity = '1'; }",
                 null
             )
@@ -1255,13 +1256,13 @@ class MainActivity : AppCompatActivity() {
         for (tab in normalTabs) {
             if (isHomeTab(tab)) {
                 tab.url = HAZE_HOME_URL
-                tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                tab.browserTab.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
             }
         }
         for (tab in privateTabs) {
             if (isHomeTab(tab)) {
                 tab.url = HAZE_HOME_URL
-                tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                tab.browserTab.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
             }
         }
     }
@@ -1751,7 +1752,7 @@ class MainActivity : AppCompatActivity() {
         val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
 
         if (isHome) {
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(if (hasBgPhoto) Color.TRANSPARENT else bgColor)
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.setBackgroundColor(if (hasBgPhoto) Color.TRANSPARENT else bgColor)
             if (hasBgPhoto) {
                 appBgImageView?.visibility = View.VISIBLE
                 appBgOverlay?.visibility = View.VISIBLE
@@ -1760,7 +1761,7 @@ class MainActivity : AppCompatActivity() {
                 appBgOverlay?.visibility = View.GONE
             }
         } else {
-            currentTabsList.getOrNull(activeTabIndex)?.webView?.setBackgroundColor(Color.WHITE)
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.setBackgroundColor(Color.WHITE)
             appBgImageView?.visibility = View.GONE
             appBgOverlay?.visibility = View.GONE
         }
@@ -1800,9 +1801,9 @@ class MainActivity : AppCompatActivity() {
             if (tabToRemove.swipeRefreshLayout != null) {
                 webContainer.removeView(tabToRemove.swipeRefreshLayout)
             } else {
-                webContainer.removeView(tabToRemove.webView)
+                webContainer.removeView(tabToRemove.browserTab.renderView)
             }
-            tabToRemove.webView.destroy()
+            tabToRemove.browserTab.destroy()
             currentTabsList.removeAt(0)
             switchTab(0)
             return
@@ -1811,9 +1812,9 @@ class MainActivity : AppCompatActivity() {
         if (tabToRemove.swipeRefreshLayout != null) {
             webContainer.removeView(tabToRemove.swipeRefreshLayout)
         } else {
-            webContainer.removeView(tabToRemove.webView)
+            webContainer.removeView(tabToRemove.browserTab.renderView)
         }
-        tabToRemove.webView.destroy()
+        tabToRemove.browserTab.destroy()
         currentTabsList.removeAt(index)
         
         if (isPrivateMode) {
@@ -2458,8 +2459,9 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, { closedIndex ->
             val tabToRemove = normalTabs[closedIndex]
-            webContainer.removeView(tabToRemove.webView)
-            tabToRemove.webView.destroy()
+            val container = tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView
+            webContainer.removeView(container)
+            tabToRemove.browserTab.destroy()
             normalTabs.removeAt(closedIndex)
             if (!isPrivateMode) {
                 if (activeNormalTabIndex >= closedIndex) activeNormalTabIndex--
@@ -2478,8 +2480,9 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, { closedIndex ->
             val tabToRemove = privateTabs[closedIndex]
-            webContainer.removeView(tabToRemove.webView)
-            tabToRemove.webView.destroy()
+            val container = tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView
+            webContainer.removeView(container)
+            tabToRemove.browserTab.destroy()
             privateTabs.removeAt(closedIndex)
             if (isPrivateMode) {
                 if (activePrivateTabIndex >= closedIndex) activePrivateTabIndex--
@@ -3060,15 +3063,15 @@ class MainActivity : AppCompatActivity() {
         btnMenuBack?.setOnClickListener {
             triggerStrongHaptic(it)
             popupWindow.dismiss()
-            if (currentTab?.webView?.canGoBack() == true) {
-                currentTab.webView.goBack()
+            if (currentTab?.browserTab?.canGoBack() == true) {
+                currentTab.browserTab.goBack()
             }
         }
         btnMenuForward?.setOnClickListener {
             triggerStrongHaptic(it)
             popupWindow.dismiss()
-            if (currentTab?.webView?.canGoForward() == true) {
-                currentTab.webView.goForward()
+            if (currentTab?.browserTab?.canGoForward() == true) {
+                currentTab.browserTab.goForward()
             }
         }
         btnMenuStar?.setOnClickListener {
@@ -3078,7 +3081,7 @@ class MainActivity : AppCompatActivity() {
         btnMenuReload?.setOnClickListener {
             triggerStrongHaptic(it)
             popupWindow.dismiss()
-            currentTab?.webView?.reload()
+            currentTab?.browserTab?.reload()
         }
         btnMenuHome?.setOnClickListener {
             triggerStrongHaptic(it)
@@ -3345,11 +3348,16 @@ class MainActivity : AppCompatActivity() {
             })();
         """.trimIndent()
         
-        tab.webView.evaluateJavascript(readerScript) { result ->
+        tab.browserTab.evaluateJavascript(readerScript) { result ->
+            val r = result ?: return@evaluateJavascript
+            if (r.isBlank() || r == "null") {
+                Toast.makeText(this, "This page does not contain enough readable article content.", Toast.LENGTH_LONG).show()
+                return@evaluateJavascript
+            }
             try {
-                val cleanResult = if (result.startsWith("\"") && result.endsWith("\"")) {
-                    org.json.JSONTokener(result).nextValue().toString()
-                } else result
+                val cleanResult = if (r.startsWith("\"") && r.endsWith("\"")) {
+                    org.json.JSONTokener(r).nextValue().toString()
+                } else r
                 val json = JSONObject(cleanResult)
                 if (!json.optBoolean("readable", false)) {
                     Toast.makeText(this, "This page does not contain enough readable article content.", Toast.LENGTH_LONG).show()
@@ -3871,18 +3879,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun toggleDesktopSite(tab: Tab) {
-        tab.isDesktop = !tab.isDesktop
-        val settings = tab.webView.settings
-        if (tab.isDesktop) {
-            settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            settings.useWideViewPort = true
-            settings.loadWithOverviewMode = true
-            Toast.makeText(this, "Desktop site enabled", Toast.LENGTH_SHORT).show()
-        } else {
-            settings.userAgentString = null
-            Toast.makeText(this, "Mobile site enabled", Toast.LENGTH_SHORT).show()
-        }
-        tab.webView.reload()
+        tab.browserTab.isDesktop = !tab.browserTab.isDesktop
+        tab.isDesktop = tab.browserTab.isDesktop
+        Toast.makeText(
+            this,
+            if (tab.isDesktop) "Desktop site enabled" else "Mobile site enabled",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     fun shareCurrentPage() {
@@ -3906,16 +3909,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val printManager = getSystemService(PRINT_SERVICE) as? android.print.PrintManager
-        val printAdapter = tab.webView.createPrintDocumentAdapter("Haze - " + tab.title)
-        printManager?.print("Haze - " + tab.title, printAdapter, android.print.PrintAttributes.Builder().build())
+        val printAdapter = tab.browserTab.createPrintDocumentAdapter("Haze - " + tab.title) as? android.print.PrintDocumentAdapter
+        if (printAdapter != null) {
+            printManager?.print("Haze - " + tab.title, printAdapter, android.print.PrintAttributes.Builder().build())
+        }
     }
 
     fun captureCurrentTabScreenshot() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
         try {
-            val bitmap = Bitmap.createBitmap(tab.webView.width, tab.webView.height, Bitmap.Config.ARGB_8888)
+            val renderView = tab.browserTab.renderView
+            val bitmap = Bitmap.createBitmap(renderView.width, renderView.height, Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
-            tab.webView.draw(canvas)
+            renderView.draw(canvas)
             
             val file = File(cacheDir, "screenshot_${System.currentTimeMillis()}.png")
             FileOutputStream(file).use { out ->
@@ -3935,8 +3941,8 @@ class MainActivity : AppCompatActivity() {
 
     fun clearTabsCache() {
         runOnUiThread {
-            for (tab in normalTabs) tab.webView.clearCache(true)
-            for (tab in privateTabs) tab.webView.clearCache(true)
+            for (tab in normalTabs) tab.browserTab.clearCache(true)
+            for (tab in privateTabs) tab.browserTab.clearCache(true)
         }
     }
 
@@ -4227,10 +4233,10 @@ class MainActivity : AppCompatActivity() {
     fun updateWebSettings() {
         val jsEnabled = prefs.getBoolean("javascript_enabled", true)
         for (tab in normalTabs) {
-            tab.webView.settings.javaScriptEnabled = jsEnabled
+            tab.browserTab.setJavaScriptEnabled(jsEnabled)
         }
         for (tab in privateTabs) {
-            tab.webView.settings.javaScriptEnabled = jsEnabled
+            tab.browserTab.setJavaScriptEnabled(jsEnabled)
         }
     }
 
@@ -4275,7 +4281,7 @@ class MainActivity : AppCompatActivity() {
             val tab = currentTabsList[activeTabIndex]
             tab.url = HAZE_HOME_URL
             tab.title = "New Tab"
-            tab.webView.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+            tab.browserTab.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
             deactivateSearchMode()
             addressBar.setText("")
             updateChromeVisibility(HAZE_HOME_URL)
@@ -4331,13 +4337,13 @@ class MainActivity : AppCompatActivity() {
         if (!isNetworkAvailable()) {
             val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
             tab.title = "Offline"
-            tab.webView.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
+            tab.browserTab.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
             updateChromeVisibility(url)
             addressBar.setText(url)
             return
         }
 
-        tab.webView.loadUrl(url)
+        tab.browserTab.loadUrl(url)
     }
 
     fun toggleMediaPlayback() {
@@ -4366,7 +4372,7 @@ class MainActivity : AppCompatActivity() {
                 return 'none';
             })();
         """.trimIndent()
-        currentTab.webView.evaluateJavascript(toggleScript) { result ->
+        currentTab.browserTab.evaluateJavascript(toggleScript) { result ->
             val isPlaying = result?.contains("playing") == true
             isMediaPlaying = isPlaying
             updatePipAutoEnter()
@@ -4540,19 +4546,20 @@ class MainActivity : AppCompatActivity() {
                     toggleFullScreenMode()
                 } else if (findBarContainer.visibility == View.VISIBLE) {
                     findBarContainer.visibility = View.GONE
-                    currentTabsList.getOrNull(activeTabIndex)?.webView?.clearMatches()
+                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
                     val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                     imm.hideSoftInputFromWindow(findInput.windowToken, 0)
-                } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].webView.canGoBack()) {
+                } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].browserTab.canGoBack()) {
                     val tab = currentTabsList[activeTabIndex]
-                    if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.webView.goBack() 
+                    if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.browserTab.goBack() 
                     else {
                         isEnabled = false; onBackPressedDispatcher.onBackPressed()
                     }
                 } else if (currentTabsList.size > 1) {
                     val tabToRemove = currentTabsList[activeTabIndex]
-                    webContainer.removeView(tabToRemove.webView)
-                    tabToRemove.webView.destroy()
+                    val container = tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView
+                    webContainer.removeView(container)
+                    tabToRemove.browserTab.destroy()
                     currentTabsList.removeAt(activeTabIndex)
                     
                     if (isPrivateMode) {

@@ -307,6 +307,30 @@ class ChromiumBrowserTab(
         }
     }
 
+    override fun findAllAsync(find: String) {
+        webView.findAllAsync(find)
+    }
+
+    override fun findNext(forward: Boolean) {
+        webView.findNext(forward)
+    }
+
+    override fun clearCache(includeDiskFiles: Boolean) {
+        webView.clearCache(includeDiskFiles)
+    }
+
+    override fun setBackgroundColor(color: Int) {
+        webView.setBackgroundColor(color)
+    }
+
+    override fun setJavaScriptEnabled(enabled: Boolean) {
+        webView.settings.javaScriptEnabled = enabled
+    }
+
+    override fun createPrintDocumentAdapter(documentName: String): Any? {
+        return webView.createPrintDocumentAdapter(documentName)
+    }
+
     override fun onPause() {
         webView.onPause()
         webView.pauseTimers()
@@ -320,6 +344,12 @@ class ChromiumBrowserTab(
     override fun destroy() {
         try {
             observer = null
+            if (isPrivate) {
+                webView.clearHistory()
+                webView.clearCache(true)
+                webView.clearFormData()
+                webView.clearSslPreferences()
+            }
             webView.stopLoading()
             webView.clearHistory()
             (webView.parent as? android.view.ViewGroup)?.removeView(webView)

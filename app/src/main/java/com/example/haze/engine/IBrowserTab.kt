@@ -68,6 +68,16 @@ interface IBrowserTab {
     fun findInPage(query: String, forward: Boolean)
 
     /**
+     * Asynchronously finds all occurrences of the query.
+     */
+    fun findAllAsync(find: String)
+
+    /**
+     * Highlights and moves to the next or previous found search match.
+     */
+    fun findNext(forward: Boolean)
+
+    /**
      * Clears all search highlighting from the page.
      */
     fun clearMatches()
@@ -86,6 +96,26 @@ interface IBrowserTab {
      * Resets the zoom level to 100%.
      */
     fun resetZoom()
+
+    /**
+     * Clears cached resources for this tab.
+     */
+    fun clearCache(includeDiskFiles: Boolean = true)
+
+    /**
+     * Sets background color of the render surface.
+     */
+    fun setBackgroundColor(color: Int)
+
+    /**
+     * Dynamically enables or disables JavaScript execution for this tab.
+     */
+    fun setJavaScriptEnabled(enabled: Boolean)
+
+    /**
+     * Creates a print document adapter for Android printing services.
+     */
+    fun createPrintDocumentAdapter(documentName: String): Any?
 
     /**
      * Captures a snapshot bitmap of the visible viewport.
@@ -110,10 +140,22 @@ interface IBrowserTab {
     /**
      * Reloads the current page.
      */
-    fun reload()
+    fun reload() {
+        navigationController.reload()
+    }
 
     /**
      * Stops loading the current page.
      */
-    fun stopLoading()
+    fun stopLoading() {
+        navigationController.stopLoading()
+    }
+
+    fun canGoBack(): Boolean = navigationController.canGoBack()
+    fun canGoForward(): Boolean = navigationController.canGoForward()
+    fun goBack() = navigationController.goBack()
+    fun goForward() = navigationController.goForward()
+    fun loadUrl(targetUrl: String, headers: Map<String, String>? = null) = navigationController.loadUrl(targetUrl, headers)
+    fun loadDataWithBaseURL(baseUrl: String?, data: String, mimeType: String?, encoding: String?, historyUrl: String?) =
+        navigationController.loadDataWithBaseURL(baseUrl, data, mimeType, encoding, historyUrl)
 }
