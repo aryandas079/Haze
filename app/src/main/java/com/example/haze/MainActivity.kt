@@ -72,6 +72,9 @@ import android.util.Rational
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import java.util.concurrent.Executors
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.util.Base64
 
 class MainActivity : AppCompatActivity() {
 
@@ -529,6 +532,25 @@ class MainActivity : AppCompatActivity() {
                     lastVideoHeight = height
                 }
                 updatePipAutoEnter()
+            }
+        }
+        @JavascriptInterface
+        fun retryLoad(url: String) {
+            runOnUiThread {
+                triggerStrongHaptic()
+                val target = if (url.isNotEmpty() && url != "about:blank") url else (ownerWebView.url ?: "")
+                if (target.isNotEmpty() && target != "about:blank") {
+                    loadUrlFromInput(target)
+                } else {
+                    ownerWebView.reload()
+                }
+            }
+        }
+        @JavascriptInterface
+        fun goHome() {
+            runOnUiThread {
+                triggerStrongHaptic()
+                loadUrlFromInput(HAZE_HOME_URL)
             }
         }
     }
@@ -1923,13 +1945,24 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                super.onReceivedError(view, request, error)
                 if (request?.isForMainFrame == true) {
                     val failingUrl = request.url?.toString() ?: ""
+                    if (failingUrl.startsWith("haze://") || failingUrl.startsWith("about:")) return
                     val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
                     val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
                     view?.post {
-                        view.loadDataWithBaseURL("file:///android_asset/", offlineHtml, "text/html", "UTF-8", null)
+                        view.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
+                    }
+                }
+            }
+
+            @Suppress("DEPRECATION")
+            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                if (failingUrl != null && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:")) {
+                    val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                    val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
+                    view?.post {
+                        view.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
                     }
                 }
             }
@@ -3790,12 +3823,52 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
     }
 
+    private fun isNetworkAvailable(): Boolean {
+        return try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = connectivityManager.activeNetwork ?: return false
+                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            } else {
+                @Suppress("DEPRECATION")
+                val networkInfo = connectivityManager.activeNetworkInfo ?: return false
+                @Suppress("DEPRECATION")
+                networkInfo.isConnected
+            }
+        } catch (e: Exception) {
+            true
+        }
+    }
+
+    private var cachedOfflineImageBase64: String? = null
+
+    private fun getOfflineImageBase64(): String {
+        cachedOfflineImageBase64?.let { return it }
+        return try {
+            val bytes = assets.open("offline_astronaut_cat.png").use { it.readBytes() }
+            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            cachedOfflineImageBase64 = b64
+            b64
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     private fun getOfflineErrorHtml(url: String, isDark: Boolean): String {
         val bgColor = if (isDark) "#121212" else "#FFFFFF"
         val textColor = if (isDark) "#FFFFFF" else "#202124"
         val subTextColor = if (isDark) "#9AA0A6" else "#5F6368"
         val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
-        val artworkFilter = if (isDark) "filter: invert(0.88) hue-rotate(180deg); opacity: 0.92;" else ""
+        val cardBg = if (isDark) "#1E1E1E" else "#F8F9FA"
+        val cardBorder = if (isDark) "#333333" else "#E8EAED"
+        val escapedUrl = url.replace("\"", "&quot;").replace("'", "\\'")
+        val displayUrl = if (url.startsWith("http://") || url.startsWith("https://")) {
+            try { Uri.parse(url).host ?: url } catch (e: Exception) { url }
+        } else url
+        val imageBase64 = getOfflineImageBase64()
+        val imageSrc = if (imageBase64.isNotEmpty()) "data:image/png;base64,$imageBase64" else "file:///android_asset/offline_astronaut_cat.png"
+        val artworkStyle = if (isDark) "filter: invert(1); mix-blend-mode: screen;" else "mix-blend-mode: multiply;"
 
         return """
             <!DOCTYPE html>
@@ -3803,39 +3876,157 @@ class MainActivity : AppCompatActivity() {
             <head>
                 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
                 <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap');
+                    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+                    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
                     html, body {
-                        margin: 0; padding: 0; height: 100vh; width: 100vw;
+                        margin: 0; padding: 0; min-height: 100vh; width: 100vw;
                         display: flex; flex-direction: column; align-items: center; justify-content: center;
                         background: $bgColor;
-                        font-family: 'Outfit', sans-serif;
+                        font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
                         color: $textColor;
                         text-align: center;
-                        overflow: hidden;
+                        overflow-x: hidden;
                     }
                     .container {
-                        display: flex; flex-direction: column; align-items: center; max-width: 380px; padding: 24px;
+                        display: flex; flex-direction: column; align-items: center;
+                        max-width: 420px; width: 90%; padding: 32px 20px;
+                        animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    }
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(12px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                    .illustration-wrap {
+                        position: relative;
+                        width: 100%;
+                        max-width: 320px;
+                        margin-bottom: 24px;
                     }
                     .astronaut-art {
-                        width: 280px; height: 186px; margin-bottom: 24px; object-fit: contain;
-                        $artworkFilter
+                        width: 100%;
+                        height: auto;
+                        max-height: 220px;
+                        object-fit: contain;
+                        display: block;
+                        margin: 0 auto;
+                        $artworkStyle
                     }
-                    h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
-                    p { font-size: 14px; color: $subTextColor; margin-bottom: 28px; line-height: 1.5; }
-                    .btn-reload {
-                        background: $accentColor; color: white; border: none; border-radius: 24px;
-                        padding: 12px 32px; font-size: 15px; font-weight: 600; cursor: pointer;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: transform 0.1s ease;
+                    h1 {
+                        font-size: 24px;
+                        font-weight: 700;
+                        margin: 0 0 10px 0;
+                        letter-spacing: -0.3px;
                     }
-                    .btn-reload:active { transform: scale(0.96); }
+                    .message {
+                        font-size: 14.5px;
+                        color: $subTextColor;
+                        margin: 0 0 24px 0;
+                        line-height: 1.55;
+                    }
+                    .url-chip {
+                        display: inline-block;
+                        padding: 6px 14px;
+                        background: $cardBg;
+                        border: 1px solid $cardBorder;
+                        border-radius: 100px;
+                        font-size: 12.5px;
+                        color: $subTextColor;
+                        max-width: 280px;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        margin-bottom: 28px;
+                    }
+                    .actions {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        width: 100%;
+                        max-width: 260px;
+                    }
+                    .btn-primary {
+                        background: $accentColor;
+                        color: #FFFFFF;
+                        border: none;
+                        border-radius: 100px;
+                        padding: 13px 28px;
+                        font-size: 15px;
+                        font-weight: 600;
+                        font-family: inherit;
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 8px;
+                        box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+                        transition: transform 0.12s ease, opacity 0.12s ease;
+                    }
+                    .btn-primary:active { transform: scale(0.97); opacity: 0.9; }
+                    .btn-secondary {
+                        background: transparent;
+                        color: $textColor;
+                        border: 1px solid $cardBorder;
+                        border-radius: 100px;
+                        padding: 12px 24px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        font-family: inherit;
+                        cursor: pointer;
+                        transition: transform 0.12s ease;
+                    }
+                    .btn-secondary:active { transform: scale(0.97); }
+                    .spinner {
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid rgba(255,255,255,0.3);
+                        border-top-color: #FFFFFF;
+                        border-radius: 50%;
+                        animation: spin 0.8s linear infinite;
+                        display: inline-block;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
                 </style>
+                <script>
+                    function handleRetry() {
+                        var btn = document.getElementById('retryBtn');
+                        if (btn) {
+                            btn.disabled = true;
+                            btn.innerHTML = '<span class="spinner"></span> Connecting...';
+                        }
+                        setTimeout(function() {
+                            if (window.Android && window.Android.retryLoad) {
+                                window.Android.retryLoad('$escapedUrl');
+                            } else {
+                                window.location.reload();
+                            }
+                        }, 250);
+                    }
+                    function handleHome() {
+                        if (window.Android && window.Android.goHome) {
+                            window.Android.goHome();
+                        } else {
+                            window.location.href = 'haze://home';
+                        }
+                    }
+                </script>
             </head>
             <body>
                 <div class="container">
-                    <img class="astronaut-art" src="file:///android_asset/offline_astronaut_cat.png" alt="Astronaut and cat offline illustration">
-                    <h1>No internet connection</h1>
-                    <p>You're offline. Check your connection or Wi-Fi and try again.</p>
-                    <button class="btn-reload" onclick="location.reload()">Try Again</button>
+                    <div class="illustration-wrap">
+                        <img class="astronaut-art" src="$imageSrc" alt="Offline Astronaut and Cat">
+                    </div>
+                    <h1>You're offline</h1>
+                    <p class="message">Check your internet connection or Wi-Fi network and try again.</p>
+                    ${if (displayUrl.isNotEmpty() && displayUrl != "about:blank" && !displayUrl.startsWith("haze://")) "<div class=\"url-chip\">$displayUrl</div>" else ""}
+                    <div class="actions">
+                        <button id="retryBtn" class="btn-primary" onclick="handleRetry()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                            Try Again
+                        </button>
+                        <button class="btn-secondary" onclick="handleHome()">Return to Home</button>
+                    </div>
                 </div>
             </body>
             </html>
@@ -3972,6 +4163,15 @@ class MainActivity : AppCompatActivity() {
         saveRecentSearch(query)
         deactivateSearchMode()
         
+        if (!isNetworkAvailable()) {
+            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            tab.title = "Offline"
+            tab.webView.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
+            updateChromeVisibility(url)
+            addressBar.setText(url)
+            return
+        }
+
         tab.webView.loadUrl(url)
     }
 
