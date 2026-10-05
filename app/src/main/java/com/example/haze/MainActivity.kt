@@ -15,6 +15,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -58,6 +59,8 @@ import java.io.FileOutputStream
 import java.util.Collections
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import androidx.core.content.FileProvider
+import com.example.haze.engine.*
+import com.example.haze.engine.chromium.*
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -112,6 +115,43 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (filePathCallback == null) return@registerForActivityResult
+        val results: Array<Uri>? = if (result.resultCode == RESULT_OK && result.data != null) {
+            val clipData = result.data?.clipData
+            if (clipData != null) {
+                Array(clipData.itemCount) { i -> clipData.getItemAt(i).uri }
+            } else {
+                result.data?.data?.let { arrayOf(it) }
+            }
+        } else null
+        filePathCallback?.onReceiveValue(results)
+        filePathCallback = null
+    }
+
+    private var pendingPermissionRequest: PermissionRequest? = null
+    private val webPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val req = pendingPermissionRequest ?: return@registerForActivityResult
+        pendingPermissionRequest = null
+        val grantedResources = mutableListOf<String>()
+        if (grants[android.Manifest.permission.CAMERA] == true && req.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+            grantedResources.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+        }
+        if (grants[android.Manifest.permission.RECORD_AUDIO] == true && req.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+            grantedResources.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+        }
+        if (grantedResources.isNotEmpty()) {
+            req.grant(grantedResources.toTypedArray())
+        } else {
+            req.deny()
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -353,7 +393,7 @@ class MainActivity : AppCompatActivity() {
     data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
     data class Tab(
         val id: Long = System.currentTimeMillis(),
-        val webView: WebView,
+        val browserTab: IBrowserTab,
         val swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null,
         var title: String = "New Tab",
         var url: String = "haze://home",
@@ -361,7 +401,31 @@ class MainActivity : AppCompatActivity() {
         var isPrivate: Boolean = false,
         var group: TabGroup? = null,
         var isDesktop: Boolean = false
-    )
+    ) {
+        val webView: WebView get() = (browserTab as? ChromiumBrowserTab)?.webView ?: (browserTab.renderView as WebView)
+
+        constructor(
+            id: Long = System.currentTimeMillis(),
+            webView: WebView,
+            swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null,
+            title: String = "New Tab",
+            url: String = "haze://home",
+            favicon: Bitmap? = null,
+            isPrivate: Boolean = false,
+            group: TabGroup? = null,
+            isDesktop: Boolean = false
+        ) : this(
+            id = id,
+            browserTab = ChromiumBrowserTab(webView.context, id, isPrivate),
+            swipeRefreshLayout = swipeRefreshLayout,
+            title = title,
+            url = url,
+            favicon = favicon,
+            isPrivate = isPrivate,
+            group = group,
+            isDesktop = isDesktop
+        )
+    }
 
     private val normalTabs = mutableListOf<Tab>()
     private val privateTabs = mutableListOf<Tab>()
@@ -1541,7 +1605,8 @@ class MainActivity : AppCompatActivity() {
     }
 
         fun addNewTab(url: String) {
-        val webView = WebView(this)
+        val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
+        val webView = (browserTab as ChromiumBrowserTab).webView
         webView.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, 
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -1554,13 +1619,19 @@ class MainActivity : AppCompatActivity() {
             )
             setOnRefreshListener {
                 triggerStrongHaptic()
-                webView.reload()
+                browserTab.reload()
                 postDelayed({ isRefreshing = false }, 1000)
             }
         }
         swipeRefreshLayout.addView(webView)
 
-        val tab = Tab(webView = webView, swipeRefreshLayout = swipeRefreshLayout, isPrivate = isPrivateMode)
+        val tab = Tab(
+            id = browserTab.id,
+            browserTab = browserTab,
+            swipeRefreshLayout = swipeRefreshLayout,
+            isPrivate = isPrivateMode,
+            url = url
+        )
         
         currentTabsList.add(tab)
         webContainer.addView(swipeRefreshLayout)
@@ -1944,6 +2015,46 @@ class MainActivity : AppCompatActivity() {
                 callback?.backToSafety(false)
             }
 
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                val cert = error?.certificate
+                val issuedTo = cert?.issuedTo?.dName ?: "Unknown Entity"
+                val issuedBy = cert?.issuedBy?.dName ?: "Unknown Authority"
+                val failingUrl = error?.url ?: view?.url ?: ""
+                
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Security Certificate Warning")
+                    .setMessage(
+                        "The security certificate for this site is not trusted or invalid.\n\n" +
+                        "URL: $failingUrl\n" +
+                        "Issued To: $issuedTo\n" +
+                        "Issued By: $issuedBy\n\n" +
+                        "Continuing may expose your personal information to attackers."
+                    )
+                    .setPositiveButton("Go Back") { _, _ ->
+                        handler?.cancel()
+                        if (view?.canGoBack() == true) view.goBack() else loadUrlFromInput(HAZE_HOME_URL)
+                    }
+                    .setNegativeButton("Proceed anyway (unsafe)") { _, _ ->
+                        handler?.proceed()
+                    }
+                    .setCancelable(false)
+                    .show()
+            }
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val didCrash = detail?.didCrash() ?: true
+                val tab = getTabFromWebView(webView)
+                if (tab != null) {
+                    runOnUiThread {
+                        val msg = if (didCrash) "Web renderer crashed. Reloading page..." else "Renderer reclaimed by OS. Reloading..."
+                        Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                        tab.browserTab.reload()
+                    }
+                    return true
+                }
+                return false
+            }
+
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
                     val failingUrl = request.url?.toString() ?: ""
@@ -2181,6 +2292,59 @@ class MainActivity : AppCompatActivity() {
                 super.onProgressChanged(view, newProgress)
                 if (newProgress < 100) showPageLoading(newProgress.coerceAtLeast(5))
                 else finishPageLoading()
+            }
+
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+                val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                return try {
+                    fileChooserLauncher.launch(intent)
+                    true
+                } catch (e: Exception) {
+                    this@MainActivity.filePathCallback = null
+                    false
+                }
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null) return
+                val missingPermissions = mutableListOf<String>()
+                if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                    checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    missingPermissions.add(android.Manifest.permission.CAMERA)
+                }
+                if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                    checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    missingPermissions.add(android.Manifest.permission.RECORD_AUDIO)
+                }
+
+                if (missingPermissions.isNotEmpty()) {
+                    pendingPermissionRequest = request
+                    webPermissionLauncher.launch(missingPermissions.toTypedArray())
+                } else {
+                    request.grant(request.resources)
+                }
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
+                if (origin == null || callback == null) return
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Location Permission")
+                    .setMessage("$origin wants to access your device location.")
+                    .setPositiveButton("Allow") { _, _ -> callback.invoke(origin, true, true) }
+                    .setNegativeButton("Block") { _, _ -> callback.invoke(origin, false, true) }
+                    .show()
             }
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
@@ -3811,14 +3975,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun addNewBackgroundTab(url: String) {
-        val webView = WebView(this)
+        val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
+        val webView = (browserTab as ChromiumBrowserTab).webView
         webView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        val tab = Tab(webView = webView, isPrivate = isPrivateMode, url = url, title = "New Tab")
+        val tab = Tab(id = browserTab.id, browserTab = browserTab, isPrivate = isPrivateMode, url = url, title = "New Tab")
         currentTabsList.add(tab)
         webContainer.addView(webView)
         setupWebView(webView)
         webView.visibility = View.GONE
-        webView.loadUrl(url)
+        tab.browserTab.navigationController.loadUrl(url)
         tabCountBtn.text = currentTabsList.size.toString()
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
     }
