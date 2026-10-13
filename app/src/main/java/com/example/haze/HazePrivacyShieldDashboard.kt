@@ -163,7 +163,8 @@ object HazePrivacyShieldDashboard {
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
 
         dialog.setOnShowListener {
-            val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            val sheetResId = dialog.context.resources.getIdentifier("design_bottom_sheet", "id", dialog.context.packageName)
+            val bottomSheet = if (sheetResId != 0) dialog.findViewById<View>(sheetResId) else null
             if (bottomSheet != null) {
                 val behavior = BottomSheetBehavior.from(bottomSheet)
                 behavior.state = BottomSheetBehavior.STATE_EXPANDED

@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+*.apk
+*.aab
+*.zip
+*.tar.gz
+*.log
+*.sh
+/app/app_build_tmp*
+/app/src/main/jniLibs/**/libcontent_shell_content_view.so
+

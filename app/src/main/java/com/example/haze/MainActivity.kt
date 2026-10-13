@@ -377,7 +377,7 @@ class MainActivity : AppCompatActivity() {
         var group: TabGroup? = null,
         var isDesktop: Boolean = false
     ) {
-        val webView: WebView get() = (browserTab as? ChromiumBrowserTab)?.webView ?: (browserTab.renderView as WebView)
+        val webView: WebView? get() = (browserTab as? ChromiumBrowserTab)?.webView
 
         constructor(
             id: Long = System.currentTimeMillis(),
@@ -480,7 +480,25 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
     }
 
-    inner class WebAppInterface(private val ownerWebView: WebView) {
+    private fun getTabForInterface(ownerTab: IBrowserTab?, ownerWebView: WebView?): Tab? {
+        if (ownerTab != null) {
+            return normalTabs.find { it.browserTab === ownerTab }
+                ?: privateTabs.find { it.browserTab === ownerTab }
+                ?: currentTabsList.getOrNull(activeTabIndex)
+        }
+        if (ownerWebView != null) {
+            return getTabFromWebView(ownerWebView)
+        }
+        return currentTabsList.getOrNull(activeTabIndex)
+    }
+
+    inner class WebAppInterface(
+        private val ownerTab: IBrowserTab? = null,
+        private val ownerWebView: WebView? = null
+    ) {
+        constructor(webView: WebView) : this(ownerTab = null, ownerWebView = webView)
+        constructor(browserTab: IBrowserTab) : this(ownerTab = browserTab, ownerWebView = null)
+
         @JavascriptInterface
         fun triggerHaptic(heavy: Boolean) {
             runOnUiThread { triggerStrongHaptic(isHeavy = heavy) }
@@ -496,7 +514,7 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun launchMiniPlayer() { 
             runOnUiThread { 
-                val tab = getTabFromWebView(ownerWebView) ?: return@runOnUiThread
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
                 showMiniPlayer(tab, createBrowsingTab = true)
             }
         }
@@ -563,9 +581,10 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun onMediaStateChange(isPlaying: Boolean, width: Int, height: Int) {
             runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView)
                 isMediaPlaying = isPlaying
-                if (isPlaying) activeMediaTab = getTabFromWebView(ownerWebView)
-                else if (activeMediaTab?.browserTab?.renderView == ownerWebView) activeMediaTab = null
+                if (isPlaying) activeMediaTab = tab
+                else if (activeMediaTab === tab) activeMediaTab = null
                 if (width > 0 && height > 0) {
                     lastVideoWidth = width
                     lastVideoHeight = height
@@ -577,11 +596,13 @@ class MainActivity : AppCompatActivity() {
         fun retryLoad(url: String) {
             runOnUiThread {
                 triggerStrongHaptic()
-                val target = if (url.isNotEmpty() && url != "about:blank") url else (ownerWebView.url ?: "")
+                val tab = getTabForInterface(ownerTab, ownerWebView)
+                val fallbackUrl = tab?.url ?: ownerWebView?.url ?: ""
+                val target = if (url.isNotEmpty() && url != "about:blank") url else fallbackUrl
                 if (target.isNotEmpty() && target != "about:blank") {
                     loadUrlFromInput(target)
                 } else {
-                    ownerWebView.reload()
+                    tab?.browserTab?.reload() ?: ownerWebView?.reload()
                 }
             }
         }
@@ -653,8 +674,6 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.removeCallbacks(suggestionDebounce)
                         mainHandler.postDelayed(suggestionDebounce, 150L)
                     }
-                } else {
-                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findAllAsync(text)
                 }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -979,6 +998,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun buildLocalIndexedSuggestions(trimmed: String): List<String> {
+        val local = LinkedHashSet<String>()
+        try {
+            val lower = trimmed.lowercase(Locale.US)
+            for (r in getRecentSearches()) {
+                if (r.lowercase(Locale.US).contains(lower)) {
+                    local.add(r)
+                    if (local.size >= 3) break
+                }
+            }
+            for (s in getCustomShortcuts()) {
+                if (s.name.lowercase(Locale.US).contains(lower) || s.url.lowercase(Locale.US).contains(lower)) {
+                    local.add(s.url)
+                    if (local.size >= 5) break
+                }
+            }
+            val db = HazeDatabase.getInstance(this)
+            for (b in db.searchBookmarks(trimmed).take(3)) {
+                local.add(b.url)
+            }
+            for (h in db.searchHistory(trimmed).take(4)) {
+                local.add(h.url)
+            }
+        } catch (_: Exception) {}
+        return local.take(5)
+    }
+
     private fun fetchSearchSuggestions(query: String, callback: (List<String>) -> Unit) {
         val trimmed = query.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("haze://")) {
@@ -990,6 +1036,10 @@ class MainActivity : AppCompatActivity() {
             return
         }
         suggestionExecutor.execute {
+            val localMatches = buildLocalIndexedSuggestions(trimmed)
+            if (localMatches.isNotEmpty()) {
+                mainHandler.post { callback(localMatches) }
+            }
             var conn: java.net.HttpURLConnection? = null
             try {
                 val encoded = Uri.encode(trimmed)
@@ -1000,15 +1050,17 @@ class MainActivity : AppCompatActivity() {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val jsonArray = JSONArray(text)
                 val suggestionsArray = jsonArray.getJSONArray(1)
-                val list = mutableListOf<String>()
+                val combined = LinkedHashSet<String>()
+                combined.addAll(localMatches)
                 for (i in 0 until suggestionsArray.length()) {
-                    list.add(suggestionsArray.getString(i))
+                    combined.add(suggestionsArray.getString(i))
+                    if (combined.size >= 10) break
                 }
-                val result = list.toList()
+                val result = combined.toList()
                 suggestionCache[trimmed] = result
                 mainHandler.post { callback(result) }
             } catch (e: Exception) {
-                mainHandler.post { callback(emptyList()) }
+                mainHandler.post { callback(localMatches) }
             } finally {
                 conn?.disconnect()
             }
@@ -1018,7 +1070,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
         val tvHeaderTitle = findViewById<TextView>(R.id.tvRecentHeaderTitle)
         val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
-        tvHeaderTitle?.text = "Search Suggestions"
+        tvHeaderTitle?.text = "Search & Indexed Suggestions"
         btnClearHistory?.visibility = View.GONE
 
         recentSearchesList.removeAllViews()
@@ -1028,6 +1080,11 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(Color.parseColor("#9AA0A6"))
                 textSize = 13.5f
                 setPadding(0, 16, 0, 16)
+                setOnClickListener {
+                    triggerStrongHaptic(it)
+                    addressBar.setText(query)
+                    loadUrlFromInput(query)
+                }
             }
             recentSearchesList.addView(emptyTv)
             return
@@ -1039,7 +1096,8 @@ class MainActivity : AppCompatActivity() {
             val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
             val ivIcon = rowView.findViewById<ImageView>(R.id.ivRecentIcon)
 
-            ivIcon?.setImageResource(R.drawable.ic_search)
+            val isUrlSuggestion = suggestion.startsWith("http://") || suggestion.startsWith("https://")
+            ivIcon?.setImageResource(if (isUrlSuggestion) R.drawable.ic_globe else R.drawable.ic_search)
             tvQuery.text = suggestion
 
             btnDelete.setImageResource(R.drawable.ic_wide_arrow_down)
@@ -1232,16 +1290,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun reloadHomeTabs() {
+        val activeTab = currentTabsList.getOrNull(activeTabIndex)
         for (tab in normalTabs) {
             if (isHomeTab(tab)) {
                 tab.url = HAZE_HOME_URL
-                tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                if (tab === activeTab || tab.browserTab is ChromiumBrowserTab) {
+                    tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                }
             }
         }
         for (tab in privateTabs) {
             if (isHomeTab(tab)) {
                 tab.url = HAZE_HOME_URL
-                tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                if (tab === activeTab || tab.browserTab is ChromiumBrowserTab) {
+                    tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+                }
             }
         }
     }
@@ -1611,7 +1674,7 @@ class MainActivity : AppCompatActivity() {
         currentTabsList.add(tab)
         webContainer.addView(swipeRefreshLayout)
         
-        (browserTab as? ChromiumBrowserTab)?.let { setupWebView(it.webView) }
+        setupBrowserTab(browserTab)
         
         if (isPrivateMode) activePrivateTabIndex = currentTabsList.size - 1
         else activeNormalTabIndex = currentTabsList.size - 1
@@ -1681,10 +1744,20 @@ class MainActivity : AppCompatActivity() {
         
         tabCountBtn.text = currentTabsList.size.toString()
         val currentTab = currentTabsList[index]
+        val wasAlreadyActiveEngineTab = (com.example.haze.engine.nativechromium.NativeChromiumBrowserEngine.activeTab === currentTab.browserTab)
+        currentTab.browserTab.onResume()
+
         val isHome = isHomeTab(currentTab)
         currentTab.swipeRefreshLayout?.isEnabled = !isHome
 
         val currentUrl = currentTab.url
+        if (currentTab.browserTab !is ChromiumBrowserTab && !wasAlreadyActiveEngineTab) {
+            if (isHome) {
+                currentTab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+            } else if (currentUrl.isNotEmpty()) {
+                currentTab.browserTab.navigationController.loadUrl(currentUrl)
+            }
+        }
         updateChromeVisibility(currentUrl)
         
         if (isHome) {
@@ -1801,6 +1874,270 @@ class MainActivity : AppCompatActivity() {
             if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
             switchTab(activeNormalTabIndex)
         }
+    }
+
+    private fun setupBrowserTab(browserTab: IBrowserTab) {
+        if (browserTab is ChromiumBrowserTab) {
+            setupWebView(browserTab.webView)
+            return
+        }
+
+        browserTab.addJavascriptInterface(WebAppInterface(browserTab), "Android")
+        browserTab.setEngineObserver(object : IEngineObserver {
+            override fun onPageStarted(tab: IBrowserTab, url: String, favicon: Bitmap?) {
+                runOnUiThread {
+                    val ownerTab = getTabForInterface(tab, null)
+                    val isPriv = ownerTab?.isPrivate ?: isPrivateMode
+                    if (!url.startsWith("haze://") && !url.startsWith("about:") && !url.startsWith("javascript:") && !url.startsWith("data:")) {
+                        val decision = HazePrivacyShieldEngine.evaluateRequest(
+                            context = this@MainActivity,
+                            requestUrl = url,
+                            pageUrl = url,
+                            isMainFrame = true,
+                            isPrivate = isPriv
+                        )
+                        if (decision.shouldBlock && decision.isHarmfulPageNavigation) {
+                            val isDark = prefs.getBoolean("is_dark", false) || isPriv
+                            val warningHtml = HazeSecurityWarningManager.getSecurityWarningHtml(url, decision.category, isDark)
+                            tab.navigationController.loadDataWithBaseURL(url, warningHtml, "text/html", "UTF-8", null)
+                            return@runOnUiThread
+                        }
+                    }
+
+                    if (url != HAZE_HOME_URL && !url.startsWith("haze://")) {
+                        showPageLoading(5)
+                        val earlyCss = """
+                            (function() {
+                                if (window.__hazeEarlyCssInjected) return;
+                                window.__hazeEarlyCssInjected = true;
+                                var style = document.createElement('style');
+                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                                if (document.documentElement) document.documentElement.appendChild(style);
+                                else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
+                            })();
+                        """.trimIndent()
+                        tab.evaluateJavascript(earlyCss, null)
+                    }
+                }
+            }
+
+            override fun onPageProgress(tab: IBrowserTab, progress: Int) {
+                runOnUiThread {
+                    if (tab.url == HAZE_HOME_URL || tab.url.startsWith("haze://")) {
+                        finishPageLoading()
+                    } else if (progress < 100) {
+                        showPageLoading(progress.coerceAtLeast(5))
+                    } else {
+                        finishPageLoading()
+                    }
+                }
+            }
+
+            override fun onPageFinished(tab: IBrowserTab, url: String) {
+                runOnUiThread {
+                    finishPageLoading()
+                    val ownerTab = getTabForInterface(tab, null) ?: return@runOnUiThread
+                    val isHome = url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url == "about:blank" || url.startsWith("about:") || url.startsWith("haze://home") || url.startsWith("data:") || url.startsWith("https://haze.local")
+                    if (isHome) {
+                        ownerTab.title = "New Tab"
+                        ownerTab.url = HAZE_HOME_URL
+                    } else {
+                        ownerTab.url = url
+                    }
+                    if (ownerTab === currentTabsList.getOrNull(activeTabIndex)) {
+                        updateChromeVisibility(ownerTab.url)
+                        if (isHome) {
+                            addressBar.setText("")
+                        } else if (!isSearchActive) {
+                            addressBar.setText(url)
+                        }
+                    }
+
+                    if (!ownerTab.isPrivate && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                        val pageTitle = ownerTab.title.takeIf { it.isNotEmpty() && it != "New Tab" && it != "Loading..." } ?: url
+                        val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
+                        val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
+                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
+                    }
+
+                    if (!isHome) {
+                        val cosmeticCss = """
+                            (function() {
+                                if (window.__hazeCosmeticInjected) return;
+                                window.__hazeCosmeticInjected = true;
+                                var style = document.createElement('style');
+                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                                if (document.head) document.head.appendChild(style);
+                                else document.documentElement.appendChild(style);
+                            })();
+                        """.trimIndent()
+                        tab.evaluateJavascript(cosmeticCss, null)
+
+                        if (url.contains("youtube.com", ignoreCase = true)) {
+                            val safeYtSkips = """
+                                (function() {
+                                    if (window.__hazeSafeYtSkipper) return;
+                                    window.__hazeSafeYtSkipper = true;
+                                    var adWasActive = false;
+                                    var normalPlaybackRate = 1;
+                                    var adSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-overlay-close-button', '.videoAdUiSkipButton'];
+                                    function skipYouTubeAd() {
+                                        var adPlayer = document.querySelector('.ad-showing');
+                                        if (!adPlayer) {
+                                            if (adWasActive) {
+                                                var normalVideo = document.querySelector('video');
+                                                if (normalVideo && normalVideo.playbackRate > 1) normalVideo.playbackRate = normalPlaybackRate;
+                                            }
+                                            adWasActive = false;
+                                            return;
+                                        }
+                                        adWasActive = true;
+                                        for (var i = 0; i < adSelectors.length; i++) {
+                                            var button = document.querySelector(adSelectors[i]);
+                                            if (button) { button.click(); return; }
+                                        }
+                                        var video = document.querySelector('video');
+                                        if (video) {
+                                            if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
+                                            if (isFinite(video.duration) && video.duration > 0) video.currentTime = video.duration;
+                                            else video.currentTime = 2147483647;
+                                            video.play().catch(function() {});
+                                            video.playbackRate = 16;
+                                        }
+                                        var overlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay');
+                                        for (var j = 0; j < overlays.length; j++) overlays[j].style.setProperty('display', 'none', 'important');
+                                    }
+                                    setInterval(skipYouTubeAd, 25);
+                                    document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
+                                    var observer = new MutationObserver(skipYouTubeAd);
+                                    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+                                    skipYouTubeAd();
+                                })();
+                            """.trimIndent()
+                            tab.evaluateJavascript(safeYtSkips, null)
+                        }
+
+                        val selectionScript = """
+                            (function() {
+                                if (window.__hazeSelectionInjected) return;
+                                window.__hazeSelectionInjected = true;
+                                document.addEventListener('selectionchange', function() {
+                                    var sel = window.getSelection().toString();
+                                    if (sel && sel.trim().length > 0 && sel.trim().length < 500) {
+                                        clearTimeout(window.__hazeSelTimer);
+                                        window.__hazeSelTimer = setTimeout(function() {
+                                            var text = window.getSelection().toString();
+                                            if (text && text.trim().length > 0 && window.Android && window.Android.onTextSelection) {
+                                                window.Android.onTextSelection(text.trim());
+                                            }
+                                        }, 800);
+                                    }
+                                });
+                            })();
+                        """.trimIndent()
+                        tab.evaluateJavascript(selectionScript, null)
+
+                        val mediaScript = """
+                            (function() {
+                                if (window.__hazeMediaTrackInstalled) return;
+                                window.__hazeMediaTrackInstalled = true;
+                                function checkMedia() {
+                                    try {
+                                        var media = document.querySelectorAll('video, audio');
+                                        var isPlaying = false;
+                                        var width = 16;
+                                        var height = 9;
+                                        for (var i = 0; i < media.length; i++) {
+                                            var m = media[i];
+                                            if (!m.paused && !m.ended && m.readyState > 1) {
+                                                isPlaying = true;
+                                                if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
+                                                    width = m.videoWidth;
+                                                    height = m.videoHeight;
+                                                }
+                                                break;
+                                            }
+                                        }
+                                        if (window.Android && window.Android.onMediaStateChange) {
+                                            window.Android.onMediaStateChange(isPlaying, width, height);
+                                        }
+                                    } catch(e) {}
+                                }
+                                function trackElement(el) {
+                                    if (!el || el.__hazeTracked) return;
+                                    el.__hazeTracked = true;
+                                    el.addEventListener('play', checkMedia, true);
+                                    el.addEventListener('playing', checkMedia, true);
+                                    el.addEventListener('pause', checkMedia, true);
+                                    el.addEventListener('ended', checkMedia, true);
+                                    el.addEventListener('ratechange', checkMedia, true);
+                                }
+                                function scanElements() {
+                                    var all = document.querySelectorAll('video, audio');
+                                    for (var i = 0; i < all.length; i++) trackElement(all[i]);
+                                    checkMedia();
+                                }
+                                scanElements();
+                                var observer = new MutationObserver(function() { scanElements(); });
+                                if (document.body || document.documentElement) {
+                                    observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                                }
+                                setInterval(checkMedia, 1500);
+                            })();
+                        """.trimIndent()
+                        tab.evaluateJavascript(mediaScript, null)
+                    }
+                    updateNavigationButtons()
+                }
+            }
+
+            override fun onTitleReceived(tab: IBrowserTab, title: String) {
+                runOnUiThread {
+                    val ownerTab = getTabForInterface(tab, null) ?: return@runOnUiThread
+                    val isHome = isHomeTab(ownerTab) || title.startsWith("data:") || title.contains("haze.local", ignoreCase = true)
+                    if (isHome) {
+                        ownerTab.title = "New Tab"
+                    } else if (!ownerTab.url.startsWith("haze://")) {
+                        ownerTab.title = title
+                        if (!ownerTab.isPrivate && ownerTab.url != HAZE_HOME_URL && !ownerTab.url.startsWith("about:")) {
+                            HazeDatabase.getInstance(this@MainActivity).addHistory(ownerTab.url, title, isPrivate = false)
+                        }
+                    }
+                }
+            }
+
+            override fun onFaviconReceived(tab: IBrowserTab, favicon: Bitmap) {
+                runOnUiThread {
+                    val ownerTab = getTabForInterface(tab, null) ?: return@runOnUiThread
+                    ownerTab.favicon = favicon
+                    if (!ownerTab.isPrivate && !isHomeTab(ownerTab) && !ownerTab.url.startsWith("haze://")) {
+                        val path = HazeFaviconManager.saveFavicon(this@MainActivity, ownerTab.url, favicon)
+                        if (path != null) {
+                            HazeDatabase.getInstance(this@MainActivity).updateHistoryFavicon(ownerTab.url, path)
+                        }
+                    }
+                }
+            }
+
+            override fun onReceivedError(tab: IBrowserTab, errorCode: Int, description: String, failingUrl: String) {
+                runOnUiThread {
+                    if (failingUrl.isNotEmpty() && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:") && !failingUrl.startsWith("https://haze.local") && !failingUrl.startsWith("data:")) {
+                        val ownerTab = getTabForInterface(tab, null)
+                        val isPriv = ownerTab?.isPrivate ?: isPrivateMode
+                        val isDark = prefs.getBoolean("is_dark", false) || isPriv
+                        val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
+                        tab.navigationController.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
+                    }
+                }
+            }
+
+            override fun onRenderProcessGone(tab: IBrowserTab, didCrash: Boolean): Boolean {
+                runOnUiThread {
+                    tab.reload()
+                }
+                return true
+            }
+        })
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -2437,10 +2774,12 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, { closedIndex ->
             val tabToRemove = normalTabs[closedIndex]
-            webContainer.removeView(tabToRemove.browserTab.renderView)
+            webContainer.removeView(tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView)
             tabToRemove.browserTab.destroy()
             normalTabs.removeAt(closedIndex)
-            if (!isPrivateMode) {
+            if (normalTabs.isEmpty() && !isPrivateMode) {
+                addNewTab(HAZE_HOME_URL)
+            } else if (!isPrivateMode) {
                 if (activeNormalTabIndex >= closedIndex) activeNormalTabIndex--
                 if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
                 switchTab(activeNormalTabIndex)
@@ -2457,7 +2796,7 @@ class MainActivity : AppCompatActivity() {
             dialog.dismiss()
         }, { closedIndex ->
             val tabToRemove = privateTabs[closedIndex]
-            webContainer.removeView(tabToRemove.browserTab.renderView)
+            webContainer.removeView(tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView)
             tabToRemove.browserTab.destroy()
             privateTabs.removeAt(closedIndex)
             if (privateTabs.isEmpty()) {
@@ -3952,15 +4291,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun addNewBackgroundTab(url: String) {
+        val activeBefore = currentTabsList.getOrNull(activeTabIndex)
         val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
         val renderView = browserTab.renderView
         renderView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         val tab = Tab(id = browserTab.id, browserTab = browserTab, isPrivate = isPrivateMode, url = url, title = "New Tab")
         currentTabsList.add(tab)
         webContainer.addView(renderView)
-        (browserTab as? ChromiumBrowserTab)?.let { setupWebView(it.webView) }
+        setupBrowserTab(browserTab)
         renderView.visibility = View.GONE
-        tab.browserTab.navigationController.loadUrl(url)
+        if (browserTab is ChromiumBrowserTab) {
+            tab.browserTab.navigationController.loadUrl(url)
+        } else {
+            activeBefore?.browserTab?.onResume()
+        }
         tabCountBtn.text = currentTabsList.size.toString()
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
     }

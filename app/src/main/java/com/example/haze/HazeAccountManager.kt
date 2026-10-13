@@ -108,19 +108,8 @@ object HazeAccountManager {
     }
 
     fun syncGoogleAccountToCookieManager(context: Context) {
-        val user = getUser(context) ?: return
-        val cookieManager = android.webkit.CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        try {
-            cookieManager.setCookie(".google.com", "haze_user_email=${user.email}; Domain=.google.com; Path=/; Secure")
-            cookieManager.setCookie(".google.com", "haze_user_name=${Uri.encode(user.displayName)}; Domain=.google.com; Path=/; Secure")
-            cookieManager.setCookie(".youtube.com", "haze_user_email=${user.email}; Domain=.youtube.com; Path=/; Secure")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                cookieManager.flush()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // No-op in native Chromium engine mode: prevents loading Android's system libwebviewchromium.so
+        // which collides with our standalone libcontent_shell_content_view.so process space.
     }
 
     fun clearUser(context: Context) {

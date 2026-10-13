@@ -193,7 +193,11 @@ object HazeSettingsManager {
         addSectionHeader("Privacy & Security")
         val cardPrivacy = createCardContainer()
         cardPrivacy.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Accept Cookies", "Allow websites to store cookies", "cookies_enabled", true) { isEnabled ->
-            CookieManager.getInstance().setAcceptCookie(isEnabled)
+            try {
+                CookieManager.getInstance().setAcceptCookie(isEnabled)
+            } catch (e: Throwable) {
+                // Ignore in Native Chromium engine mode
+            }
         })
         cardPrivacy.addView(createRow(activity, "Clear Browsing Data", "Clear cache, cookies, history, and storage", textColor, subTextColor) {
             HazeClearDataManager.showClearDataDialog(activity)
