@@ -242,52 +242,105 @@ object HazeProfileDialogManager {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
-        // Passwords and Autofill
+        // Passwords and Autofill: Open saved passwords of the logged in Google account
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_key, "Passwords and autofill", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                activity.addNewTab("haze://settings")
+                var opened = false
+                try {
+                    val intent = Intent("com.google.android.gms.credential.manager.SETTINGS").apply {
+                        setPackage("com.google.android.gms")
+                    }
+                    activity.startActivity(intent)
+                    opened = true
+                } catch (_: Exception) {}
+                if (!opened) {
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                            data = Uri.parse("package:com.google.android.gms")
+                        }
+                        activity.startActivity(intent)
+                        opened = true
+                    } catch (_: Exception) {}
+                }
+                if (!opened) {
+                    activity.addNewTab("https://passwords.google.com")
+                }
             }
         )
 
-        // Manage your Google Account
+        // Manage your Google Account: Open accounts.google.com / myaccount.google.com in Haze browser only
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_person, "Manage your Google Account", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://myaccount.google.com"))
-                activity.startActivity(intent)
+                val targetUrl = if (user.email.isNotEmpty()) {
+                    "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=${Uri.encode("https://myaccount.google.com/")}"
+                } else {
+                    "https://accounts.google.com/"
+                }
+                activity.addNewTab(targetUrl)
             }
         )
 
-        // Customize profile
+        // Customize profile: Open personalization dialog directly
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_palette, "Customize profile", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                activity.intent.putExtra("open_personalize", true)
-                activity.recreate()
+                activity.showPersonalizeDialog()
             }
         )
 
-        // Sync is on
+        // Sync is on: Open Android Sync Settings and trigger Haze sync
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_sync, "Sync is on", HazeSyncManager.getLastSyncFormatted(activity), textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 HazeSyncManager.performSync(activity)
                 Toast.makeText(activity, "Syncing data now...", Toast.LENGTH_SHORT).show()
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_SYNC_SETTINGS)
+                    activity.startActivity(intent)
+                } catch (_: Exception) {}
             }
         )
 
-        // Sign out of Haze
+        // Google Web Services Sign-In: Only show if not performed yet
+        if (!HazeAccountManager.hasCompletedGoogleWebLogin(activity)) {
+            primaryList.addView(
+                createMenuItem(activity, R.drawable.ic_google_logo, "Google Web Services", "Sign in to Gmail, YouTube & Google Search", textColor = textColor, subTextColor = subTextColor) {
+                    activity.triggerStrongHaptic()
+                    dialog.dismiss()
+                    HazeAccountManager.setCompletedGoogleWebLogin(activity, true)
+                    val loginUrl = "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=https://www.google.com/"
+                    activity.loadUrlFromInput(loginUrl)
+                }
+            )
+        }
+
+        // Password Manager: Open passwords in Android settings
+        primaryList.addView(
+            createMenuItem(activity, R.drawable.ic_key, "Password Manager", "Google passwords, passkeys & autofill", textColor = textColor, subTextColor = subTextColor) {
+                activity.triggerStrongHaptic()
+                dialog.dismiss()
+                HazeSecurityManager.requestGooglePasswordManagerIntegration(activity)
+            }
+        )
+
+        // Sign out of Haze: Sign out user completely, clear session and update UI
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_logout, "Sign out of Haze", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
+                try {
+                    HazeAccountManager.getGoogleSignInClient(activity).signOut()
+                } catch (_: Exception) {}
                 HazeAccountManager.clearUser(activity)
+                HazeAccountManager.setGuestMode(activity, false)
                 activity.updateProfileButton()
-                Toast.makeText(activity, "Signed out", Toast.LENGTH_SHORT).show()
+                activity.reloadHomeTabsIfOpen()
+                Toast.makeText(activity, "Signed out of Haze", Toast.LENGTH_SHORT).show()
             }
         )
 
@@ -309,21 +362,36 @@ object HazeProfileDialogManager {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
-        // Set up a new profile
+        // Set up a new profile: Choose another Google account and add profile
         secondaryList.addView(
             createMenuItem(activity, R.drawable.ic_add, "Set up a new profile", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                Toast.makeText(activity, "Add profile feature coming soon", Toast.LENGTH_SHORT).show()
+                activity.launchGoogleSignIn(
+                    onSuccess = { newUser ->
+                        HazeAccountManager.addProfile(activity, newUser)
+                        HazeAccountManager.saveUser(activity, newUser)
+                        HazeAccountManager.setGuestMode(activity, false)
+                        activity.updateProfileButton()
+                        activity.reloadHomeTabsIfOpen()
+                        Toast.makeText(activity, "Switched to profile: ${newUser.displayName}", Toast.LENGTH_SHORT).show()
+                    },
+                    onError = {
+                        activity.launchDeviceAccountPicker()
+                    }
+                )
             }
         )
 
-        // Browse as guest
+        // Browse as guest: Browse without any account
         secondaryList.addView(
             createMenuItem(activity, R.drawable.ic_private, "Browse as guest", textColor = textColor, subTextColor = subTextColor) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                activity.addNewTab("haze://home")
+                HazeAccountManager.setGuestMode(activity, true)
+                activity.updateProfileButton()
+                activity.reloadHomeTabsIfOpen()
+                Toast.makeText(activity, "Browsing as guest", Toast.LENGTH_SHORT).show()
             }
         )
 

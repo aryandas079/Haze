@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -9,40 +10,76 @@
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
         android:background="#FFFFFF">
 
         <TextView
+            android:id="@+id/tvTabsManagerHeader"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Tabs Manager"
-            android:textSize="20sp"
+            android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="#202124"
-            android:layout_centerInParent="true"/>
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"/>
 
-        <ImageButton
-            android:id="@+id/btnCloseTabs"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:layout_alignParentEnd="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_close"
-            android:contentDescription="Close" />
+            android:layout_centerVertical="true">
+
+            <!-- Recently Closed Tabs button -->
+            <ImageButton
+                android:id="@+id/btnRecentlyClosedTabs"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_restore"
+                android:layout_marginEnd="6dp"
+                app:tint="#5F6368"
+                android:contentDescription="Recently Closed Tabs" />
+
+            <!-- Toggle View Mode (List vs Grid) -->
+            <ImageButton
+                android:id="@+id/btnToggleViewMode"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_grid"
+                android:layout_marginEnd="6dp"
+                app:tint="#5F6368"
+                android:contentDescription="Toggle Grid / List View" />
+
+            <ImageButton
+                android:id="@+id/btnCloseTabs"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                app:tint="#202124"
+                android:contentDescription="Close" />
+        </LinearLayout>
     </RelativeLayout>
 
-    <!-- Clean, Borderless & Trackless Tab Selector -->
+    <!-- Clean Tab Selector (Personal vs Private) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
         android:background="#FFFFFF">
 
         <LinearLayout
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="38dp"
             android:orientation="horizontal"
             android:gravity="center">
 
@@ -51,11 +88,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:paddingStart="24dp"
-                android:paddingEnd="24dp"
+                android:paddingStart="22dp"
+                android:paddingEnd="22dp"
                 android:text="Personal"
                 android:textColor="#0A56D0"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true"/>
@@ -65,14 +102,63 @@
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
                 android:gravity="center"
-                android:paddingStart="24dp"
-                android:paddingEnd="24dp"
+                android:paddingStart="22dp"
+                android:paddingEnd="22dp"
                 android:text="Private"
                 android:textColor="#5F6368"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:clickable="true"
                 android:focusable="true"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Tab Search Box -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:background="@drawable/bg_address_bar"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_search"
+                app:tint="#5F6368"
+                android:contentDescription="Search" />
+
+            <EditText
+                android:id="@+id/etTabSearch"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@null"
+                android:hint="Search open tabs..."
+                android:textSize="13sp"
+                android:textColor="#202124"
+                android:singleLine="true"
+                android:imeOptions="actionDone"/>
+
+            <ImageButton
+                android:id="@+id/btnClearTabSearch"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                app:tint="#5F6368"
+                android:visibility="gone"
+                android:contentDescription="Clear Search" />
         </LinearLayout>
     </LinearLayout>
 
@@ -80,17 +166,17 @@
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="8dp">
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="6dp">
 
         <TextView
             android:id="@+id/tvCurrentModeLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Personal Tabs"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:textColor="#202124"
             android:layout_centerVertical="true"/>
@@ -103,7 +189,7 @@
             android:layout_centerVertical="true"
             android:text="+ New Tab"
             android:textColor="#0A56D0"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:padding="6dp"
             android:background="?attr/selectableItemBackground"/>
@@ -114,7 +200,8 @@
         android:id="@+id/rvActiveTabs"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="16dp"
         android:clipToPadding="false"/>
 </LinearLayout>

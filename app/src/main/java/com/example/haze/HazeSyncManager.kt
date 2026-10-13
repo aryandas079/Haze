@@ -119,7 +119,14 @@ object HazeSyncManager {
                 // 1. Read existing cloud backup if present
                 val cloudJson = if (backupFile.exists() && backupFile.length() > 0) {
                     try {
-                        JSONObject(backupFile.readText())
+                        val text = backupFile.readText()
+                        val envelope = JSONObject(text)
+                        if (envelope.optBoolean("e2ee", false)) {
+                            val decryptedPlain = HazeSecurityManager.decryptString(envelope.getString("payload"))
+                            JSONObject(decryptedPlain)
+                        } else {
+                            envelope
+                        }
                     } catch (e: Exception) {
                         JSONObject()
                     }
@@ -280,8 +287,17 @@ object HazeSyncManager {
                 cloudJson.put("lastSyncTime", System.currentTimeMillis())
                 cloudJson.put("schemaVersion", 2)
 
-                // Write backup snapshot atomically
-                backupFile.writeText(cloudJson.toString(2))
+                // Write backup snapshot atomically with End-to-End Encryption (E2EE)
+                val plainJson = cloudJson.toString(2)
+                val encryptedEnvelope = JSONObject().apply {
+                    put("e2ee", true)
+                    put("encryption", "AES-256-GCM")
+                    put("keystore", "AndroidKeyStore")
+                    put("payload", HazeSecurityManager.encryptString(plainJson))
+                    put("userId", user.id)
+                    put("updatedAt", System.currentTimeMillis())
+                }
+                backupFile.writeText(encryptedEnvelope.toString(2))
 
                 // Update last sync time
                 getPrefs(context).edit().putLong(KEY_LAST_SYNC_TIME, System.currentTimeMillis()).apply()

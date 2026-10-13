@@ -50,6 +50,7 @@ object HazeSettingsManager {
         val dividerColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E5E5E5")
 
         val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
+        dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.window?.statusBarColor = bgColor
 
         val root = LinearLayout(activity).apply {
@@ -198,6 +199,9 @@ object HazeSettingsManager {
             } catch (e: Throwable) {
                 // Ignore in Native Chromium engine mode
             }
+        })
+        cardPrivacy.addView(createRow(activity, "Google Password Manager", "Manage passwords, passkeys, and autofill credentials", textColor, subTextColor) {
+            HazeSecurityManager.requestGooglePasswordManagerIntegration(activity)
         })
         cardPrivacy.addView(createRow(activity, "Clear Browsing Data", "Clear cache, cookies, history, and storage", textColor, subTextColor) {
             HazeClearDataManager.showClearDataDialog(activity)

@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Message
 import android.view.View
 import android.webkit.*
+import com.example.haze.HazeSecurityManager
 import com.example.haze.engine.*
 import java.io.ByteArrayInputStream
 
@@ -56,6 +57,9 @@ class ChromiumBrowserTab(
     }
 
     private fun configureWebSettings(config: EngineConfig) {
+        HazeSecurityManager.configureSessionSecurity(webView)
+        HazeSecurityManager.applyBrowserIsolation(webView)
+
         webView.settings.apply {
             javaScriptEnabled = config.enableJavaScript
             domStorageEnabled = config.enableDomStorage
@@ -70,20 +74,40 @@ class ChromiumBrowserTab(
             mediaPlaybackRequiresUserGesture = false
             defaultTextEncodingName = config.defaultEncoding
 
+            // Chromium & Google Password Manager integration
+            saveFormData = true
+            savePassword = true
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
+                webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
             }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            }
+            @Suppress("DEPRECATION")
+            setRenderPriority(WebSettings.RenderPriority.HIGH)
 
             if (isPrivate) {
                 cacheMode = WebSettings.LOAD_NO_CACHE
             } else {
                 cacheMode = WebSettings.LOAD_DEFAULT
             }
+
+            // Pre-rasterizing hidden tabs increases memory pressure and can
+            // compete with the visible page for raster threads.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                offscreenPreRaster = false
+            }
         }
 
         if (config.enableHardwareAcceleration) {
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         }
+        webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        webView.isVerticalScrollBarEnabled = false
+        webView.isHorizontalScrollBarEnabled = false
     }
 
     private fun applyDesktopMode(desktop: Boolean) {
@@ -112,9 +136,27 @@ class ChromiumBrowserTab(
                 val nonNullUrl = pageUrl ?: ""
                 url = nonNullUrl
                 title = view?.title ?: title
+                if (nonNullUrl.contains("myaccount.google.com") || 
+                    nonNullUrl.contains("accounts.google.com/CheckCookie") ||
+                    nonNullUrl.contains("accounts.google.com/ManageAccount")) {
+                    com.example.haze.HazeAccountManager.setCompletedGoogleWebLogin(webView.context, true)
+                }
+                HazeSecurityManager.persistCookieStore()
                 observer?.onPageFinished(this@ChromiumBrowserTab, nonNullUrl)
             }
 
+            override fun onSafeBrowsingHit(
+                view: WebView?,
+                request: WebResourceRequest?,
+                threatType: Int,
+                callback: SafeBrowsingResponse?
+            ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    callback?.showInterstitial(true)
+                } else {
+                    super.onSafeBrowsingHit(view, request, threatType, callback)
+                }
+            }
 
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
                 observer?.onReceivedError(
@@ -329,12 +371,10 @@ class ChromiumBrowserTab(
 
     override fun onPause() {
         webView.onPause()
-        webView.pauseTimers()
     }
 
     override fun onResume() {
         webView.onResume()
-        webView.resumeTimers()
     }
 
     override fun destroy() {

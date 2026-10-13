@@ -93,6 +93,15 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
+        <ImageView
+            android:id="@+id/tabPinIcon"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_pin"
+            android:visibility="gone"
+            android:contentDescription="Pinned Tab" />
+
         <ImageButton
             android:id="@+id/tabClose"
             android:layout_width="32dp"
@@ -101,4 +110,4 @@
             android:src="@drawable/ic_close"
             android:contentDescription="Close Tab" />
     </LinearLayout>
-</LinearLayout>
+</LinearLayout>

@@ -48,7 +48,7 @@ class HazeMiniPlayer(
     private val error: TextView = rootLayout.findViewById(R.id.miniPlayerError)
     private val handler = Handler(Looper.getMainLooper())
     private val hideControls = Runnable {
-        if (isPlaying && !isCompactMode) controlsOverlay.animate().alpha(0f).setDuration(220).start()
+        if (isPlaying && !isCompactMode) controlsOverlay.animate().alpha(0f).setDuration(220).setInterpolator(MainActivity.BUTTER_INTERPOLATOR).start()
     }
     private var browserTab: IBrowserTab? = null
     private var session: MediaSession? = null
@@ -267,11 +267,11 @@ class HazeMiniPlayer(
     private fun snapToNearestEdge() {
         val parent = rootLayout.parent as? View ?: return
         val target = if (rootLayout.translationX + rootLayout.width / 2f < parent.width / 2f) 0f else (parent.width - rootLayout.width).toFloat()
-        rootLayout.animate().translationX(target.coerceAtLeast(0f)).setDuration(180).start()
+        rootLayout.animate().translationX(target.coerceAtLeast(0f)).setDuration(240).setInterpolator(MainActivity.BUTTER_INTERPOLATOR).start()
     }
 
-    private fun showControls() { controlsOverlay.animate().alpha(1f).setDuration(160).start(); scheduleHide() }
-    private fun hideControlsNow() { handler.removeCallbacks(hideControls); controlsOverlay.animate().alpha(0f).setDuration(160).start() }
+    private fun showControls() { controlsOverlay.animate().alpha(1f).setDuration(180).setInterpolator(MainActivity.BUTTER_INTERPOLATOR).start(); scheduleHide() }
+    private fun hideControlsNow() { handler.removeCallbacks(hideControls); controlsOverlay.animate().alpha(0f).setDuration(160).setInterpolator(MainActivity.BUTTER_INTERPOLATOR).start() }
     private fun scheduleHide() { handler.removeCallbacks(hideControls); if (isPlaying && !isCompactMode) handler.postDelayed(hideControls, 3000) }
 
     private fun updateSession() {

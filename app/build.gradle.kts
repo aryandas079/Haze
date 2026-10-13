@@ -1,3 +1,7 @@
+import java.util.Collections
+import java.util.zip.GZIPInputStream
+import java.io.SequenceInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     id("com.google.gms.google-services")
@@ -82,6 +86,7 @@ dependencies {
     implementation(libs.material)
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.guava:guava:33.2.1-android")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -102,8 +107,8 @@ val prepareNativeChromiumLibs by tasks.registering {
 
             if (parts.isNotEmpty()) {
                 outSo.parentFile.mkdirs()
-                val partStreams = java.util.Collections.enumeration(parts.map { it.inputStream() })
-                java.util.zip.GZIPInputStream(java.io.SequenceInputStream(partStreams)).use { gis ->
+                val partStreams = Collections.enumeration(parts.map { it.inputStream() })
+                GZIPInputStream(SequenceInputStream(partStreams)).use { gis ->
                     outSo.outputStream().use { fos ->
                         gis.copyTo(fos, bufferSize = 64 * 1024)
                     }

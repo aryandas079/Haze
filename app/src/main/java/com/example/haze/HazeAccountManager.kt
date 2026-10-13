@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
+import android.webkit.CookieManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
@@ -60,6 +61,8 @@ object HazeAccountManager {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    private const val KEY_GOOGLE_WEB_LOGIN_COMPLETED = "google_web_login_completed_v2"
+
     fun hasCompletedOnboarding(context: Context): Boolean {
         return getPrefs(context).getBoolean(KEY_ONBOARDING_COMPLETED, false)
     }
@@ -68,11 +71,33 @@ object HazeAccountManager {
         getPrefs(context).edit().putBoolean(KEY_ONBOARDING_COMPLETED, completed).apply()
     }
 
+    fun hasCompletedGoogleWebLogin(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_GOOGLE_WEB_LOGIN_COMPLETED, false)
+    }
+
+    fun setCompletedGoogleWebLogin(context: Context, completed: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_GOOGLE_WEB_LOGIN_COMPLETED, completed).apply()
+    }
+
+    private const val KEY_IS_GUEST_MODE = "is_guest_mode"
+    private const val KEY_PROFILES_LIST = "profiles_list_json"
+
+    fun isGuestMode(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_IS_GUEST_MODE, false)
+    }
+
+    fun setGuestMode(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_IS_GUEST_MODE, enabled).apply()
+        notifyAccountChanged(if (enabled) null else getUser(context))
+    }
+
     fun isSignedIn(context: Context): Boolean {
+        if (isGuestMode(context)) return false
         return getPrefs(context).getBoolean(KEY_IS_SIGNED_IN, false) && getUser(context) != null
     }
 
     fun getUser(context: Context): HazeUser? {
+        if (isGuestMode(context)) return null
         val prefs = getPrefs(context)
         if (!prefs.getBoolean(KEY_IS_SIGNED_IN, false)) return null
         val id = prefs.getString(KEY_USER_ID, null) ?: return null
@@ -92,8 +117,100 @@ object HazeAccountManager {
         )
     }
 
+    fun getAllProfiles(context: Context): List<HazeUser> {
+        val jsonStr = getPrefs(context).getString(KEY_PROFILES_LIST, null)
+        val list = mutableListOf<HazeUser>()
+        if (!jsonStr.isNullOrEmpty()) {
+            try {
+                val array = org.json.JSONArray(jsonStr)
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        HazeUser(
+                            id = obj.getString("id"),
+                            email = obj.getString("email"),
+                            displayName = obj.getString("displayName"),
+                            givenName = obj.getString("givenName"),
+                            photoUrl = if (obj.has("photoUrl") && !obj.isNull("photoUrl")) obj.getString("photoUrl") else null,
+                            signedInAt = obj.optLong("signedInAt", System.currentTimeMillis())
+                        )
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+        val currentUser = getDirectUser(context)
+        if (currentUser != null && list.none { it.email.equals(currentUser.email, ignoreCase = true) }) {
+            list.add(0, currentUser)
+            saveAllProfiles(context, list)
+        }
+        return list
+    }
+
+    private fun getDirectUser(context: Context): HazeUser? {
+        val prefs = getPrefs(context)
+        if (!prefs.getBoolean(KEY_IS_SIGNED_IN, false)) return null
+        val id = prefs.getString(KEY_USER_ID, null) ?: return null
+        val email = prefs.getString(KEY_USER_EMAIL, "") ?: ""
+        val name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
+        val givenName = prefs.getString(KEY_USER_GIVEN_NAME, name.split(" ").firstOrNull() ?: "User") ?: "User"
+        val photoUrl = prefs.getString(KEY_USER_PHOTO_URL, null)
+        val signedInAt = prefs.getLong(KEY_SIGNED_IN_AT, System.currentTimeMillis())
+        return HazeUser(id, email, name, givenName, photoUrl, signedInAt)
+    }
+
+    private fun saveAllProfiles(context: Context, list: List<HazeUser>) {
+        val array = org.json.JSONArray()
+        for (u in list) {
+            val obj = org.json.JSONObject().apply {
+                put("id", u.id)
+                put("email", u.email)
+                put("displayName", u.displayName)
+                put("givenName", u.givenName)
+                put("photoUrl", u.photoUrl)
+                put("signedInAt", u.signedInAt)
+            }
+            array.put(obj)
+        }
+        getPrefs(context).edit().putString(KEY_PROFILES_LIST, array.toString()).apply()
+    }
+
+    fun addProfile(context: Context, user: HazeUser) {
+        val list = getAllProfiles(context).filter { !it.email.equals(user.email, ignoreCase = true) }.toMutableList()
+        list.add(0, user)
+        saveAllProfiles(context, list)
+    }
+
+    fun cycleToNextProfile(context: Context): HazeUser? {
+        val profiles = getAllProfiles(context)
+        val currentGuest = isGuestMode(context)
+        if (currentGuest) {
+            setGuestMode(context, false)
+            val first = profiles.firstOrNull()
+            if (first != null) {
+                saveUser(context, first)
+                return first
+            }
+            return null
+        }
+        if (profiles.isEmpty()) {
+            setGuestMode(context, true)
+            return null
+        }
+        if (profiles.size == 1) {
+            setGuestMode(context, true)
+            return null
+        }
+        val currentEmail = getDirectUser(context)?.email ?: ""
+        val currentIndex = profiles.indexOfFirst { it.email.equals(currentEmail, ignoreCase = true) }
+        val nextIndex = if (currentIndex == -1) 0 else (currentIndex + 1) % profiles.size
+        val nextUser = profiles[nextIndex]
+        saveUser(context, nextUser)
+        return nextUser
+    }
+
     fun saveUser(context: Context, user: HazeUser) {
         getPrefs(context).edit()
+            .putBoolean(KEY_IS_GUEST_MODE, false)
             .putBoolean(KEY_IS_SIGNED_IN, true)
             .putString(KEY_USER_ID, user.id)
             .putString(KEY_USER_EMAIL, user.email)
@@ -103,24 +220,41 @@ object HazeAccountManager {
             .putLong(KEY_SIGNED_IN_AT, user.signedInAt)
             .apply()
 
+        addProfile(context, user)
         syncGoogleAccountToCookieManager(context)
         notifyAccountChanged(user)
     }
 
     fun syncGoogleAccountToCookieManager(context: Context) {
-        // No-op in native Chromium engine mode: prevents loading Android's system libwebviewchromium.so
-        // which collides with our standalone libcontent_shell_content_view.so process space.
+        val user = getUser(context) ?: return
+        try {
+            val cookieManager = android.webkit.CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            val expires = "Fri, 31 Dec 2038 23:59:59 GMT"
+            cookieManager.setCookie("https://.google.com", "ACCOUNT_CHOOSER=${android.net.Uri.encode(user.email)}; Domain=.google.com; Path=/; Secure; SameSite=None; Expires=$expires")
+            cookieManager.setCookie("https://accounts.google.com", "Email=${android.net.Uri.encode(user.email)}; Domain=accounts.google.com; Path=/; Secure; SameSite=None; Expires=$expires")
+            cookieManager.setCookie("https://.youtube.com", "LOGIN_INFO=${android.net.Uri.encode(user.email)}; Domain=.youtube.com; Path=/; Secure; SameSite=None; Expires=$expires")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.flush()
+            }
+        } catch (_: Exception) {}
     }
 
     fun clearUser(context: Context) {
+        val currentEmail = getDirectUser(context)?.email
+        val updatedProfiles = getAllProfiles(context).filter { !it.email.equals(currentEmail, ignoreCase = true) }
+        saveAllProfiles(context, updatedProfiles)
+
         getPrefs(context).edit()
             .putBoolean(KEY_IS_SIGNED_IN, false)
+            .putBoolean(KEY_IS_GUEST_MODE, false)
             .remove(KEY_USER_ID)
             .remove(KEY_USER_EMAIL)
             .remove(KEY_USER_NAME)
             .remove(KEY_USER_GIVEN_NAME)
             .remove(KEY_USER_PHOTO_URL)
             .remove(KEY_SIGNED_IN_AT)
+            .remove(KEY_GOOGLE_WEB_LOGIN_COMPLETED)
             .apply()
 
         HazeProfileImageHelper.clearAvatar(context)

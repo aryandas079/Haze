@@ -7,18 +7,23 @@ import org.chromium.content_public.browser.LoadUrlParams
 class NativeNavigationController(private val tab: NativeChromiumTab) : INavigationController {
 
     override fun loadUrl(url: String, headers: Map<String, String>?) {
-        tab.url = url
+        val context = tab.shellManager.context
+        // This is a chooser hint only. Google owns the authentication flow and the Chromium
+        // profile owns the resulting cookies; no account token is ever attached to navigation.
+        val finalUrl = com.example.haze.HazeSecurityManager.prepareAuthenticationNavigation(context, url)
+
+        tab.url = finalUrl
         tab.attachShellToThisTab()
         val webContents = tab.getWebContents()
         if (webContents != null) {
             tab.ensureObserversAndInterfaces(webContents)
-            val params = LoadUrlParams(url)
-            if (headers != null) {
+            val params = LoadUrlParams(finalUrl)
+            if (headers != null && headers.isNotEmpty()) {
                 params.setExtraHeaders(headers)
             }
             webContents.navigationController.loadUrl(params)
         } else {
-            tab.shellManager.launchShell(url)
+            tab.shellManager.launchShell(finalUrl)
             tab.ensureObserversAndInterfaces()
         }
     }

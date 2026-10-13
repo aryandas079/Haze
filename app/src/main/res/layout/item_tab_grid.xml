@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/cardTabGrid"
+    android:layout_width="match_parent"
+    android:layout_height="210dp"
+    android:layout_margin="6dp"
+    app:cardCornerRadius="14dp"
+    app:cardElevation="2dp"
+    app:cardBackgroundColor="#FFFFFF">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Top Header inside Card -->
+        <LinearLayout
+            android:id="@+id/gridHeaderLayout"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="6dp"
+            android:background="#F8F9FA">
+
+            <ImageView
+                android:id="@+id/gridTabIcon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_globe"
+                android:contentDescription="Favicon" />
+
+            <TextView
+                android:id="@+id/gridTabTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="Tab Title"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#202124" />
+
+            <ImageView
+                android:id="@+id/gridTabPinIcon"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_pin"
+                android:visibility="gone"
+                android:contentDescription="Pinned" />
+
+            <ImageButton
+                android:id="@+id/gridTabClose"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_close"
+                android:contentDescription="Close Tab" />
+        </LinearLayout>
+
+        <!-- Tab Thumbnail Preview Area -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FAFAFA">
+
+            <ImageView
+                android:id="@+id/gridTabThumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="Thumbnail Preview" />
+
+            <TextView
+                android:id="@+id/gridTabUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:background="#80000000"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:text="haze://home" />
+
+            <View
+                android:id="@+id/gridGroupIndicator"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_gravity="top"
+                android:background="#4285F4"
+                android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

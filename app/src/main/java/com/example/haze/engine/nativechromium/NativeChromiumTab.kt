@@ -64,6 +64,12 @@ class NativeChromiumTab(
     private var webContentsObserver: WebContentsObserver? = null
     private var observedWebContents: WebContents? = null
     private val jsInterfaces = mutableMapOf<String, Any>()
+    // Attaching a tab happens on every navigation and tab switch.  Keep the
+    // expensive JavaScript bridge work out of that hot path unless the active
+    // WebContents or its bridge set actually changed.
+    private var bridgeRevision = 0
+    private var installedBridgeRevision = -1
+    private var toolbarHiddenFor: WebContents? = null
     private var lastFindQuery: String = ""
     private var currentZoomLevel: Float = 1.0f
 
@@ -75,6 +81,12 @@ class NativeChromiumTab(
     }
 
     fun attachShellToThisTab() {
+        // ShellManager owns one WebContents.  Without detaching the previous
+        // tab's observer, every tab switch leaves another observer behind and
+        // multiplies progress/UI callbacks for all later navigations.
+        NativeChromiumBrowserEngine.activeTab
+            ?.takeIf { it !== this }
+            ?.detachFromSharedWebContents()
         NativeChromiumBrowserEngine.activeTab = this
         if (shellManager.parent !== tabContainer) {
             (shellManager.parent as? ViewGroup)?.removeView(shellManager)
@@ -86,37 +98,48 @@ class NativeChromiumTab(
                 )
             )
         }
-        hideShellDebugToolbar()
         ensureObserversAndInterfaces()
     }
 
+    private fun detachFromSharedWebContents() {
+        try {
+            webContentsObserver?.observe(null)
+        } catch (_: Throwable) {}
+        observedWebContents = null
+        installedBridgeRevision = -1
+    }
+
     fun hideShellDebugToolbar() {
+        val currentContents = shellManager.activeShell?.webContents ?: return
+        if (toolbarHiddenFor === currentContents) return
         try {
             shellManager.activeShell?.findViewById<View>(com.example.haze.R.id.toolbar)?.visibility = View.GONE
+            toolbarHiddenFor = currentContents
         } catch (_: Throwable) {}
     }
 
     fun getWebContents(): WebContents? {
-        val wc = shellManager.activeShell?.webContents
-        if (wc != null) {
-            ensureObserversAndInterfaces(wc)
-        }
-        return wc
+        return shellManager.activeShell?.webContents
     }
 
     fun ensureObserversAndInterfaces(wc: WebContents? = shellManager.activeShell?.webContents) {
         if (wc == null) return
         hideShellDebugToolbar()
-        try {
-            val injector = JavascriptInjector.fromWebContents(wc)
-            injector?.setAllowInspection(true)
-            for ((name, obj) in jsInterfaces) {
-                injector?.addPossiblyUnsafeInterface(obj, name, JavascriptInterface::class.java)
-            }
-        } catch (_: Throwable) {}
-
+        if (installedBridgeRevision != bridgeRevision || observedWebContents !== wc) {
+            try {
+                val injector = JavascriptInjector.fromWebContents(wc)
+                injector?.setAllowInspection(true)
+                for ((name, obj) in jsInterfaces) {
+                    injector?.addPossiblyUnsafeInterface(obj, name, JavascriptInterface::class.java)
+                }
+                installedBridgeRevision = bridgeRevision
+            } catch (_: Throwable) {}
+        }
         if (observedWebContents !== wc || webContentsObserver == null) {
             observedWebContents = wc
+            // A new page/WebContents needs the toolbar hidden again.
+            toolbarHiddenFor = null
+            hideShellDebugToolbar()
             attachWebContentsObserver(wc)
         }
     }
@@ -146,6 +169,12 @@ class NativeChromiumTab(
                     val targetTab = NativeChromiumBrowserEngine.activeTab ?: this@NativeChromiumTab
                     targetTab.hideShellDebugToolbar()
                     val raw = gurl?.spec?.takeIf { it.isNotEmpty() } ?: wc.visibleUrl?.spec ?: targetTab.url
+                    val ctx = targetTab.tabContainer.context
+                    if (raw.contains("myaccount.google.com") || 
+                        raw.contains("accounts.google.com/CheckCookie") ||
+                        raw.contains("accounts.google.com/ManageAccount")) {
+                        com.example.haze.HazeAccountManager.setCompletedGoogleWebLogin(ctx, true)
+                    }
                     val normalized = normalizeEngineUrl(raw)
                     targetTab.url = normalized
                     targetTab.observer?.onPageFinished(targetTab, normalized)
@@ -237,11 +266,13 @@ class NativeChromiumTab(
 
     override fun addJavascriptInterface(obj: Any, name: String) {
         jsInterfaces[name] = obj
+        bridgeRevision++
         ensureObserversAndInterfaces()
     }
 
     override fun removeJavascriptInterface(name: String) {
         jsInterfaces.remove(name)
+        bridgeRevision++
         val wc = shellManager.activeShell?.webContents ?: return
         try {
             JavascriptInjector.fromWebContents(wc)?.removeInterface(name)
@@ -292,6 +323,7 @@ class NativeChromiumTab(
 
     override fun destroy() {
         try {
+            detachFromSharedWebContents()
             if (shellManager.parent === tabContainer) {
                 tabContainer.removeView(shellManager)
             }

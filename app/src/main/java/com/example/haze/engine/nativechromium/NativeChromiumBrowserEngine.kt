@@ -91,7 +91,17 @@ class NativeChromiumBrowserEngine : IBrowserEngine {
             if (!org.chromium.base.CommandLine.isInitialized()) {
                 org.chromium.base.CommandLine.init(null)
             }
-            android.util.Log.e("HazeInit", "4.1 CommandLine initialized")
+            val cl = org.chromium.base.CommandLine.getInstance()
+            cl.appendSwitchWithValue("user-agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+            cl.appendSwitch("enable-gpu-rasterization")
+            cl.appendSwitch("enable-zero-copy")
+            cl.appendSwitchWithValue(
+                "enable-features",
+                "VaapiVideoDecoder,SmoothScrolling"
+            )
+            cl.appendSwitch("enable-quic")
+            cl.appendSwitch("enable-threaded-compositing")
+            android.util.Log.e("HazeInit", "4.1 CommandLine initialized with high-performance flags")
 
             org.chromium.base.library_loader.LibraryLoader.getInstance().ensureInitialized()
             android.util.Log.e("HazeInit", "4.2 LibraryLoader.ensureInitialized succeeded")

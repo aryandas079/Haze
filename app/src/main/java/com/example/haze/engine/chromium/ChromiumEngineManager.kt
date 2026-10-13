@@ -18,7 +18,7 @@ object ChromiumEngineManager {
         if (current != null) return current
 
         return synchronized(this) {
-            engine ?: com.example.haze.engine.nativechromium.NativeChromiumBrowserEngine().also {
+            engine ?: ChromiumBrowserEngine.getInstance().also {
                 it.init(context, config)
                 engine = it
             }

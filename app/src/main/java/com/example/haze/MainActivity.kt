@@ -29,9 +29,11 @@ import java.util.Locale
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -44,13 +46,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
+import android.animation.ObjectAnimator
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.PathInterpolator
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.transition.AutoTransition
+import androidx.transition.ChangeBounds
 import androidx.transition.TransitionManager
+import androidx.transition.TransitionSet
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -80,6 +89,12 @@ import android.net.NetworkCapabilities
 import android.util.Base64
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        val BUTTER_INTERPOLATOR = PathInterpolator(0.05f, 0.7f, 0.1f, 1.0f)
+        val BUTTER_ACCEL = PathInterpolator(0.2f, 0.0f, 0.4f, 1.0f)
+        val FAST_INTERPOLATOR = DecelerateInterpolator(2.0f)
+    }
 
     private val googleTtsEngine = "com.google.android.tts"
     private var pendingPasswordUnlock: (() -> Unit)? = null
@@ -190,6 +205,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private var pageLoadingGeneration = 0
+    // Chromium can report dozens of progress ticks per page.  Updating Android
+    // views for every one creates a queue on the main thread and is especially
+    // visible on lower-end devices.
+    private val renderedProgressByTab = mutableMapOf<Long, Int>()
     private val suggestionExecutor = Executors.newFixedThreadPool(2)
     private val suggestionCache = Collections.synchronizedMap(
         object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
@@ -200,34 +219,48 @@ class MainActivity : AppCompatActivity() {
     )
     private var suggestionRequestId = 0L
     private val suggestionDebounce = Runnable {
-        val query = addressBar.text.toString().trim()
+        val query = getUserTypedQuery()
         if (isSearchActive && query.isNotEmpty()) {
             val requestId = ++suggestionRequestId
             fetchSearchSuggestions(query) { suggestions ->
                 if (requestId == suggestionRequestId &&
                     isSearchActive &&
-                    addressBar.text.toString().trim() == query
+                    getUserTypedQuery() == query
                 ) {
                     renderSearchSuggestions(query, suggestions)
                 }
             }
         }
-
     }
 
     private lateinit var webContainer: FrameLayout
     private lateinit var addressBar: EditText
     private lateinit var tabCountBtn: TextView
     private lateinit var btnTabsCircular: FrameLayout
-    private lateinit var addressBarContainer: FrameLayout
+    private lateinit var addressBarContainer: LinearLayout
+    private lateinit var searchSuggestionStrip: ScrollView
+    private lateinit var suggestionChipContainer: LinearLayout
     private lateinit var findBarContainer: LinearLayout
     private lateinit var findInput: EditText
 
     private lateinit var dimOverlay: View
-    private lateinit var recentSearchesContainer: LinearLayout
-    private lateinit var recentSearchesList: LinearLayout
     private lateinit var btnClearQuery: ImageButton
+    private lateinit var btnQrScan: ImageButton
+    private lateinit var searchEngineSelectorBar: HorizontalScrollView
+    private lateinit var searchEngineChipContainer: LinearLayout
+    private lateinit var omniboxManager: HazeOmniboxManager
     private var isSearchActive = false
+    private var imeAnimationRunning = false
+    private var isAutocompleting = false
+    private var isUserTypingForward = false
+
+    private val topDomainsList = listOf(
+        "youtube.com", "google.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
+        "wikipedia.org", "reddit.com", "amazon.com", "netflix.com", "github.com", "linkedin.com",
+        "yahoo.com", "twitch.tv", "bing.com", "openai.com", "chatgpt.com", "discord.com",
+        "spotify.com", "whatsapp.com", "tiktok.com", "pinterest.com", "duckduckgo.com",
+        "apple.com", "microsoft.com", "gmail.com", "maps.google.com"
+    )
 
     private lateinit var floatingNavContainer: LinearLayout
     private lateinit var btnFloatingBack: FrameLayout
@@ -315,13 +348,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun reloadHomeTabsIfOpen() {
+        runOnUiThread {
+            for (tab in currentTabsList) {
+                if (tab.url == HAZE_HOME_URL || tab.url == "haze://home" || tab.url.startsWith("haze://home")) {
+                    tab.browserTab.navigationController.loadDataWithBaseURL(
+                        HAZE_HOME_URL,
+                        getHazeHomeHtml(),
+                        "text/html",
+                        "UTF-8",
+                        null
+                    )
+                }
+            }
+        }
+    }
+
     fun updateProfileButton() {
         runOnUiThread {
             if (!::btnProfile.isInitialized || !::ivProfileAvatar.isInitialized) return@runOnUiThread
             val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val isGuest = HazeAccountManager.isGuestMode(this)
             val user = HazeAccountManager.getUser(this)
 
-            if (user != null && !isPrivateMode) {
+            if (isGuest) {
+                ivProfileAvatar.clearColorFilter()
+                ivProfileAvatar.scaleType = ImageView.ScaleType.CENTER_INSIDE
+                val p = dpToPx(5)
+                ivProfileAvatar.setPadding(p, p, p, p)
+                ivProfileAvatar.setImageResource(R.drawable.ic_private)
+                ivProfileAvatar.setColorFilter(if (isDark) Color.parseColor("#80CBC4") else Color.parseColor("#00897B"))
+            } else if (user != null && !isPrivateMode) {
                 ivProfileAvatar.clearColorFilter()
                 ivProfileAvatar.scaleType = ImageView.ScaleType.CENTER_CROP
                 ivProfileAvatar.setPadding(0, 0, 0, 0)
@@ -364,8 +421,9 @@ class MainActivity : AppCompatActivity() {
         if (createBrowsingTab) addNewTab(HAZE_HOME_URL)
     }
 
-    data class TabGroup(var id: String, var name: String, var color: Int)
+    data class TabGroup(var id: String, var name: String, var color: Int, var isCollapsed: Boolean = false)
     data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
+    data class ClosedTabInfo(val title: String, val url: String, val timestamp: Long = System.currentTimeMillis(), val isPrivate: Boolean = false)
     data class Tab(
         val id: Long = System.currentTimeMillis(),
         val browserTab: IBrowserTab,
@@ -375,7 +433,8 @@ class MainActivity : AppCompatActivity() {
         var favicon: Bitmap? = null,
         var isPrivate: Boolean = false,
         var group: TabGroup? = null,
-        var isDesktop: Boolean = false
+        var isDesktop: Boolean = false,
+        var isPinned: Boolean = false
     ) {
         val webView: WebView? get() = (browserTab as? ChromiumBrowserTab)?.webView
 
@@ -388,7 +447,8 @@ class MainActivity : AppCompatActivity() {
             favicon: Bitmap? = null,
             isPrivate: Boolean = false,
             group: TabGroup? = null,
-            isDesktop: Boolean = false
+            isDesktop: Boolean = false,
+            isPinned: Boolean = false
         ) : this(
             id = id,
             browserTab = ChromiumBrowserTab(webView.context, id, isPrivate),
@@ -398,12 +458,14 @@ class MainActivity : AppCompatActivity() {
             favicon = favicon,
             isPrivate = isPrivate,
             group = group,
-            isDesktop = isDesktop
+            isDesktop = isDesktop,
+            isPinned = isPinned
         )
     }
 
     private val normalTabs = mutableListOf<Tab>()
     private val privateTabs = mutableListOf<Tab>()
+    private val recentlyClosedTabs = mutableListOf<ClosedTabInfo>()
     var isPrivateMode = false
     private var isFullScreenMode = false
     
@@ -414,6 +476,7 @@ class MainActivity : AppCompatActivity() {
     private var activePrivateTabIndex = -1
     private val activeTabIndex: Int
         get() = if (isPrivateMode) activePrivateTabIndex else activeNormalTabIndex
+
 
     private val groupColors = listOf(
         Color.parseColor("#EA4335"), // Red
@@ -454,30 +517,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val hapticExecutor = Executors.newSingleThreadExecutor()
+
     fun triggerStrongHaptic(view: View? = null, isHeavy: Boolean = false) {
         try {
             view?.performHapticFeedback(
                 if (isHeavy) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.VIRTUAL_KEY,
                 HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING or HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
             )
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vm = getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vm?.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                getSystemService(VIBRATOR_SERVICE) as? Vibrator
+            hapticExecutor.execute {
+                try {
+                    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val vm = getSystemService(VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                        vm?.defaultVibrator
+                    } else {
+                        @Suppress("DEPRECATION")
+                        getSystemService(VIBRATOR_SERVICE) as? Vibrator
+                    }
+                    if (vibrator != null && vibrator.hasVibrator()) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val duration = if (isHeavy) 45L else 20L
+                            val amplitude = if (isHeavy) 200 else 120
+                            vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude))
+                        } else {
+                            @Suppress("DEPRECATION")
+                            vibrator.vibrate(if (isHeavy) 45L else 20L)
+                        }
+                    }
+                } catch (_: Exception) {}
             }
-            if (vibrator != null && vibrator.hasVibrator()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    val duration = if (isHeavy) 80L else 35L
-                    val amplitude = if (isHeavy) 255 else 190
-                    vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(if (isHeavy) 80L else 35L)
-                }
-            }
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
     }
 
     private fun getTabForInterface(ownerTab: IBrowserTab?, ownerWebView: WebView?): Tab? {
@@ -613,6 +682,18 @@ class MainActivity : AppCompatActivity() {
                 loadUrlFromInput(HAZE_HOME_URL)
             }
         }
+        @JavascriptInterface
+        fun notifyFormSubmitted() {
+            runOnUiThread {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        val afm = getSystemService(android.view.autofill.AutofillManager::class.java)
+                        afm?.commit()
+                    } catch (_: Exception) {}
+                }
+                HazeSecurityManager.persistCookieStore()
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -642,16 +723,20 @@ class MainActivity : AppCompatActivity() {
         val btnVoiceSearch: ImageButton = findViewById(R.id.btnVoiceSearch)
 
         dimOverlay = findViewById(R.id.dimOverlay)
-        recentSearchesContainer = findViewById(R.id.recentSearchesContainer)
-        recentSearchesList = findViewById(R.id.recentSearchesList)
+        searchSuggestionStrip = findViewById(R.id.searchSuggestionStrip)
+        suggestionChipContainer = findViewById(R.id.suggestionChipContainer)
         btnClearQuery = findViewById(R.id.btnClearQuery)
-        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
+        btnQrScan = findViewById(R.id.btnQrScan)
+        searchEngineSelectorBar = findViewById(R.id.searchEngineSelectorBar)
+        searchEngineChipContainer = findViewById(R.id.searchEngineChipContainer)
+        omniboxManager = HazeOmniboxManager(this, prefs)
+
+        btnQrScan.setOnClickListener {
+            triggerStrongHaptic(it)
+            omniboxManager.startQrScanner()
+        }
 
         dimOverlay.setOnClickListener { deactivateSearchMode() }
-        btnClearHistory.setOnClickListener {
-            triggerStrongHaptic(it)
-            clearRecentSearches()
-        }
 
         btnClearQuery.setOnClickListener {
             triggerStrongHaptic(it)
@@ -660,24 +745,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         addressBar.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                isUserTypingForward = !isAutocompleting && count > before
+            }
+
             override fun afterTextChanged(s: Editable?) {
+                if (isAutocompleting) return
                 val text = s?.toString() ?: ""
                 val trimmed = text.trim()
-                btnClearQuery.visibility = if (text.isNotEmpty() && isSearchActive) View.VISIBLE else View.GONE
+                updateClearQueryButtonVisibility(animate = true)
                 
                 if (isSearchActive) {
                     if (trimmed.isEmpty()) {
                         suggestionRequestId++
                         mainHandler.removeCallbacks(suggestionDebounce)
-                        renderRecentSearches()
+                        renderRecentSearchesAndShortcuts()
                     } else {
                         mainHandler.removeCallbacks(suggestionDebounce)
                         mainHandler.postDelayed(suggestionDebounce, 150L)
                     }
                 }
             }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
         addressBar.setOnFocusChangeListener { _, hasFocus ->
@@ -692,6 +782,11 @@ class MainActivity : AppCompatActivity() {
             activateSearchMode()
         }
 
+        findViewById<LinearLayout>(R.id.addressBarInner)?.setOnClickListener {
+            triggerStrongHaptic(it)
+            activateSearchMode()
+        }
+
         findBarContainer = findViewById(R.id.findBarContainer)
         findInput = findViewById(R.id.findInput)
         val btnFindPrev: ImageButton = findViewById(R.id.btnFindPrev)
@@ -700,10 +795,7 @@ class MainActivity : AppCompatActivity() {
 
         btnFindClose.setOnClickListener {
             triggerStrongHaptic(it)
-            findBarContainer.visibility = View.GONE
-            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(findInput.windowToken, 0)
+            hideFindBar()
         }
         btnFindNext.setOnClickListener { 
             triggerStrongHaptic(it)
@@ -722,9 +814,81 @@ class MainActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+        val rootView = findViewById<View>(R.id.main)
+        ViewCompat.setWindowInsetsAnimationCallback(
+            rootView,
+            object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    super.onPrepare(animation)
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                        imeAnimationRunning = true
+                    }
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    if (runningAnimations.any {
+                            (it.typeMask and WindowInsetsCompat.Type.ime()) != 0
+                        }) {
+                        imeAnimationRunning = true
+                    }
+                    val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                    val navBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                    val lift = (imeBottom - navBottom).coerceAtLeast(0)
+                    if (isSearchActive || (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE)) {
+                        addressBarContainer.translationY = -lift.toFloat()
+                        if (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE) {
+                            findBarContainer.translationY = -lift.toFloat()
+                        }
+                    } else {
+                        addressBarContainer.translationY = 0f
+                        if (::findBarContainer.isInitialized) {
+                            findBarContainer.translationY = 0f
+                        }
+                    }
+                    return insets
+                }
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    super.onEnd(animation)
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                        imeAnimationRunning = false
+                    }
+                    val currentInsets = ViewCompat.getRootWindowInsets(rootView)
+                    val imeVisible = currentInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                    if (!imeVisible) {
+                        addressBarContainer.translationY = 0f
+                        if (::findBarContainer.isInitialized) {
+                            findBarContainer.translationY = 0f
+                        }
+                    }
+                }
+            }
+        )
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootView) { v, insets ->
+            val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+
+            v.setPadding(navBars.left, statusBars.top, navBars.right, navBars.bottom)
+
+            if (!imeAnimationRunning) {
+                val lift = (imeInsets.bottom - navBars.bottom).coerceAtLeast(0)
+                if (isSearchActive || (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE)) {
+                    addressBarContainer.translationY = -lift.toFloat()
+                    if (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE) {
+                        findBarContainer.translationY = -lift.toFloat()
+                    }
+                } else {
+                    addressBarContainer.translationY = 0f
+                    if (::findBarContainer.isInitialized) {
+                        findBarContainer.translationY = 0f
+                    }
+                }
+            }
             insets
         }
 
@@ -780,10 +944,61 @@ class MainActivity : AppCompatActivity() {
         topRightActions = findViewById(R.id.topRightActions)
         btnProfile = findViewById(R.id.btnProfile)
         ivProfileAvatar = findViewById(R.id.ivProfileAvatar)
-        btnProfile.setOnClickListener {
-            triggerStrongHaptic(it)
-            HazeProfileDialogManager.showProfilePanel(this)
+        
+        val profileGestureDetector = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapUp(e: android.view.MotionEvent): Boolean {
+                triggerStrongHaptic(btnProfile)
+                HazeProfileDialogManager.showProfilePanel(this@MainActivity)
+                return true
+            }
+
+            override fun onFling(
+                e1: android.view.MotionEvent?,
+                e2: android.view.MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (e1 != null) {
+                    val deltaY = e2.y - e1.y
+                    val deltaX = Math.abs(e2.x - e1.x)
+                    // Downward swipe detected: vertical movement > 30dp and velocityY > 200
+                    if (deltaY > dpToPx(24) && velocityY > 200 && deltaY > deltaX) {
+                        triggerStrongHaptic(isHeavy = true)
+                        // Animate profile icon downward spring effect
+                        ivProfileAvatar.animate()
+                            .translationY(dpToPx(12).toFloat())
+                            .alpha(0.5f)
+                            .setDuration(120)
+                            .withEndAction {
+                                val nextUser = HazeAccountManager.cycleToNextProfile(this@MainActivity)
+                                updateProfileButton()
+                                reloadHomeTabsIfOpen()
+                                ivProfileAvatar.translationY = -dpToPx(12).toFloat()
+                                ivProfileAvatar.animate().translationY(0f).alpha(1.0f).setDuration(160).start()
+                                if (HazeAccountManager.isGuestMode(this@MainActivity)) {
+                                    Toast.makeText(this@MainActivity, "Switched to Guest Mode", Toast.LENGTH_SHORT).show()
+                                } else if (nextUser != null) {
+                                    Toast.makeText(this@MainActivity, "Switched to ${nextUser.displayName}", Toast.LENGTH_SHORT).show()
+                                }
+                            }.start()
+                        return true
+                    }
+                }
+                return false
+            }
+        })
+
+        btnProfile.setOnTouchListener { v, event ->
+            if (profileGestureDetector.onTouchEvent(event)) {
+                true
+            } else if (event.action == android.view.MotionEvent.ACTION_UP) {
+                v.performClick()
+                true
+            } else {
+                true
+            }
         }
+
         HazeAccountManager.addAccountListener {
             updateProfileButton()
         }
@@ -799,143 +1014,237 @@ class MainActivity : AppCompatActivity() {
         addressBar.setText("")
         handleCustomIntent(intent)
         applyTheme()
+        setupSwipeBetweenTabs()
         val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
-        addNewTab(initialUrl)
+        addNewTab(HAZE_HOME_URL)
+        if (initialUrl != HAZE_HOME_URL) {
+            loadUrlFromInput(initialUrl)
+        }
         updateProfileButton()
         updatePrivacyShieldButton()
 
         // Silent sign-in in background
         HazeAccountManager.silentSignIn(this) {
             updateProfileButton()
+            checkAndPromptGoogleWebLogin()
         }
 
         // First-launch onboarding check
         val mainContainer = findViewById<ViewGroup>(R.id.main)
         HazeOnboardingManager.showOnboardingIfNeeded(this, mainContainer)
+
+        // Google Password Manager Autofill check & integration
+        HazeSecurityManager.checkAndPromptGooglePasswordManager(this)
+
+        checkAndPromptGoogleWebLogin()
+    }
+
+    fun checkAndPromptGoogleWebLogin() {
+        if (!HazeAccountManager.isSignedIn(this)) return
+        if (HazeAccountManager.hasCompletedGoogleWebLogin(this)) return
+        val user = HazeAccountManager.getUser(this) ?: return
+        val secPrefs = getSharedPreferences("HazeSecurityPrefs", Context.MODE_PRIVATE)
+        if (secPrefs.getBoolean("prompted_google_web_login_v2", false)) return
+        secPrefs.edit().putBoolean("prompted_google_web_login_v2", true).apply()
+
+        AlertDialog.Builder(this)
+            .setTitle("Connect Google Services")
+            .setMessage("You are signed into Haze as ${user.displayName} (${user.email}).\n\nWould you like to connect your Google web services (Gmail, YouTube, Google Search) now so you stay signed in everywhere across the browser?")
+            .setPositiveButton("Connect Now") { _, _ ->
+                val loginUrl = "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=https://www.google.com/"
+                loadUrlFromInput(loginUrl)
+            }
+            .setNegativeButton("Later", null)
+            .show()
+    }
+
+    private fun updateClearQueryButtonVisibility(animate: Boolean = false) {
+        val shouldShow = addressBar.text.isNotEmpty() && isSearchActive
+        if (!animate) {
+            btnClearQuery.visibility = if (shouldShow) View.VISIBLE else View.GONE
+            btnClearQuery.alpha = if (shouldShow) 1f else 0f
+            return
+        }
+        if (shouldShow) {
+            if (btnClearQuery.visibility != View.VISIBLE) {
+                btnClearQuery.alpha = 0f
+                btnClearQuery.scaleX = 0.7f
+                btnClearQuery.scaleY = 0.7f
+                btnClearQuery.visibility = View.VISIBLE
+                btnClearQuery.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(180L)
+                    .setInterpolator(BUTTER_INTERPOLATOR)
+                    .start()
+            }
+        } else {
+            if (btnClearQuery.visibility == View.VISIBLE) {
+                btnClearQuery.animate()
+                    .alpha(0f)
+                    .scaleX(0.7f)
+                    .scaleY(0.7f)
+                    .setDuration(150L)
+                    .setInterpolator(BUTTER_INTERPOLATOR)
+                    .withEndAction { btnClearQuery.visibility = View.GONE }
+                    .start()
+            }
+        }
+    }
+
+    private fun showFindBar() {
+        findBarContainer.animate().cancel()
+        findBarContainer.alpha = 0f
+        findBarContainer.translationY = 40f
+        findBarContainer.visibility = View.VISIBLE
+        findBarContainer.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(240L)
+            .setInterpolator(BUTTER_INTERPOLATOR)
+            .start()
+        findInput.requestFocus()
+        findInput.postDelayed({
+            WindowCompat.getInsetsController(window, findInput).show(WindowInsetsCompat.Type.ime())
+        }, 80L)
+    }
+
+    private fun hideFindBar() {
+        findBarContainer.animate().cancel()
+        findBarContainer.animate()
+            .alpha(0f)
+            .translationY(30f)
+            .setDuration(200L)
+            .setInterpolator(BUTTER_ACCEL)
+            .withEndAction {
+                findBarContainer.visibility = View.GONE
+                findBarContainer.translationY = 0f
+            }
+            .start()
+        currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
+        WindowCompat.getInsetsController(window, findInput).hide(WindowInsetsCompat.Type.ime())
+        findInput.clearFocus()
     }
 
     private fun activateSearchMode() {
-        if (isSearchActive) return
+        if (isSearchActive) {
+            val text = getUserTypedQuery()
+            if (text.isEmpty()) {
+                renderRecentSearchesAndShortcuts()
+            }
+            return
+        }
         isSearchActive = true
 
-        val rootLayout = findViewById<ConstraintLayout>(R.id.main)
-        val autoTransition = AutoTransition().apply {
-            duration = 300
-            interpolator = FastOutSlowInInterpolator()
-        }
-        TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
-
-        val params = addressBarContainer.layoutParams as ConstraintLayout.LayoutParams
-        params.bottomToBottom = ConstraintLayout.LayoutParams.UNSET
-        params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-        params.topMargin = dpToPx(36)
-        addressBarContainer.layoutParams = params
-
         dimOverlay.visibility = View.VISIBLE
-        dimOverlay.alpha = 0f
-        dimOverlay.animate().alpha(1f).setDuration(300).start()
-
-        if (::topRightActions.isInitialized) {
-            topRightActions.visibility = View.GONE
-        }
-        if (::floatingNavContainer.isInitialized) {
-            floatingNavContainer.visibility = View.GONE
-        }
-
-        // Fade out Haze logo & shortcuts if on home tab
-        val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        if (currentTab != null && isHomeTab(currentTab)) {
-            currentTab.browserTab.evaluateJavascript(
-                "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.2s ease'; document.querySelector('.container').style.opacity = '0'; }",
-                null
-            )
-        }
+        dimOverlay.alpha = 1f
 
         dimOverlay.bringToFront()
-        recentSearchesContainer.bringToFront()
         addressBarContainer.bringToFront()
         addressBarContainer.elevation = dpToPx(30).toFloat()
 
-        val text = addressBar.text.toString().trim()
+        btnTabsCircular.visibility = View.GONE
+        findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.GONE
+        btnQrScan.visibility = View.VISIBLE
+        findViewById<ImageButton>(R.id.btnVoiceSearch)?.visibility = View.VISIBLE
+        searchEngineSelectorBar.visibility = View.VISIBLE
+        omniboxManager.renderSearchEngineChips(searchEngineChipContainer) { selectedEngine ->
+            val typed = getUserTypedQuery()
+            if (typed.isNotEmpty()) {
+                val url = omniboxManager.buildSearchUrl(selectedEngine, typed)
+                loadUrlFromInput(url)
+            }
+        }
+
+        val text = getUserTypedQuery()
         if (text.isEmpty()) {
-            renderRecentSearches()
+            renderRecentSearchesAndShortcuts()
         } else {
             mainHandler.removeCallbacks(suggestionDebounce)
             mainHandler.post(suggestionDebounce)
         }
 
-        recentSearchesContainer.visibility = View.VISIBLE
-        recentSearchesContainer.alpha = 0f
-        recentSearchesContainer.translationY = -40f
-        recentSearchesContainer.scaleX = 0.96f
-        recentSearchesContainer.scaleY = 0.96f
-        recentSearchesContainer.animate()
-            .alpha(1f)
-            .translationY(0f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(280)
-            .setInterpolator(FastOutSlowInInterpolator())
-            .start()
-
-        btnClearQuery.visibility = if (addressBar.text.isNotEmpty()) View.VISIBLE else View.GONE
+        updateClearQueryButtonVisibility(animate = true)
 
         addressBar.requestFocus()
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT)
+        addressBar.post {
+            if (isSearchActive) {
+                WindowCompat.getInsetsController(window, addressBar).show(WindowInsetsCompat.Type.ime())
+            }
+        }
     }
 
     private fun deactivateSearchMode() {
         if (!isSearchActive) return
         isSearchActive = false
 
-        val rootLayout = findViewById<ConstraintLayout>(R.id.main)
-        val autoTransition = AutoTransition().apply {
-            duration = 300
-            interpolator = FastOutSlowInInterpolator()
+        // 1. Hide keyboard smoothly via WindowInsetsController
+        WindowCompat.getInsetsController(window, addressBar).hide(WindowInsetsCompat.Type.ime())
+        addressBar.clearFocus()
+
+        // 2. Hide suggestions strip & Omnibox controls
+        searchSuggestionStrip.visibility = View.GONE
+        suggestionChipContainer.removeAllViews()
+        searchEngineSelectorBar.visibility = View.GONE
+        btnQrScan.visibility = View.GONE
+        btnTabsCircular.visibility = View.VISIBLE
+        findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.VISIBLE
+
+        updateClearQueryButtonVisibility(animate = true)
+
+        // 3. Dismiss overlay hides
+        dimOverlay.animate().cancel()
+        dimOverlay.visibility = View.GONE
+
+        // 4. Reset translation if keyboard is closed
+        val root = findViewById<View>(R.id.main)
+        val imeVisible = ViewCompat.getRootWindowInsets(root)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        if (!imeVisible) {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.animate()
+                .translationY(0f)
+                .setDuration(90L)
+                .setInterpolator(FAST_INTERPOLATOR)
+                .start()
         }
-        TransitionManager.beginDelayedTransition(rootLayout, autoTransition)
-
-        val params = addressBarContainer.layoutParams as ConstraintLayout.LayoutParams
-        params.topToTop = ConstraintLayout.LayoutParams.UNSET
-        params.topMargin = 0
-        params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
-        addressBarContainer.layoutParams = params
-
-        dimOverlay.animate().alpha(0f).setDuration(250).withEndAction {
-            dimOverlay.visibility = View.GONE
-        }.start()
-
-        recentSearchesContainer.visibility = View.GONE
-        btnClearQuery.visibility = View.GONE
 
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         val isHome = currentTab != null && isHomeTab(currentTab)
-        if (isHome) {
-            currentTab.browserTab.evaluateJavascript(
-                "if(document.querySelector('.container')) { document.querySelector('.container').style.transition = 'opacity 0.25s ease'; document.querySelector('.container').style.opacity = '1'; }",
-                null
-            )
-        }
 
         if (::topRightActions.isInitialized) {
-            topRightActions.visibility = if (isHome && !isPrivateMode) View.VISIBLE else View.GONE
-            if (isHome && !isPrivateMode) {
+            topRightActions.animate().cancel()
+            val shouldShow = isHome && !isPrivateMode
+            if (shouldShow) {
+                topRightActions.visibility = View.VISIBLE
+                topRightActions.alpha = 0f
                 topRightActions.bringToFront()
+                topRightActions.animate()
+                    .alpha(1f)
+                    .setDuration(260L)
+                    .setInterpolator(BUTTER_INTERPOLATOR)
+                    .start()
+            } else {
+                topRightActions.visibility = View.GONE
             }
         }
         if (::floatingNavContainer.isInitialized) {
+            floatingNavContainer.animate().cancel()
             val shouldShowNav = !isHome && customVideoView == null && miniPlayerManager?.isActive != true
-            floatingNavContainer.visibility = if (shouldShowNav) View.VISIBLE else View.GONE
             if (shouldShowNav) {
+                floatingNavContainer.visibility = View.VISIBLE
+                floatingNavContainer.alpha = 0f
                 floatingNavContainer.bringToFront()
                 updateNavigationButtons()
+                floatingNavContainer.animate()
+                    .alpha(1f)
+                    .setDuration(260L)
+                    .setInterpolator(BUTTER_INTERPOLATOR)
+                    .start()
+            } else {
+                floatingNavContainer.visibility = View.GONE
             }
         }
-
-        addressBar.clearFocus()
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(addressBar.windowToken, 0)
     }
 
     private fun saveRecentSearch(query: String) {
@@ -950,52 +1259,195 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearRecentSearches() {
         HazeDatabase.getInstance(this).clearRecentSearches()
-        renderRecentSearches()
+        renderRecentSearchesAndShortcuts()
     }
 
     private fun deleteRecentSearch(item: String) {
         HazeDatabase.getInstance(this).deleteRecentSearch(item)
-        renderRecentSearches()
+        renderRecentSearchesAndShortcuts()
     }
 
-    private fun renderRecentSearches() {
-        val tvHeaderTitle = findViewById<TextView>(R.id.tvRecentHeaderTitle)
-        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
-        tvHeaderTitle?.text = "Recent Searches"
-        btnClearHistory?.visibility = View.VISIBLE
+    data class SuggestionRowItem(
+        val title: String,
+        val subtitle: String? = null,
+        val iconRes: Int,
+        val target: String,
+        val isRecent: Boolean = false
+    )
 
-        recentSearchesList.removeAllViews()
-        val searches = getRecentSearches()
-        if (searches.isEmpty()) {
-            val emptyTv = TextView(this).apply {
-                text = "No recent searches"
-                setTextColor(Color.parseColor("#9AA0A6"))
-                textSize = 13f
-                setPadding(0, 16, 0, 16)
+    private fun adjustSuggestionStripHeight(itemCount: Int) {
+        val rowHeight = dpToPx(48)
+        val maxAllowedHeight = dpToPx(240)
+        val computedHeight = (itemCount * rowHeight) + dpToPx(8)
+        val params = searchSuggestionStrip.layoutParams
+        if (computedHeight > maxAllowedHeight) {
+            params.height = maxAllowedHeight
+        } else {
+            params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        }
+        searchSuggestionStrip.layoutParams = params
+    }
+
+    private fun getUserTypedQuery(): String {
+        return addressBar.text?.toString()?.trim() ?: ""
+    }
+
+    private fun cleanUrlForMatching(url: String): String {
+        return url.removePrefix("https://")
+            .removePrefix("http://")
+            .removePrefix("www.")
+            .trimEnd('/')
+    }
+
+    private fun findBestInlineCompletion(query: String): String? {
+        val q = query.trim()
+        if (q.length < 2) return null
+        if (omniboxManager.parseSearchShortcut(q) != null) return null
+        val lowerQ = q.lowercase(Locale.US)
+        val strippedQ = lowerQ.removePrefix("https://").removePrefix("http://").removePrefix("www.")
+
+        // 1. Check history
+        try {
+            val db = HazeDatabase.getInstance(this)
+            for (h in db.searchHistory(strippedQ)) {
+                val cleaned = cleanUrlForMatching(h.url)
+                if (cleaned.lowercase(Locale.US).startsWith(strippedQ)) {
+                    return if (lowerQ.startsWith("www.")) "www.$cleaned" else cleaned
+                }
             }
-            recentSearchesList.addView(emptyTv)
+            for (b in db.searchBookmarks(strippedQ)) {
+                val cleaned = cleanUrlForMatching(b.url)
+                if (cleaned.lowercase(Locale.US).startsWith(strippedQ)) {
+                    return if (lowerQ.startsWith("www.")) "www.$cleaned" else cleaned
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Check top domains
+        for (d in topDomainsList) {
+            if (d.startsWith(strippedQ)) {
+                return if (lowerQ.startsWith("www.")) "www.$d" else d
+            }
+        }
+
+        // 3. Check shortcuts
+        try {
+            for (s in getCustomShortcuts()) {
+                val cleaned = cleanUrlForMatching(s.url)
+                if (cleaned.lowercase(Locale.US).startsWith(strippedQ)) {
+                    return if (lowerQ.startsWith("www.")) "www.$cleaned" else cleaned
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 4. Check recent searches
+        for (r in getRecentSearches()) {
+            if (r.lowercase(Locale.US).startsWith(lowerQ) && !r.equals(q, ignoreCase = true)) {
+                return r
+            }
+        }
+
+        // 5. Check cached suggestions
+        suggestionCache[strippedQ]?.let { cached ->
+            for (s in cached) {
+                val cleaned = cleanUrlForMatching(s)
+                if (cleaned.lowercase(Locale.US).startsWith(strippedQ)) {
+                    return cleaned
+                }
+                if (s.lowercase(Locale.US).startsWith(lowerQ)) {
+                    return s
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun renderRecentSearchesAndShortcuts() {
+        suggestionChipContainer.removeAllViews()
+
+        // 1. Smart Clipboard Card at the top
+        val clipboardCard = omniboxManager.renderSmartClipboardCard(suggestionChipContainer)
+        if (clipboardCard != null) {
+            suggestionChipContainer.addView(clipboardCard)
+        }
+
+        val rowItems = mutableListOf<SuggestionRowItem>()
+
+        // Quick action: Scan QR or Barcode
+        rowItems.add(
+            SuggestionRowItem(
+                title = "Scan QR or Barcode",
+                subtitle = "Scan camera to search or open website",
+                iconRes = R.drawable.ic_qr_code,
+                target = "haze://qr"
+            )
+        )
+
+        for (r in getRecentSearches()) {
+            rowItems.add(SuggestionRowItem(title = r, iconRes = R.drawable.ic_history, target = r, isRecent = true))
+        }
+
+        try {
+            for (s in getCustomShortcuts()) {
+                val label = s.name.ifBlank { cleanUrlForMatching(s.url) }
+                val sub = cleanUrlForMatching(s.url)
+                if (rowItems.none { it.target == s.url }) {
+                    rowItems.add(SuggestionRowItem(title = label, subtitle = if (label != sub) sub else null, iconRes = R.drawable.ic_globe, target = s.url))
+                }
+            }
+        } catch (_: Exception) {}
+
+        if (rowItems.isEmpty() && clipboardCard == null) {
+            searchSuggestionStrip.visibility = View.GONE
             return
         }
 
-        for (query in searches) {
-            val rowView = layoutInflater.inflate(R.layout.item_recent_search, recentSearchesList, false)
-            val tvQuery = rowView.findViewById<TextView>(R.id.tvRecentQuery)
-            val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
-            val ivIcon = rowView.findViewById<ImageView>(R.id.ivRecentIcon)
+        val itemsToDisplay = rowItems.take(8)
+        adjustSuggestionStripHeight(itemsToDisplay.size + if (clipboardCard != null) 2 else 0)
 
-            ivIcon?.setImageResource(R.drawable.ic_history)
-            tvQuery.text = query
+        for (item in itemsToDisplay) {
+            val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
+            val ivIcon = rowView.findViewById<ImageView>(R.id.ivSuggestionIcon)
+            val tvTitle = rowView.findViewById<TextView>(R.id.tvSuggestionTitle)
+            val tvSub = rowView.findViewById<TextView>(R.id.tvSuggestionSubtitle)
+            val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
+
+            ivIcon.setImageResource(item.iconRes)
+            tvTitle.text = item.title
+            if (!item.subtitle.isNullOrBlank()) {
+                tvSub.text = item.subtitle
+                tvSub.visibility = View.VISIBLE
+            } else {
+                tvSub.visibility = View.GONE
+            }
+
+            btnFill.setOnClickListener {
+                triggerStrongHaptic(it)
+                if (item.target == "haze://qr") {
+                    deactivateSearchMode()
+                    omniboxManager.startQrScanner()
+                } else {
+                    addressBar.setText(item.target)
+                    addressBar.setSelection(item.target.length)
+                }
+            }
+
             rowView.setOnClickListener {
                 triggerStrongHaptic(it)
-                addressBar.setText(query)
-                loadUrlFromInput(query)
+                if (item.target == "haze://qr") {
+                    deactivateSearchMode()
+                    omniboxManager.startQrScanner()
+                } else {
+                    addressBar.setText(item.target)
+                    loadUrlFromInput(item.target)
+                }
             }
-            btnDelete.setOnClickListener {
-                triggerStrongHaptic(it)
-                deleteRecentSearch(query)
-            }
-            recentSearchesList.addView(rowView)
+            suggestionChipContainer.addView(rowView)
         }
+
+        searchSuggestionStrip.visibility = View.VISIBLE
+        searchSuggestionStrip.scrollTo(0, 0)
     }
 
     private fun buildLocalIndexedSuggestions(trimmed: String): List<String> {
@@ -1068,53 +1520,144 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
-        val tvHeaderTitle = findViewById<TextView>(R.id.tvRecentHeaderTitle)
-        val btnClearHistory = findViewById<TextView>(R.id.btnClearHistory)
-        tvHeaderTitle?.text = "Search & Indexed Suggestions"
-        btnClearHistory?.visibility = View.GONE
+        suggestionChipContainer.removeAllViews()
+        val rowItems = mutableListOf<SuggestionRowItem>()
 
-        recentSearchesList.removeAllViews()
-        if (suggestions.isEmpty()) {
-            val emptyTv = TextView(this).apply {
-                text = "Search for \"$query\""
-                setTextColor(Color.parseColor("#9AA0A6"))
-                textSize = 13.5f
-                setPadding(0, 16, 0, 16)
-                setOnClickListener {
-                    triggerStrongHaptic(it)
-                    addressBar.setText(query)
-                    loadUrlFromInput(query)
+        // 1. Search shortcut routing e.g. "yt lo-fi music", "g cats", "gh chromium source", "w quantum mechanics"
+        val shortcut = omniboxManager.parseSearchShortcut(query)
+        if (shortcut != null) {
+            val (engine, term) = shortcut
+            val directSearchUrl = omniboxManager.buildSearchUrl(engine, term)
+            rowItems.add(
+                SuggestionRowItem(
+                    title = "Search ${engine.name} for \"$term\"",
+                    subtitle = "${engine.prefix} shortcut",
+                    iconRes = engine.iconRes,
+                    target = directSearchUrl
+                )
+            )
+        } else {
+            // Check if query is just a shortcut prefix or engine alias (e.g. "yt", "gh", "w", "g", "b", "ddg")
+            val trimmedQ = query.trim().lowercase(Locale.US)
+            for (engine in omniboxManager.getAllEngines()) {
+                if (engine.prefix == trimmedQ) {
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = "Search with ${engine.name}",
+                            subtitle = "Type '${engine.prefix} <query>' to search directly",
+                            iconRes = engine.iconRes,
+                            target = "${engine.prefix} "
+                        )
+                    )
                 }
             }
-            recentSearchesList.addView(emptyTv)
+        }
+
+        // 2. Top completion candidate (surfaced in search suggestions list, never inside address bar typing area)
+        val bestCandidate = findBestInlineCompletion(query)
+        if (bestCandidate != null && !bestCandidate.equals(query, ignoreCase = true)) {
+            val isUrl = bestCandidate.contains(".") && !bestCandidate.contains(" ")
+            val icon = if (isUrl) R.drawable.ic_globe else R.drawable.ic_search
+            val target = if (isUrl && !bestCandidate.startsWith("http://") && !bestCandidate.startsWith("https://")) {
+                "https://$bestCandidate"
+            } else {
+                bestCandidate
+            }
+            if (rowItems.none { it.target.equals(target, ignoreCase = true) || it.title.equals(bestCandidate, ignoreCase = true) }) {
+                rowItems.add(
+                    SuggestionRowItem(
+                        title = bestCandidate,
+                        subtitle = if (isUrl) "Navigate to $bestCandidate" else "Search suggestion",
+                        iconRes = icon,
+                        target = target
+                    )
+                )
+            }
+        }
+
+        // 3. History & Bookmarks matching query
+        try {
+            val db = HazeDatabase.getInstance(this)
+            for (b in db.searchBookmarks(query).take(3)) {
+                val clean = cleanUrlForMatching(b.url)
+                val title = b.title.ifBlank { clean }
+                if (rowItems.none { it.target == b.url }) {
+                    rowItems.add(SuggestionRowItem(title = title, subtitle = clean, iconRes = R.drawable.ic_globe, target = b.url))
+                }
+            }
+            for (h in db.searchHistory(query).take(3)) {
+                val clean = cleanUrlForMatching(h.url)
+                val title = h.title.ifBlank { clean }
+                if (rowItems.none { it.target == h.url }) {
+                    rowItems.add(SuggestionRowItem(title = title, subtitle = clean, iconRes = R.drawable.ic_globe, target = h.url))
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 4. Add suggestions from network / local list
+        for (s in suggestions) {
+            val isUrl = s.startsWith("http://") || s.startsWith("https://") || (s.contains(".") && !s.contains(" "))
+            val icon = if (isUrl) R.drawable.ic_globe else R.drawable.ic_search
+            val clean = if (isUrl) cleanUrlForMatching(s) else null
+            if (rowItems.none { it.target.equals(s, ignoreCase = true) || it.title.equals(s, ignoreCase = true) }) {
+                rowItems.add(SuggestionRowItem(title = s, subtitle = clean, iconRes = icon, target = s))
+            }
+        }
+
+        if (rowItems.isEmpty() && query.isNotEmpty()) {
+            rowItems.add(SuggestionRowItem(title = query, subtitle = "Search the web", iconRes = R.drawable.ic_search, target = query))
+        }
+
+        if (rowItems.isEmpty()) {
+            searchSuggestionStrip.visibility = View.GONE
             return
         }
 
-        for (suggestion in suggestions) {
-            val rowView = layoutInflater.inflate(R.layout.item_recent_search, recentSearchesList, false)
-            val tvQuery = rowView.findViewById<TextView>(R.id.tvRecentQuery)
-            val btnDelete = rowView.findViewById<ImageButton>(R.id.btnDeleteRecent)
-            val ivIcon = rowView.findViewById<ImageView>(R.id.ivRecentIcon)
+        val itemsToDisplay = rowItems.take(8)
+        adjustSuggestionStripHeight(itemsToDisplay.size)
 
-            val isUrlSuggestion = suggestion.startsWith("http://") || suggestion.startsWith("https://")
-            ivIcon?.setImageResource(if (isUrlSuggestion) R.drawable.ic_globe else R.drawable.ic_search)
-            tvQuery.text = suggestion
+        for (item in itemsToDisplay) {
+            val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
+            val ivIcon = rowView.findViewById<ImageView>(R.id.ivSuggestionIcon)
+            val tvTitle = rowView.findViewById<TextView>(R.id.tvSuggestionTitle)
+            val tvSub = rowView.findViewById<TextView>(R.id.tvSuggestionSubtitle)
+            val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
 
-            btnDelete.setImageResource(R.drawable.ic_wide_arrow_down)
-            btnDelete.rotation = 135f
-            btnDelete.setOnClickListener {
+            ivIcon.setImageResource(item.iconRes)
+            tvTitle.text = item.title
+            if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
+                tvSub.text = item.subtitle
+                tvSub.visibility = View.VISIBLE
+            } else {
+                tvSub.visibility = View.GONE
+            }
+
+            btnFill.setOnClickListener {
                 triggerStrongHaptic(it)
-                addressBar.setText(suggestion)
-                addressBar.setSelection(suggestion.length)
+                if (item.target == "haze://qr") {
+                    deactivateSearchMode()
+                    omniboxManager.startQrScanner()
+                } else {
+                    addressBar.setText(item.target)
+                    addressBar.setSelection(item.target.length)
+                }
             }
 
             rowView.setOnClickListener {
                 triggerStrongHaptic(it)
-                addressBar.setText(suggestion)
-                loadUrlFromInput(suggestion)
+                if (item.target == "haze://qr") {
+                    deactivateSearchMode()
+                    omniboxManager.startQrScanner()
+                } else {
+                    addressBar.setText(item.target)
+                    loadUrlFromInput(item.target)
+                }
             }
-            recentSearchesList.addView(rowView)
+            suggestionChipContainer.addView(rowView)
         }
+
+        searchSuggestionStrip.visibility = View.VISIBLE
+        searchSuggestionStrip.scrollTo(0, 0)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -1206,6 +1749,25 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra("activate_search", false)) {
             webContainer.postDelayed({ activateSearchMode() }, 200)
+        }
+        val testClipboard = intent.getStringExtra("test_set_clipboard")
+        if (testClipboard != null) {
+            val clipManager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("test", testClipboard)
+            clipManager.setPrimaryClip(clip)
+            webContainer.postDelayed({ activateSearchMode() }, 200)
+        }
+        val testQuery = intent.getStringExtra("test_query")
+        if (testQuery != null) {
+            webContainer.postDelayed({
+                activateSearchMode()
+                addressBar.setText(testQuery)
+                addressBar.setSelection(testQuery.length)
+                val text = getUserTypedQuery()
+                fetchSearchSuggestions(text) { suggestions ->
+                    renderSearchSuggestions(text, suggestions)
+                }
+            }, 200)
         }
         if (intent.getBooleanExtra("open_profile", false)) {
             webContainer.postDelayed({ HazeProfileDialogManager.showProfilePanel(this) }, 200)
@@ -1383,6 +1945,20 @@ class MainActivity : AppCompatActivity() {
         ).toInt()
     }
 
+    private val bgPhotoCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun getBgPhotoBase64(theme: String): String? {
+        if (theme == "default") return null
+        return bgPhotoCache.getOrPut(theme) {
+            try {
+                val bytes = assets.open("bg_theme_$theme.webp").readBytes()
+                "data:image/webp;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            } catch (e: Exception) {
+                ""
+            }
+        }.takeIf { it.isNotEmpty() }
+    }
+
     private fun getHazeHomeHtml(): String {
         val isDarkSetting = prefs.getBoolean("is_dark", false)
         val isIncognito = isPrivateMode
@@ -1433,10 +2009,18 @@ class MainActivity : AppCompatActivity() {
         }
         
         val bgTheme = if (isIncognito) "default" else (prefs.getString("bg_theme", "default") ?: "default")
-        val hasBgPhoto = bgTheme != "default"
+        val bgImageBase64 = if (!isIncognito) getBgPhotoBase64(bgTheme) else null
+        val hasBgPhoto = bgImageBase64 != null
 
         val bgStyle = if (hasBgPhoto) {
-            "background: transparent; background-color: transparent;"
+            """
+            background-color: #121212;
+            background-image: linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.50)), url('$bgImageBase64');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            """.trimIndent()
         } else {
             "background: $bgColor; background-color: $bgColor;"
         }
@@ -1491,9 +2075,15 @@ class MainActivity : AppCompatActivity() {
                         font-family: 'Outfit', sans-serif;
                         overflow: hidden; position: fixed; touch-action: none;
                     }
+                    @keyframes homeFadeIn {
+                        0% { opacity: 0; transform: scale(0.96) translateY(10px); }
+                        100% { opacity: 1; transform: scale(1) translateY(0); }
+                    }
                     .container {
                         display: flex; flex-direction: column; align-items: center; width: 100%;
                         margin-top: -6vh;
+                        animation: homeFadeIn 0.35s cubic-bezier(0.2, 0, 0, 1) backwards;
+                        will-change: transform, opacity;
                     }
                     .logo-wrapper {
                         display: flex; justify-content: center; align-items: center;
@@ -1516,7 +2106,7 @@ class MainActivity : AppCompatActivity() {
                     .shortcut {
                         display: flex; flex-direction: column; align-items: center;
                         text-decoration: none; cursor: pointer; width: 100%;
-                        transition: transform 0.1s ease;
+                        transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.22s cubic-bezier(0.2, 0, 0, 1);
                     }
                     .shortcut:active {
                         transform: scale(0.92);
@@ -1560,11 +2150,12 @@ class MainActivity : AppCompatActivity() {
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         
-        findViewById<ConstraintLayout>(R.id.main).setBackgroundColor(bgColor)
-        addressBarContainer.setBackgroundColor(bgColor)
-        findBarContainer.setBackgroundColor(bgColor)
-
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
+        val containerBg = if (bgTheme != "default" && !isPrivateMode) Color.TRANSPARENT else bgColor
+
+        findViewById<ConstraintLayout>(R.id.main).setBackgroundColor(bgColor)
+        addressBarContainer.setBackgroundColor(containerBg)
+        findBarContainer.setBackgroundColor(containerBg)
         val appBgImageView = findViewById<ImageView>(R.id.appBackgroundImageView)
         val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
         if (bgTheme != "default" && !isPrivateMode) {
@@ -1642,7 +2233,7 @@ class MainActivity : AppCompatActivity() {
         reloadHomeTabs()
     }
 
-        fun addNewTab(url: String) {
+    fun addNewTab(url: String): Tab {
         val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
         val renderView = browserTab.renderView
         renderView.layoutParams = FrameLayout.LayoutParams(
@@ -1715,9 +2306,19 @@ class MainActivity : AppCompatActivity() {
             else -> browserTab.navigationController.loadUrl(url)
         }
         tab.url = url
+        return tab
     }
 
-    private fun switchTab(index: Int) {
+    fun duplicateTab(tab: Tab): Tab {
+        val newTab = addNewTab(tab.url)
+        newTab.title = tab.title
+        newTab.isPinned = tab.isPinned
+        newTab.group = tab.group
+        Toast.makeText(this, "Tab duplicated", Toast.LENGTH_SHORT).show()
+        return newTab
+    }
+
+    private fun switchTab(index: Int, animated: Boolean = true) {
         if (index < 0 || index >= currentTabsList.size) {
             tabCountBtn.text = currentTabsList.size.toString()
             return
@@ -1725,6 +2326,13 @@ class MainActivity : AppCompatActivity() {
 
         val previousTab = currentTabsList.getOrNull(activeTabIndex)
         val nextTab = currentTabsList[index]
+        if (previousTab != null && previousTab !== nextTab) {
+            if (activeMediaTab !== previousTab) {
+                try {
+                    previousTab.browserTab.onPause()
+                } catch (_: Exception) {}
+            }
+        }
         if (previousTab != null &&
             previousTab !== nextTab &&
             activeMediaTab === previousTab &&
@@ -1733,18 +2341,68 @@ class MainActivity : AppCompatActivity() {
             showMiniPlayer(previousTab, createBrowsingTab = false)
         }
         
+        val oldIndex = activeTabIndex
         if (isPrivateMode) activePrivateTabIndex = index else activeNormalTabIndex = index
         
-        for (i in 0 until webContainer.childCount) {
-            val child = webContainer.getChildAt(i)
-            val currentTab = currentTabsList.getOrNull(index)
-            val isCurrentTabContainer = currentTab?.swipeRefreshLayout?.let { child == it } ?: (child == currentTab?.browserTab?.renderView)
-            child.visibility = if (isCurrentTabContainer) View.VISIBLE else View.GONE
+        val prevView = previousTab?.swipeRefreshLayout ?: previousTab?.browserTab?.renderView
+        val nextView = nextTab.swipeRefreshLayout ?: nextTab.browserTab.renderView
+        val isDifferent = previousTab != null && previousTab !== nextTab && prevView != null && nextView != null && prevView !== nextView
+        val containerWidth = if (webContainer.width > 0) webContainer.width.toFloat() else resources.displayMetrics.widthPixels.toFloat()
+
+        if (animated && isDifferent) {
+            val movingForward = index > oldIndex
+            val enterStartX = if (movingForward) containerWidth else -containerWidth
+            val exitEndX = if (movingForward) -containerWidth * 0.35f else containerWidth * 0.35f
+
+            nextView.translationX = enterStartX
+            nextView.alpha = 1f
+            nextView.visibility = View.VISIBLE
+            nextView.bringToFront()
+
+            prevView.animate().cancel()
+            nextView.animate().cancel()
+
+            prevView.animate()
+                .translationX(exitEndX)
+                .withLayer()
+                .setDuration(170L)
+                .setInterpolator(FAST_INTERPOLATOR)
+                .withEndAction {
+                    prevView.visibility = View.GONE
+                    prevView.translationX = 0f
+                    prevView.alpha = 1f
+                }
+                .start()
+
+            nextView.animate()
+                .translationX(0f)
+                .withLayer()
+                .setDuration(170L)
+                .setInterpolator(FAST_INTERPOLATOR)
+                .start()
+
+            for (i in 0 until webContainer.childCount) {
+                val child = webContainer.getChildAt(i)
+                if (child !== prevView && child !== nextView) {
+                    child.visibility = View.GONE
+                }
+            }
+        } else {
+            for (i in 0 until webContainer.childCount) {
+                val child = webContainer.getChildAt(i)
+                val currentTab = currentTabsList.getOrNull(index)
+                val isCurrentTabContainer = currentTab?.swipeRefreshLayout?.let { child == it } ?: (child == currentTab?.browserTab?.renderView)
+                child.visibility = if (isCurrentTabContainer) View.VISIBLE else View.GONE
+                if (isCurrentTabContainer) {
+                    child.translationX = 0f
+                    child.alpha = 1f
+                }
+            }
         }
         
         tabCountBtn.text = currentTabsList.size.toString()
         val currentTab = currentTabsList[index]
-        val wasAlreadyActiveEngineTab = (com.example.haze.engine.nativechromium.NativeChromiumBrowserEngine.activeTab === currentTab.browserTab)
+        val wasAlreadyActiveEngineTab = false
         currentTab.browserTab.onResume()
 
         val isHome = isHomeTab(currentTab)
@@ -1760,10 +2418,23 @@ class MainActivity : AppCompatActivity() {
         }
         updateChromeVisibility(currentUrl)
         
-        if (isHome) {
-            addressBar.setText("")
+        val targetText = if (isHome) "" else currentUrl
+        if (animated && isDifferent && addressBar.text.toString() != targetText) {
+            addressBar.animate().cancel()
+            addressBar.animate()
+                .alpha(0f)
+                .setDuration(90L)
+                .withEndAction {
+                    addressBar.setText(targetText)
+                    addressBar.animate()
+                        .alpha(1f)
+                        .setDuration(150L)
+                        .setInterpolator(BUTTER_INTERPOLATOR)
+                        .start()
+                }
+                .start()
         } else {
-            addressBar.setText(currentUrl)
+            addressBar.setText(targetText)
         }
     }
 
@@ -1923,6 +2594,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageProgress(tab: IBrowserTab, progress: Int) {
                 runOnUiThread {
+                    // Background tabs must never drive the visible loading bar.
+                    if (getActiveTab()?.browserTab !== tab) return@runOnUiThread
+                    val previous = renderedProgressByTab[tab.id] ?: -1
+                    if (progress != 100 && previous >= 0 && progress - previous < 3) return@runOnUiThread
+                    renderedProgressByTab[tab.id] = progress
                     if (tab.url == HAZE_HOME_URL || tab.url.startsWith("haze://")) {
                         finishPageLoading()
                     } else if (progress < 100) {
@@ -2007,7 +2683,10 @@ class MainActivity : AppCompatActivity() {
                                         var overlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay');
                                         for (var j = 0; j < overlays.length; j++) overlays[j].style.setProperty('display', 'none', 'important');
                                     }
-                                    setInterval(skipYouTubeAd, 25);
+                                    // A 25ms polling loop competes with video rendering at
+                                    // roughly 40 wakeups/second.  Mutation events handle the
+                                    // fast path; this is only a conservative fallback.
+                                    setInterval(skipYouTubeAd, 300);
                                     document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
                                     var observer = new MutationObserver(skipYouTubeAd);
                                     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
@@ -2143,7 +2822,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(webView: WebView) {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        webView.overScrollMode = View.OVER_SCROLL_NEVER
+        webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
 
@@ -2154,12 +2833,14 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = jsEnabled
             domStorageEnabled = !isPrivateMode
             databaseEnabled = !isPrivateMode
-            allowFileAccess = true
-            allowContentAccess = true
+            // Web content has no reason to access app-local files. Downloads and picker flows
+            // use scoped content URIs instead.
+            allowFileAccess = false
+            allowContentAccess = false
             @Suppress("DEPRECATION")
-            allowFileAccessFromFileURLs = true
+            allowFileAccessFromFileURLs = false
             @Suppress("DEPRECATION")
-            allowUniversalAccessFromFileURLs = true
+            allowUniversalAccessFromFileURLs = false
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
@@ -2169,15 +2850,28 @@ class MainActivity : AppCompatActivity() {
             // Pre-rasterizing every tab consumes significant memory and competes
             // with the active tab for rendering time.
             offscreenPreRaster = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            }
             @Suppress("DEPRECATION")
             setRenderPriority(WebSettings.RenderPriority.HIGH)
+            saveFormData = true
+            savePassword = true
         }
-        // CookieManager is the WebView cookie store.  This controls new third-party
-        // cookie acceptance; it does not claim to delete existing cookies.
-        CookieManager.getInstance().setAcceptThirdPartyCookies(
-            webView, prefs.getBoolean("block_third_party_cookies", true).not()
-        )
+
+        // Chromium Cookie Store Session Security & Browser Isolation Policy
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true)
+        }
+        HazeSecurityManager.configureSessionSecurity(webView)
+        HazeSecurityManager.applyBrowserIsolation(webView)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             WebView.startSafeBrowsing(this) { }
         }
@@ -2397,6 +3091,24 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 finishPageLoading()
+                HazeSecurityManager.persistCookieStore()
+
+                // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
+                val authHook = """
+                    (function() {
+                        if (window.__hazeAuthObserverInjected) return;
+                        window.__hazeAuthObserverInjected = true;
+                        document.addEventListener('submit', function(e) {
+                            try {
+                                if (window.Android && window.Android.notifyFormSubmitted) {
+                                    window.Android.notifyFormSubmitted();
+                                }
+                            } catch(_) {}
+                        }, true);
+                    })();
+                """.trimIndent()
+                view?.evaluateJavascript(authHook, null)
+
                 val tab = getTabFromWebView(webView)
                 if (tab != null && url != null) {
                     val isHome = url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url == "about:blank" || url.startsWith("about:") || url.startsWith("haze://home")
@@ -2496,7 +3208,9 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
 
-                                setInterval(skipYouTubeAd, 25);
+                                // Mutation events handle ad-state changes; retain a
+                                // low-frequency fallback without taxing every frame.
+                                setInterval(skipYouTubeAd, 300);
                                 document.addEventListener('click', function() {
                                     setTimeout(skipYouTubeAd, 0);
                                 }, true);
@@ -2740,6 +3454,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        try {
+            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onResume()
+        } catch (_: Exception) {}
         val tab = activeMediaTab
         if (tab != null && isMediaPlaying && miniPlayerManager?.isActive != true) {
             showMiniPlayer(tab, createBrowsingTab = false)
@@ -2750,75 +3467,252 @@ class MainActivity : AppCompatActivity() {
         return normalTabs.find { it.webView == webView } ?: privateTabs.find { it.webView == webView }
     }
 
+    override fun onPause() {
+        super.onPause()
+        saveSessionState()
+        if (!isMediaPlaying && !isInPictureInPictureMode) {
+            try {
+                currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onPause()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun saveSessionState() {
+        try {
+            val urls = normalTabs.filter { !isHomeTab(it) && it.url.isNotEmpty() }.map { it.url }
+            val json = JSONArray(urls).toString()
+            prefs.edit()
+                .putString("saved_session_urls", json)
+                .putInt("saved_session_active_index", activeNormalTabIndex)
+                .apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun restorePreviousSession(promptUser: Boolean = false) {
+        val raw = prefs.getString("saved_session_urls", null)
+        if (raw.isNullOrBlank()) {
+            if (promptUser) Toast.makeText(this, "No previous session saved", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val array = JSONArray(raw)
+            if (array.length() == 0) {
+                if (promptUser) Toast.makeText(this, "No tabs in previous session", Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (promptUser) {
+                AlertDialog.Builder(this)
+                    .setTitle("Restore Session?")
+                    .setMessage("Restore ${array.length()} tab(s) from your previous session?")
+                    .setPositiveButton("Restore") { _, _ ->
+                        for (i in 0 until array.length()) {
+                            addNewTab(array.getString(i))
+                        }
+                        Toast.makeText(this, "Restored ${array.length()} tab(s)", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                for (i in 0 until array.length()) {
+                    addNewTab(array.getString(i))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun showRecentlyClosedTabsDialog() {
+        if (recentlyClosedTabs.isEmpty()) {
+            Toast.makeText(this, "No recently closed tabs", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val titles = recentlyClosedTabs.map { "${it.title}\n${it.url}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Recently Closed Tabs")
+            .setItems(titles) { _, which ->
+                if (which in recentlyClosedTabs.indices) {
+                    val closed = recentlyClosedTabs.removeAt(which)
+                    if (closed.isPrivate) isPrivateMode = true
+                    addNewTab(closed.url)
+                    Toast.makeText(this, "Reopened: ${closed.title}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setPositiveButton("Reopen Last") { _, _ -> reopenLastClosedTab() }
+            .setNegativeButton("Clear All") { _, _ ->
+                recentlyClosedTabs.clear()
+                Toast.makeText(this, "Recently closed tabs cleared", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Cancel", null)
+            .show()
+    }
+
+    fun reopenLastClosedTab() {
+        if (recentlyClosedTabs.isNotEmpty()) {
+            val last = recentlyClosedTabs.removeAt(0)
+            if (last.isPrivate) isPrivateMode = true
+            addNewTab(last.url)
+            Toast.makeText(this, "Reopened: ${last.title}", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "No closed tabs to reopen", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showFullScreenTabs() {
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar)
+        dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.setContentView(R.layout.layout_full_screen_tabs)
 
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
+        val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
+        val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
         val btnTogglePersonal = dialog.findViewById<TextView>(R.id.btnTogglePersonal)
         val btnTogglePrivate = dialog.findViewById<TextView>(R.id.btnTogglePrivate)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
         val btnNewTabAction = dialog.findViewById<TextView>(R.id.btnNewTabAction)
+        val etTabSearch = dialog.findViewById<EditText>(R.id.etTabSearch)
+        val btnClearTabSearch = dialog.findViewById<ImageButton>(R.id.btnClearTabSearch)
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
 
         var viewingPrivate = isPrivateMode
+        var isGridMode = prefs.getBoolean("tab_view_mode_grid", false)
+
+        fun updateViewModeIcon() {
+            btnToggleViewMode.setImageResource(if (isGridMode) R.drawable.ic_view_list else R.drawable.ic_grid)
+        }
+        updateViewModeIcon()
+
+        btnRecentlyClosed.setOnClickListener {
+            triggerStrongHaptic(it)
+            showRecentlyClosedTabsDialog()
+        }
 
         btnClose.setOnClickListener { 
             triggerStrongHaptic(it)
             dialog.dismiss() 
         }
 
-        val personalAdapter = TabsAdapter(normalTabs, { clickedIndex ->
-            isPrivateMode = false
-            switchTab(clickedIndex)
-            dialog.dismiss()
-        }, { closedIndex ->
-            val tabToRemove = normalTabs[closedIndex]
+        lateinit var personalAdapter: TabsAdapter
+        lateinit var privateAdapter: TabsAdapter
+
+        fun onTabClosed(tabToRemove: Tab, isPriv: Boolean) {
+            val list = if (isPriv) privateTabs else normalTabs
+            val closedIndex = list.indexOf(tabToRemove)
+            if (closedIndex == -1) return
+
             webContainer.removeView(tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView)
             tabToRemove.browserTab.destroy()
-            normalTabs.removeAt(closedIndex)
-            if (normalTabs.isEmpty() && !isPrivateMode) {
-                addNewTab(HAZE_HOME_URL)
-            } else if (!isPrivateMode) {
-                if (activeNormalTabIndex >= closedIndex) activeNormalTabIndex--
-                if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
-                switchTab(activeNormalTabIndex)
-            } else {
-                tabCountBtn.text = currentTabsList.size.toString()
+            list.removeAt(closedIndex)
+
+            if (!isHomeTab(tabToRemove) && !tabToRemove.isPrivate) {
+                recentlyClosedTabs.add(0, ClosedTabInfo(tabToRemove.title, tabToRemove.url, isPrivate = tabToRemove.isPrivate))
+                if (recentlyClosedTabs.size > 25) recentlyClosedTabs.removeLast()
+                val restoredUrl = tabToRemove.url
+                com.google.android.material.snackbar.Snackbar.make(
+                    findViewById(R.id.main),
+                    "Closed '${tabToRemove.title}'",
+                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                ).setAction("UNDO") {
+                    addNewTab(restoredUrl)
+                }.show()
             }
+
+            if (list.isEmpty()) {
+                if (isPriv) {
+                    ChromiumEngineManager.getEngine(this@MainActivity).clearPrivateSession()
+                    addNewTab(HAZE_HOME_URL)
+                } else {
+                    addNewTab(HAZE_HOME_URL)
+                }
+            } else {
+                if (isPriv) {
+                    if (activePrivateTabIndex >= closedIndex) activePrivateTabIndex--
+                    if (activePrivateTabIndex < 0) activePrivateTabIndex = 0
+                    if (isPrivateMode) switchTab(activePrivateTabIndex)
+                } else {
+                    if (activeNormalTabIndex >= closedIndex) activeNormalTabIndex--
+                    if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
+                    if (!isPrivateMode) switchTab(activeNormalTabIndex)
+                }
+            }
+            tabCountBtn.text = currentTabsList.size.toString()
+            val adapter = if (isPriv) privateAdapter else personalAdapter
+            adapter.notifyItemRemoved(closedIndex)
+            if (list.isEmpty()) {
+                dialog.dismiss()
+                showFullScreenTabs()
+            }
+        }
+
+        personalAdapter = TabsAdapter(normalTabs, isGridMode, { clickedTab ->
+            isPrivateMode = false
+            val idx = normalTabs.indexOf(clickedTab)
+            if (idx != -1) switchTab(idx)
             dialog.dismiss()
-            showFullScreenTabs()
+        }, { tabToClose ->
+            if (tabToClose.isPinned) {
+                AlertDialog.Builder(this)
+                    .setTitle("Pinned Tab")
+                    .setMessage("This tab is pinned. Are you sure you want to close it?")
+                    .setPositiveButton("Close") { _, _ -> onTabClosed(tabToClose, false) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                onTabClosed(tabToClose, false)
+            }
         }, false)
 
-        val privateAdapter = TabsAdapter(privateTabs, { clickedIndex ->
+        privateAdapter = TabsAdapter(privateTabs, isGridMode, { clickedTab ->
             isPrivateMode = true
-            switchTab(clickedIndex)
+            val idx = privateTabs.indexOf(clickedTab)
+            if (idx != -1) switchTab(idx)
             dialog.dismiss()
-        }, { closedIndex ->
-            val tabToRemove = privateTabs[closedIndex]
-            webContainer.removeView(tabToRemove.swipeRefreshLayout ?: tabToRemove.browserTab.renderView)
-            tabToRemove.browserTab.destroy()
-            privateTabs.removeAt(closedIndex)
-            if (privateTabs.isEmpty()) {
-                ChromiumEngineManager.getEngine(this).clearPrivateSession()
-            }
-            if (isPrivateMode) {
-                if (activePrivateTabIndex >= closedIndex) activePrivateTabIndex--
-                if (activePrivateTabIndex < 0) activePrivateTabIndex = 0
-                switchTab(activePrivateTabIndex)
-            } else {
-                tabCountBtn.text = currentTabsList.size.toString()
-            }
-            dialog.dismiss()
-            showFullScreenTabs()
+        }, { tabToClose ->
+            onTabClosed(tabToClose, true)
         }, true)
 
-        rvActiveTabs.layoutManager = LinearLayoutManager(this)
+        fun setupLayoutManager() {
+            rvActiveTabs.layoutManager = if (isGridMode) {
+                androidx.recyclerview.widget.GridLayoutManager(this, 2)
+            } else {
+                LinearLayoutManager(this)
+            }
+        }
+        setupLayoutManager()
+
+        btnToggleViewMode.setOnClickListener {
+            triggerStrongHaptic(it)
+            isGridMode = !isGridMode
+            prefs.edit().putBoolean("tab_view_mode_grid", isGridMode).apply()
+            updateViewModeIcon()
+            setupLayoutManager()
+            personalAdapter.isGridMode = isGridMode
+            privateAdapter.isGridMode = isGridMode
+            personalAdapter.notifyDataSetChanged()
+            privateAdapter.notifyDataSetChanged()
+        }
+
+        etTabSearch.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.trim() ?: ""
+                btnClearTabSearch.visibility = if (q.isNotEmpty()) View.VISIBLE else View.GONE
+                personalAdapter.filter(q)
+                privateAdapter.filter(q)
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
+        btnClearTabSearch.setOnClickListener {
+            etTabSearch.setText("")
+        }
 
         var currentTouchHelper: ItemTouchHelper? = null
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
 
-        fun updateUI() {
+        fun updateUI(animate: Boolean = false) {
             if (viewingPrivate) {
                 btnTogglePersonal.background = null
                 btnTogglePersonal.setTextColor(Color.parseColor("#5F6368"))
@@ -2829,9 +3723,15 @@ class MainActivity : AppCompatActivity() {
                 btnNewTabAction.text = "+ New Private"
                 btnNewTabAction.setTextColor(accentColor)
                 
-                rvActiveTabs.adapter = privateAdapter
+                if (animate) {
+                    rvActiveTabs.animate().cancel()
+                    rvActiveTabs.alpha = 0f
+                    rvActiveTabs.adapter = privateAdapter
+                    rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+                } else {
+                    rvActiveTabs.adapter = privateAdapter
+                }
                 currentTouchHelper?.attachToRecyclerView(null)
-                currentTouchHelper = attachDragAndDrop(rvActiveTabs, privateTabs, privateAdapter, true)
             } else {
                 btnTogglePersonal.background = getDrawable(R.drawable.bg_popup_rounded)
                 btnTogglePersonal.setTextColor(Color.parseColor("#202124"))
@@ -2842,22 +3742,32 @@ class MainActivity : AppCompatActivity() {
                 btnNewTabAction.text = "+ New Tab"
                 btnNewTabAction.setTextColor(accentColor)
                 
-                rvActiveTabs.adapter = personalAdapter
+                if (animate) {
+                    rvActiveTabs.animate().cancel()
+                    rvActiveTabs.alpha = 0f
+                    rvActiveTabs.adapter = personalAdapter
+                    rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+                } else {
+                    rvActiveTabs.adapter = personalAdapter
+                }
                 currentTouchHelper?.attachToRecyclerView(null)
-                currentTouchHelper = attachDragAndDrop(rvActiveTabs, normalTabs, personalAdapter, false)
             }
         }
 
         btnTogglePersonal.setOnClickListener {
             triggerStrongHaptic(it)
-            viewingPrivate = false
-            updateUI()
+            if (viewingPrivate) {
+                viewingPrivate = false
+                updateUI(animate = true)
+            }
         }
 
         btnTogglePrivate.setOnClickListener {
             triggerStrongHaptic(it)
-            viewingPrivate = true
-            updateUI()
+            if (!viewingPrivate) {
+                viewingPrivate = true
+                updateUI(animate = true)
+            }
         }
 
         btnNewTabAction.setOnClickListener {
@@ -2869,54 +3779,6 @@ class MainActivity : AppCompatActivity() {
 
         updateUI()
         dialog.show()
-    }
-
-    private fun attachDragAndDrop(recyclerView: RecyclerView, tabList: MutableList<Tab>, adapter: TabsAdapter, isPrivateList: Boolean): ItemTouchHelper {
-        val itemTouchHelper = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
-            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
-        ) {
-            private var dragFrom = -1
-            private var dragTo = -1
-            
-            override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
-                val from = viewHolder.adapterPosition
-                val to = target.adapterPosition
-                if (dragFrom == -1) dragFrom = from
-                dragTo = to
-                Collections.swap(tabList, from, to)
-                
-                if (isPrivateMode == isPrivateList) {
-                    if (activeTabIndex == from) {
-                        if (isPrivateMode) activePrivateTabIndex = to else activeNormalTabIndex = to
-                    } else if (activeTabIndex == to) {
-                        if (isPrivateMode) activePrivateTabIndex = from else activeNormalTabIndex = from
-                    }
-                }
-                
-                adapter.notifyItemMoved(from, to)
-                return true
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
-
-            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
-                super.clearView(recyclerView, viewHolder)
-                if (dragFrom != -1 && dragTo != -1 && dragFrom != dragTo) {
-                    val droppedTab = tabList[dragTo]
-                    val adjacentIndex = if (dragTo > 0) dragTo - 1 else dragTo + 1
-                    if (adjacentIndex in 0 until tabList.size) {
-                        val adjacentTab = tabList[adjacentIndex]
-                        if (droppedTab.group?.id != adjacentTab.group?.id || droppedTab.group == null) {
-                            showGroupPromptDialog(droppedTab, adjacentTab, adapter)
-                        }
-                    }
-                }
-                dragFrom = -1
-                dragTo = -1
-            }
-        })
-        itemTouchHelper.attachToRecyclerView(recyclerView)
-        return itemTouchHelper
     }
 
     private fun showGroupPromptDialog(tab1: Tab, tab2: Tab, adapter: TabsAdapter) {
@@ -2938,85 +3800,175 @@ class MainActivity : AppCompatActivity() {
     }
 
     inner class TabsAdapter(
-        private val list: MutableList<Tab>,
-        private val onItemClick: (Int) -> Unit,
-        private val onCloseClick: (Int) -> Unit,
+        private val originalList: MutableList<Tab>,
+        var isGridMode: Boolean,
+        private val onItemClick: (Tab) -> Unit,
+        private val onCloseClick: (Tab) -> Unit,
         private val isPrivateList: Boolean
     ) : RecyclerView.Adapter<TabsAdapter.TabViewHolder>() {
 
-        inner class TabViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val rowContainer: LinearLayout = view.findViewById(R.id.tabRowContainer)
-            val groupHeader: LinearLayout = view.findViewById(R.id.groupHeader)
-            val groupColorBox: View = view.findViewById(R.id.groupColorBox)
-            val groupNameText: TextView = view.findViewById(R.id.groupNameText)
-            
-            val groupSideIndicator: View = view.findViewById(R.id.groupSideIndicator)
-            val tabIcon: ImageView = view.findViewById(R.id.tabIcon)
-            val tabTitle: TextView = view.findViewById(R.id.tabTitle)
-            val tabUrl: TextView = view.findViewById(R.id.tabUrl)
-            val tabClose: ImageButton = view.findViewById(R.id.tabClose)
+        private var filterQuery: String = ""
+
+        private val displayedList: List<Tab>
+            get() {
+                val base = if (filterQuery.isEmpty()) {
+                    originalList
+                } else {
+                    originalList.filter {
+                        it.title.contains(filterQuery, ignoreCase = true) || it.url.contains(filterQuery, ignoreCase = true)
+                    }
+                }
+                // Pinned tabs first
+                return base.sortedByDescending { it.isPinned }
+            }
+
+        fun filter(query: String) {
+            filterQuery = query.lowercase().trim()
+            notifyDataSetChanged()
         }
 
+        inner class TabViewHolder(val view: View, val isGrid: Boolean) : RecyclerView.ViewHolder(view) {
+            // Row views
+            val rowContainer: LinearLayout? = view.findViewById(R.id.tabRowContainer)
+            val groupHeader: LinearLayout? = view.findViewById(R.id.groupHeader)
+            val groupColorBox: View? = view.findViewById(R.id.groupColorBox)
+            val groupNameText: TextView? = view.findViewById(R.id.groupNameText)
+            val groupSideIndicator: View? = view.findViewById(R.id.groupSideIndicator)
+            val tabIcon: ImageView? = view.findViewById(R.id.tabIcon)
+            val tabTitle: TextView? = view.findViewById(R.id.tabTitle)
+            val tabUrl: TextView? = view.findViewById(R.id.tabUrl)
+            val tabPinIcon: ImageView? = view.findViewById(R.id.tabPinIcon)
+            val tabClose: ImageButton? = view.findViewById(R.id.tabClose)
+
+            // Grid views
+            val cardTabGrid: androidx.cardview.widget.CardView? = view.findViewById(R.id.cardTabGrid)
+            val gridTabIcon: ImageView? = view.findViewById(R.id.gridTabIcon)
+            val gridTabTitle: TextView? = view.findViewById(R.id.gridTabTitle)
+            val gridTabPinIcon: ImageView? = view.findViewById(R.id.gridTabPinIcon)
+            val gridTabClose: ImageButton? = view.findViewById(R.id.gridTabClose)
+            val gridTabThumbnail: ImageView? = view.findViewById(R.id.gridTabThumbnail)
+            val gridTabUrl: TextView? = view.findViewById(R.id.gridTabUrl)
+            val gridGroupIndicator: View? = view.findViewById(R.id.gridGroupIndicator)
+        }
+
+        override fun getItemViewType(position: Int): Int = if (isGridMode) 1 else 0
+
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TabViewHolder {
-            val view = layoutInflater.inflate(R.layout.item_tab_row, parent, false)
-            return TabViewHolder(view)
+            val layoutRes = if (viewType == 1) R.layout.item_tab_grid else R.layout.item_tab_row
+            val view = layoutInflater.inflate(layoutRes, parent, false)
+            return TabViewHolder(view, viewType == 1)
         }
 
         override fun onBindViewHolder(holder: TabViewHolder, position: Int) {
-            val tab = list[position]
+            val currentItems = displayedList
+            if (position >= currentItems.size) return
+            val tab = currentItems[position]
             val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
-            
-            val prevTab = if (position > 0) list[position - 1] else null
-            if (tab.group != null && (prevTab == null || prevTab.group?.id != tab.group?.id)) {
-                holder.groupHeader.visibility = View.VISIBLE
-                holder.groupColorBox.setBackgroundColor(tab.group!!.color)
-                holder.groupNameText.text = tab.group!!.name
+            val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
+
+            if (holder.isGrid) {
+                holder.gridTabTitle?.text = tab.title
+                holder.gridTabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
+                holder.gridTabPinIcon?.visibility = if (tab.isPinned) View.VISIBLE else View.GONE
                 
-                holder.groupHeader.setOnClickListener {
+                if (tab.group != null) {
+                    holder.gridGroupIndicator?.visibility = View.VISIBLE
+                    holder.gridGroupIndicator?.setBackgroundColor(tab.group!!.color)
+                } else {
+                    holder.gridGroupIndicator?.visibility = View.GONE
+                }
+
+                if (isHomeTab(tab)) {
+                    holder.gridTabIcon?.setImageResource(R.drawable.ic_haze_logo)
+                } else if (tab.favicon != null) {
+                    holder.gridTabIcon?.setImageBitmap(tab.favicon)
+                } else {
+                    holder.gridTabIcon?.setImageResource(R.drawable.ic_globe)
+                }
+
+                tab.browserTab.captureThumbnail { bmp ->
+                    if (bmp != null) holder.gridTabThumbnail?.setImageBitmap(bmp)
+                    else holder.gridTabThumbnail?.setImageResource(R.drawable.haze_logo)
+                }
+
+                if (isActive) {
+                    holder.cardTabGrid?.setCardBackgroundColor(Color.argb(25, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)))
+                } else {
+                    holder.cardTabGrid?.setCardBackgroundColor(Color.WHITE)
+                }
+
+                holder.cardTabGrid?.setOnClickListener {
                     triggerStrongHaptic(it)
-                    showEditGroupDialog(tab.group!!)
+                    onItemClick(tab)
+                }
+                holder.cardTabGrid?.setOnLongClickListener {
+                    triggerStrongHaptic(it)
+                    showTabOptionsMenu(tab)
+                    true
+                }
+                holder.gridTabClose?.setOnClickListener {
+                    triggerStrongHaptic(it)
+                    onCloseClick(tab)
                 }
             } else {
-                holder.groupHeader.visibility = View.GONE
-            }
+                // List row
+                val prevTab = if (position > 0) currentItems[position - 1] else null
+                if (tab.group != null && (prevTab == null || prevTab.group?.id != tab.group?.id)) {
+                    holder.groupHeader?.visibility = View.VISIBLE
+                    holder.groupColorBox?.setBackgroundColor(tab.group!!.color)
+                    holder.groupNameText?.text = tab.group!!.name
+                    holder.groupHeader?.setOnClickListener {
+                        triggerStrongHaptic(it)
+                        showEditGroupDialog(tab.group!!)
+                    }
+                } else {
+                    holder.groupHeader?.visibility = View.GONE
+                }
 
-            if (tab.group != null) {
-                holder.groupSideIndicator.visibility = View.VISIBLE
-                holder.groupSideIndicator.setBackgroundColor(tab.group!!.color)
-            } else {
-                holder.groupSideIndicator.visibility = View.GONE
-            }
+                if (tab.group != null) {
+                    holder.groupSideIndicator?.visibility = View.VISIBLE
+                    holder.groupSideIndicator?.setBackgroundColor(tab.group!!.color)
+                } else {
+                    holder.groupSideIndicator?.visibility = View.GONE
+                }
 
-            val isActive = (isPrivateMode == isPrivateList && position == activeTabIndex)
-            if (isActive) {
-                val alphaColor = Color.argb(30, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
-                holder.rowContainer.setBackgroundColor(alphaColor)
-            } else {
-                holder.rowContainer.setBackgroundColor(Color.TRANSPARENT)
-            }
+                holder.tabPinIcon?.visibility = if (tab.isPinned) View.VISIBLE else View.GONE
 
-            if (isHomeTab(tab)) {
-                holder.tabIcon.setImageResource(R.drawable.ic_haze_logo)
-            } else if (tab.favicon != null) {
-                holder.tabIcon.setImageBitmap(tab.favicon)
-            } else {
-                holder.tabIcon.setImageResource(R.drawable.ic_globe)
-            }
-            
-            holder.tabTitle.text = tab.title
-            holder.tabUrl.text = if (isHomeTab(tab)) "Home" else tab.url
+                if (isActive) {
+                    val alphaColor = Color.argb(30, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+                    holder.rowContainer?.setBackgroundColor(alphaColor)
+                } else {
+                    holder.rowContainer?.setBackgroundColor(Color.TRANSPARENT)
+                }
 
-            holder.rowContainer.setOnClickListener { 
-                triggerStrongHaptic(it)
-                onItemClick(position) 
-            }
-            holder.tabClose.setOnClickListener { 
-                triggerStrongHaptic(it)
-                onCloseClick(position) 
+                if (isHomeTab(tab)) {
+                    holder.tabIcon?.setImageResource(R.drawable.ic_haze_logo)
+                } else if (tab.favicon != null) {
+                    holder.tabIcon?.setImageBitmap(tab.favicon)
+                } else {
+                    holder.tabIcon?.setImageResource(R.drawable.ic_globe)
+                }
+
+                holder.tabTitle?.text = tab.title
+                holder.tabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
+
+                holder.rowContainer?.setOnClickListener {
+                    triggerStrongHaptic(it)
+                    onItemClick(tab)
+                }
+                holder.rowContainer?.setOnLongClickListener {
+                    triggerStrongHaptic(it)
+                    showTabOptionsMenu(tab)
+                    true
+                }
+                holder.tabClose?.setOnClickListener {
+                    triggerStrongHaptic(it)
+                    onCloseClick(tab)
+                }
             }
         }
 
-        override fun getItemCount(): Int = list.size
+        override fun getItemCount(): Int = displayedList.size
 
         private fun showEditGroupDialog(group: TabGroup) {
             val layout = LinearLayout(this@MainActivity)
@@ -3035,10 +3987,65 @@ class MainActivity : AppCompatActivity() {
                     group.color = groupColors.random()
                     notifyDataSetChanged()
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Ungroup All") { _, _ ->
+                    originalList.forEach { if (it.group?.id == group.id) it.group = null }
+                    notifyDataSetChanged()
+                }
+                .setNeutralButton("Cancel", null)
+                .show()
+        }
+
+        private fun showTabOptionsMenu(tab: Tab) {
+            val options = arrayOf(
+                if (tab.isPinned) "Unpin Tab" else "Pin Tab",
+                "Duplicate Tab",
+                if (tab.group != null) "Remove from Group" else "Add to Group",
+                "Share Tab URL",
+                "Close Tab"
+            )
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle(tab.title)
+                .setItems(options) { _, which ->
+                    triggerStrongHaptic(addressBar)
+                    when (which) {
+                        0 -> { // Pin / Unpin
+                            tab.isPinned = !tab.isPinned
+                            notifyDataSetChanged()
+                            Toast.makeText(this@MainActivity, if (tab.isPinned) "Tab pinned" else "Tab unpinned", Toast.LENGTH_SHORT).show()
+                        }
+                        1 -> { // Duplicate
+                            duplicateTab(tab)
+                            notifyDataSetChanged()
+                        }
+                        2 -> { // Group
+                            if (tab.group != null) {
+                                tab.group = null
+                                notifyDataSetChanged()
+                            } else {
+                                val newGroup = TabGroup(
+                                    id = System.currentTimeMillis().toString(),
+                                    name = "Group",
+                                    color = groupColors.random()
+                                )
+                                tab.group = newGroup
+                                notifyDataSetChanged()
+                            }
+                        }
+                        3 -> { // Share
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, tab.title)
+                                putExtra(Intent.EXTRA_TEXT, tab.url)
+                            }
+                            startActivity(Intent.createChooser(intent, "Share Tab"))
+                        }
+                        4 -> onCloseClick(tab)
+                    }
+                }
                 .show()
         }
     }
+
 
     fun showPersonalizeDialog() {
         val isDark = prefs.getBoolean("is_dark", false)
@@ -3055,20 +4062,30 @@ class MainActivity : AppCompatActivity() {
         val secondaryTextColor = if (isDark) Color.parseColor("#C4C6B8") else Color.parseColor("#5F6368")
         val accent = Color.parseColor(accentColor)
 
-        val dialogView = ScrollView(this).apply {
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            overScrollMode = View.OVER_SCROLL_NEVER
+        val cardLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = dpToPx(28).toFloat()
                 setColor(surfaceColor)
             }
+            clipToOutline = true
         }
+
+        val scrollContent = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        cardLayout.addView(scrollContent)
         
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpToPx(24), dpToPx(26), dpToPx(24), dpToPx(18))
+            setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(12))
         }
-        dialogView.addView(content)
+        scrollContent.addView(content)
         
         val titleText = TextView(this).apply {
             text = "Personalize"
@@ -3083,7 +4100,7 @@ class MainActivity : AppCompatActivity() {
             text = "Customize the look of your Haze home page"
             textSize = 13f
             setTextColor(secondaryTextColor)
-            setPadding(0, 0, 0, dpToPx(20))
+            setPadding(0, 0, 0, dpToPx(18))
         }
         content.addView(subtitleText)
 
@@ -3116,17 +4133,19 @@ class MainActivity : AppCompatActivity() {
         
         val themeGroup = RadioGroup(this).apply { 
             orientation = RadioGroup.HORIZONTAL
-            setPadding(0, 0, 0, dpToPx(16)) 
+            setPadding(0, 0, 0, dpToPx(14)) 
         }
         val rbLight = RadioButton(this).apply {
             text = "Light"
             setTextColor(textColor)
             buttonTintList = ColorStateList.valueOf(accent)
+            setPadding(dpToPx(4), 0, dpToPx(16), 0)
         }
         val rbDark = RadioButton(this).apply {
             text = "Dark"
             setTextColor(textColor)
             buttonTintList = ColorStateList.valueOf(accent)
+            setPadding(dpToPx(4), 0, dpToPx(16), 0)
         }
         themeGroup.addView(rbLight)
         themeGroup.addView(rbDark)
@@ -3144,22 +4163,25 @@ class MainActivity : AppCompatActivity() {
         
         val shortcutsGroup = RadioGroup(this).apply { 
             orientation = RadioGroup.HORIZONTAL
-            setPadding(0, 0, 0, dpToPx(20)) 
+            setPadding(0, 0, 0, dpToPx(14)) 
         }
         val rbOff = RadioButton(this).apply {
             text = "Off"
             setTextColor(textColor)
             buttonTintList = ColorStateList.valueOf(accent)
+            setPadding(dpToPx(4), 0, dpToPx(12), 0)
         }
         val rb1Row = RadioButton(this).apply {
             text = "1 Row"
             setTextColor(textColor)
             buttonTintList = ColorStateList.valueOf(accent)
+            setPadding(dpToPx(4), 0, dpToPx(12), 0)
         }
         val rb2Row = RadioButton(this).apply {
             text = "2 Rows"
             setTextColor(textColor)
             buttonTintList = ColorStateList.valueOf(accent)
+            setPadding(dpToPx(4), 0, dpToPx(12), 0)
         }
         shortcutsGroup.addView(rbOff)
         shortcutsGroup.addView(rb1Row)
@@ -3182,19 +4204,21 @@ class MainActivity : AppCompatActivity() {
         
         val colorScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setPadding(0, 0, 0, dpToPx(20))
+            setPadding(0, 0, 0, dpToPx(14))
         }
         val colorLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         colorScroll.addView(colorLayout)
         
         val colors = listOf(
-            "#0A56D0", // Default
+            "#0A56D0", // Default Blue
             "#EA4335", // Red
             "#34A853", // Green
             "#9C27B0", // Purple
             "#FF6D01", // Orange
             "#00897B"  // Teal
         )
+
+        var btnApply: TextView? = null
         
         val colorContainers = mutableListOf<FrameLayout>()
         fun refreshColorBorders() {
@@ -3211,6 +4235,14 @@ class MainActivity : AppCompatActivity() {
                     frame.background = null
                 }
             }
+            val parsedColor = Color.parseColor(selectedColor)
+            val csl = ColorStateList.valueOf(parsedColor)
+            rbLight.buttonTintList = csl
+            rbDark.buttonTintList = csl
+            rbOff.buttonTintList = csl
+            rb1Row.buttonTintList = csl
+            rb2Row.buttonTintList = csl
+            btnApply?.let { (it.background as? GradientDrawable)?.setColor(parsedColor) }
         }
         
         for (c in colors) {
@@ -3222,11 +4254,10 @@ class MainActivity : AppCompatActivity() {
             }
             val circleView = View(this).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-                val shape = GradientDrawable().apply {
+                background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(Color.parseColor(c))
                 }
-                background = shape
             }
             frame.addView(circleView)
             frame.setOnClickListener {
@@ -3237,7 +4268,6 @@ class MainActivity : AppCompatActivity() {
             colorContainers.add(frame)
             colorLayout.addView(frame)
         }
-        refreshColorBorders()
         addSectionCard(colorScroll)
         
         // Background Themes (Round circles: Default + 5 Photo Themes)
@@ -3251,7 +4281,7 @@ class MainActivity : AppCompatActivity() {
         
         val bgScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            setPadding(0, 0, 0, dpToPx(16))
+            setPadding(0, 0, 0, dpToPx(14))
         }
         val bgLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         bgScroll.addView(bgLayout)
@@ -3310,11 +4340,54 @@ class MainActivity : AppCompatActivity() {
             bgLayout.addView(frame)
         }
         refreshBgBorders()
-        addSectionCard(bgScroll, 8)
-        
-        val dialog = AlertDialog.Builder(this)
-            .setView(dialogView)
-            .setPositiveButton("Apply") { _, _ ->
+        addSectionCard(bgScroll, 12)
+
+        lateinit var dialog: AlertDialog
+
+        // Bottom Action Button Bar (Cleanly integrated INSIDE the card)
+        val buttonBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(20), dpToPx(8), dpToPx(20), dpToPx(20))
+        }
+
+        val btnCancel = TextView(this).apply {
+            text = "Cancel"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(secondaryTextColor)
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(18), dpToPx(10), dpToPx(18), dpToPx(10))
+            setBackgroundResource(getSelectableRes())
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                triggerStrongHaptic(it)
+                dialog.dismiss()
+            }
+        }
+        buttonBar.addView(btnCancel)
+
+        val spacer = Space(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(8), 0)
+        }
+        buttonBar.addView(spacer)
+
+        btnApply = TextView(this).apply {
+            text = "Apply"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(26), dpToPx(10), dpToPx(26), dpToPx(10))
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(20).toFloat()
+                setColor(Color.parseColor(selectedColor))
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                triggerStrongHaptic(it, isHeavy = true)
                 val mode = when {
                     rbOff.isChecked -> "off"
                     rb1Row.isChecked -> "1"
@@ -3326,27 +4399,27 @@ class MainActivity : AppCompatActivity() {
                     .putString("accent_color", selectedColor)
                     .putString("bg_theme", selectedBg)
                     .apply()
-                
+
                 applyTheme()
+                dialog.dismiss()
             }
-            .setNegativeButton("Cancel", null)
+        }
+        buttonBar.addView(btnApply)
+        cardLayout.addView(buttonBar)
+
+        refreshColorBorders()
+        
+        dialog = AlertDialog.Builder(this)
+            .setView(cardLayout)
             .create()
             
-        dialog.show()
+        dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog.show()
         dialog.window?.setLayout(
-            (resources.displayMetrics.widthPixels * 0.94f).toInt(),
+            (resources.displayMetrics.widthPixels * 0.92f).toInt(),
             ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
-            setTextColor(accent)
-            isAllCaps = false
-            setTypeface(null, Typeface.BOLD)
-        }
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.apply {
-            setTextColor(secondaryTextColor)
-            isAllCaps = false
-        }
     }
 
     private fun showBrowserMenu() {
@@ -3358,6 +4431,7 @@ class MainActivity : AppCompatActivity() {
             true
         )
         popupWindow.elevation = 24f
+        popupWindow.animationStyle = R.style.HazePopupAnimation
         
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         val menuRoot = popupView.findViewById<LinearLayout>(R.id.menuRoot)
@@ -3428,11 +4502,14 @@ class MainActivity : AppCompatActivity() {
             Pair("History", R.drawable.ic_history),
             Pair("Downloads", R.drawable.ic_download),
             Pair("Full Screen", R.drawable.ic_fullscreen),
-            Pair("Reading Mode", R.drawable.ic_reading_mode),
-            Pair("Extra", R.drawable.ic_extra),
+            Pair("Accessibility", R.drawable.ic_accessibility),
+            Pair("Desktop Site", R.drawable.ic_desktop),
             Pair("Find on Page", R.drawable.ic_search),
-            Pair("Settings", R.drawable.ic_settings),
-            Pair("Close Haze", R.drawable.ic_close)
+            Pair("Share", R.drawable.ic_share),
+            Pair("Recent Tabs", R.drawable.ic_restore),
+            Pair("Save Offline", R.drawable.ic_download),
+            Pair("Extra", R.drawable.ic_extra),
+            Pair("Settings", R.drawable.ic_settings)
         )
         
         for (item in menuItems) {
@@ -3468,16 +4545,14 @@ class MainActivity : AppCompatActivity() {
                     "History" -> HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) }
                     "Downloads" -> HazeDownloadsManager.showDownloadsDialog(this)
                     "Full Screen" -> toggleFullScreenMode()
-                    "Reading Mode" -> toggleReadingMode()
+                    "Accessibility" -> showAccessibilityDialog()
+                    "Desktop Site" -> currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
+                    "Find on Page" -> showFindBar()
+                    "Share" -> shareCurrentPage()
+                    "Recent Tabs" -> showRecentlyClosedTabsDialog()
+                    "Save Offline" -> saveCurrentPageForOffline()
                     "Extra" -> showExtraToolsDialog()
-                    "Find on Page" -> {
-                        findBarContainer.visibility = View.VISIBLE
-                        findInput.requestFocus()
-                        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                        imm.showSoftInput(findInput, InputMethodManager.SHOW_IMPLICIT)
-                    }
                     "Settings" -> HazeSettingsManager.showSettingsDialog(this)
-                    "Close Haze" -> popupWindow.dismiss()
                 }
 
             }
@@ -3613,8 +4688,9 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
-                v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+                val navBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+                val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+                v.setPadding(navBars.left, statusBars.top, navBars.right, navBars.bottom)
                 insets
             }
         }
@@ -3691,6 +4767,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showReaderModeDialog(title: String, contentHtml: String) {
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
+        dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         val isDark = prefs.getBoolean("is_dark", false)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
 
@@ -4153,20 +5230,6 @@ class MainActivity : AppCompatActivity() {
             root.addView(row)
         }
         
-        val isDesktop = tab?.isDesktop == true
-        addTool(if (isDesktop) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop) {
-            tab?.let { toggleDesktopSite(it) }
-        }
-        addTool("Bookmark this page", R.drawable.ic_star) {
-            if (tab != null && !isHomeTab(tab)) {
-                HazeBookmarksManager.showBookmarkThisPageDialog(this, tab.title, tab.url)
-            } else {
-                Toast.makeText(this, "Cannot bookmark this page", Toast.LENGTH_SHORT).show()
-            }
-        }
-        addTool("Share page", R.drawable.ic_share) {
-            shareCurrentPage()
-        }
         addTool("Print / Save as PDF", R.drawable.ic_download) {
             printCurrentPage()
         }
@@ -4179,6 +5242,21 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Miniplayer requires Android 8.0+ or active media playback", Toast.LENGTH_SHORT).show()
             }
         }
+        addTool("Save for offline reading", R.drawable.ic_download) {
+            saveCurrentPageForOffline()
+        }
+        addTool("Saved offline pages", R.drawable.ic_reading_mode) {
+            showOfflinePagesDialog()
+        }
+        addTool("Duplicate tab", R.drawable.ic_add) {
+            tab?.let { duplicateTab(it) }
+        }
+        addTool("Recently closed tabs", R.drawable.ic_restore) {
+            showRecentlyClosedTabsDialog()
+        }
+        addTool("Restore previous session", R.drawable.ic_restore) {
+            restorePreviousSession(promptUser = true)
+        }
         addTool("Page Details", R.drawable.ic_globe) {
             showPageDetails()
         }
@@ -4190,11 +5268,312 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    fun showAccessibilityDialog() {
+        val tab = currentTabsList.getOrNull(activeTabIndex)
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(24))
+        }
+
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(8), 0, dpToPx(8), dpToPx(16))
+        }
+
+        val titleTv = TextView(this).apply {
+            text = "Accessibility"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerRow.addView(titleTv)
+
+        val btnClose = ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+            setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+            setBackgroundResource(getSelectableRes())
+            setOnClickListener {
+                triggerStrongHaptic(it)
+                dialog.dismiss()
+            }
+        }
+        headerRow.addView(btnClose)
+        root.addView(headerRow)
+
+        fun addAccessibilityItem(label: String, subtitle: String, iconRes: Int, onClick: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(56))
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
+                setBackgroundResource(getSelectableRes())
+                setOnClickListener {
+                    triggerStrongHaptic(it)
+                    dialog.dismiss()
+                    onClick()
+                }
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(iconRes)
+                setColorFilter(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(24), dpToPx(24)).apply {
+                    marginEnd = dpToPx(16)
+                }
+            }
+            val textContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val mainText = TextView(this).apply {
+                text = label
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            }
+            val subText = TextView(this).apply {
+                text = subtitle
+                textSize = 12f
+                setTextColor(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+            }
+            textContainer.addView(mainText)
+            textContainer.addView(subText)
+            row.addView(icon)
+            row.addView(textContainer)
+            root.addView(row)
+        }
+
+        addAccessibilityItem("Text Size", "Adjust article and font size scaling", R.drawable.ic_format_size) {
+            showTextScalingDialog()
+        }
+        addAccessibilityItem("Page Zoom", "Scale complete webpage layout (50% - 250%)", R.drawable.ic_zoom_in) {
+            showPageZoomDialog()
+        }
+        addAccessibilityItem("Translate Page", "Translate webpage into English with Google Translate", R.drawable.ic_globe) {
+            translateCurrentPage()
+        }
+        addAccessibilityItem("Reading Mode", "Distraction-free article reader view", R.drawable.ic_reading_mode) {
+            toggleReadingMode()
+        }
+        addAccessibilityItem("High Contrast / Invert", "High contrast mode for enhanced readability", R.drawable.ic_palette) {
+            toggleHighContrastMode()
+        }
+
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    fun toggleHighContrastMode() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        val script = """
+            (function() {
+                var id = '__haze_high_contrast';
+                var existing = document.getElementById(id);
+                if (existing) {
+                    existing.remove();
+                    return 'disabled';
+                } else {
+                    var style = document.createElement('style');
+                    style.id = id;
+                    style.innerHTML = 'html { filter: invert(1) hue-rotate(180deg) contrast(1.1) !important; background: #121212 !important; } img, video, canvas, svg { filter: invert(1) hue-rotate(180deg) !important; }';
+                    document.documentElement.appendChild(style);
+                    return 'enabled';
+                }
+            })();
+        """.trimIndent()
+        tab.browserTab.evaluateJavascript(script) { result ->
+            val enabled = result?.contains("enabled") == true
+            Toast.makeText(this, if (enabled) "High Contrast enabled" else "High Contrast disabled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun toggleDesktopSite(tab: Tab) {
         tab.browserTab.isDesktop = !tab.browserTab.isDesktop
         tab.isDesktop = tab.browserTab.isDesktop
         Toast.makeText(this, if (tab.isDesktop) "Desktop site enabled" else "Mobile site enabled", Toast.LENGTH_SHORT).show()
         tab.browserTab.reload()
+    }
+
+    fun setupSwipeBetweenTabs() {
+        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            private val SWIPE_THRESHOLD = 80
+            private val SWIPE_VELOCITY_THRESHOLD = 100
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 == null) return false
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > SWIPE_THRESHOLD && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
+                    if (diffX > 0) {
+                        // Swipe right -> previous tab
+                        if (activeTabIndex > 0) {
+                            triggerStrongHaptic(addressBarContainer)
+                            switchTab(activeTabIndex - 1)
+                            return true
+                        }
+                    } else {
+                        // Swipe left -> next tab
+                        if (activeTabIndex < currentTabsList.size - 1) {
+                            triggerStrongHaptic(addressBarContainer)
+                            switchTab(activeTabIndex + 1)
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
+        })
+
+        val touchListener = View.OnTouchListener { v, event ->
+            if (gestureDetector.onTouchEvent(event)) {
+                true
+            } else {
+                v.onTouchEvent(event)
+            }
+        }
+        addressBarContainer.setOnTouchListener(touchListener)
+        findViewById<LinearLayout>(R.id.addressBarInner)?.setOnTouchListener(touchListener)
+    }
+
+    fun showPageZoomDialog() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        val levels = arrayOf("50%", "75%", "90%", "100%", "110%", "125%", "150%", "175%", "200%", "250%")
+        AlertDialog.Builder(this)
+            .setTitle("Page Zoom")
+            .setItems(levels) { _, which ->
+                val zoomStr = levels[which].replace("%", "")
+                val zoomVal = zoomStr.toIntOrNull() ?: 100
+                tab.browserTab.evaluateJavascript("document.body.style.zoom = '${zoomVal}%';") {}
+                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = zoomVal
+                Toast.makeText(this, "Zoom: ${levels[which]}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Reset (100%)") { _, _ ->
+                tab.browserTab.evaluateJavascript("document.body.style.zoom = '100%';") {}
+                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = 100
+                Toast.makeText(this, "Zoom reset to 100%", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    fun showTextScalingDialog() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        val scales = arrayOf("75%", "85%", "100%", "115%", "130%", "150%", "180%", "200%")
+        AlertDialog.Builder(this)
+            .setTitle("Text Scaling")
+            .setItems(scales) { _, which ->
+                val scaleStr = scales[which].replace("%", "")
+                val scaleVal = scaleStr.toIntOrNull() ?: 100
+                tab.browserTab.evaluateJavascript("document.documentElement.style.webkitTextSizeAdjust = '${scaleVal}%';") {}
+                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = scaleVal
+                Toast.makeText(this, "Text scale: ${scales[which]}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Reset (100%)") { _, _ ->
+                tab.browserTab.evaluateJavascript("document.documentElement.style.webkitTextSizeAdjust = '100%';") {}
+                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = 100
+                Toast.makeText(this, "Text scale reset to 100%", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    fun translateCurrentPage() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        val url = tab.url
+        if (isHomeTab(tab) || url.startsWith("haze://")) {
+            Toast.makeText(this, "Cannot translate internal page", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=${Uri.encode(url)}"
+        loadUrlFromInput(translateUrl)
+        Toast.makeText(this, "Translating page via Google Translate...", Toast.LENGTH_SHORT).show()
+    }
+
+    fun saveCurrentPageForOffline() {
+        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        if (isHomeTab(tab) || tab.url.startsWith("haze://")) {
+            Toast.makeText(this, "Cannot save internal page offline", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "Saving page for offline reading...", Toast.LENGTH_SHORT).show()
+        tab.browserTab.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
+            val rawHtml = if (!htmlResult.isNullOrBlank() && htmlResult != "null") {
+                try {
+                    org.json.JSONTokener(htmlResult).nextValue().toString()
+                } catch (e: Exception) {
+                    htmlResult
+                }
+            } else {
+                "<html><body><h1>${tab.title}</h1><p>Saved from ${tab.url}</p></body></html>"
+            }
+            
+            val db = HazeDatabase.getInstance(this)
+            db.saveOfflinePage(tab.title, tab.url, rawHtml)
+            runOnUiThread {
+                Toast.makeText(this, "Page saved for offline reading!", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun showOfflinePagesDialog() {
+        val db = HazeDatabase.getInstance(this)
+        val pages = db.getOfflinePages()
+        if (pages.isEmpty()) {
+            Toast.makeText(this, "No offline pages saved yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val items = pages.map { "${it.title}\n${it.url}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Saved Offline Pages")
+            .setItems(items) { _, which ->
+                if (which in pages.indices) {
+                    val item = pages[which]
+                    val offlineHtml = """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <style>
+                                #hazeOfflineBanner {
+                                    position: fixed;
+                                    top: 0;
+                                    left: 0;
+                                    right: 0;
+                                    background: #F2994A;
+                                    color: #FFFFFF;
+                                    font-family: sans-serif;
+                                    font-size: 13px;
+                                    font-weight: bold;
+                                    padding: 8px 16px;
+                                    text-align: center;
+                                    z-index: 999999;
+                                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                                }
+                                body { padding-top: 36px !important; }
+                            </style>
+                        </head>
+                        <body>
+                            <div id="hazeOfflineBanner">Offline Saved Copy &bull; ${item.url}</div>
+                            ${item.content}
+                        </body>
+                        </html>
+                    """.trimIndent()
+                    val newTab = addNewTab(item.url)
+                    newTab.title = "[Offline] " + item.title
+                    newTab.browserTab.navigationController.loadDataWithBaseURL(item.url, offlineHtml, "text/html", "UTF-8", null)
+                    Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setPositiveButton("Clear All") { _, _ ->
+                db.clearAllOfflinePages()
+                Toast.makeText(this, "All offline pages cleared", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     fun shareCurrentPage() {
@@ -4290,23 +5669,40 @@ class MainActivity : AppCompatActivity() {
         addNewTab(url)
     }
 
-    fun addNewBackgroundTab(url: String) {
-        val activeBefore = currentTabsList.getOrNull(activeTabIndex)
+    fun addNewBackgroundTab(url: String): Tab {
         val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
         val renderView = browserTab.renderView
         renderView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        val tab = Tab(id = browserTab.id, browserTab = browserTab, isPrivate = isPrivateMode, url = url, title = "New Tab")
-        currentTabsList.add(tab)
-        webContainer.addView(renderView)
-        setupBrowserTab(browserTab)
-        renderView.visibility = View.GONE
-        if (browserTab is ChromiumBrowserTab) {
-            tab.browserTab.navigationController.loadUrl(url)
-        } else {
-            activeBefore?.browserTab?.onResume()
+
+        val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setOnRefreshListener {
+                triggerStrongHaptic()
+                browserTab.reload()
+                postDelayed({ isRefreshing = false }, 1000)
+            }
         }
+        swipeRefreshLayout.addView(renderView)
+
+        val tab = Tab(
+            id = browserTab.id,
+            browserTab = browserTab,
+            swipeRefreshLayout = swipeRefreshLayout,
+            isPrivate = isPrivateMode,
+            url = url,
+            title = "New Tab"
+        )
+        currentTabsList.add(tab)
+        webContainer.addView(swipeRefreshLayout)
+        setupBrowserTab(browserTab)
+        swipeRefreshLayout.visibility = View.GONE
+        tab.browserTab.navigationController.loadUrl(url)
         tabCountBtn.text = currentTabsList.size.toString()
         Toast.makeText(this, "Opened in background tab", Toast.LENGTH_SHORT).show()
+        return tab
     }
 
     private fun isNetworkAvailable(): Boolean {
@@ -4525,17 +5921,28 @@ class MainActivity : AppCompatActivity() {
         progressBar.animate().cancel()
         progressBar.visibility = View.VISIBLE
         progressBar.alpha = 1f
-        progressBar.progress = progress.coerceIn(1, 99)
+        val target = progress.coerceIn(1, 99)
+        ObjectAnimator.ofInt(progressBar, "progress", progressBar.progress, target).apply {
+            duration = 180L
+            interpolator = BUTTER_INTERPOLATOR
+            start()
+        }
         progressBar.bringToFront()
     }
 
     private fun finishPageLoading() {
         val progressBar = findViewById<ProgressBar>(R.id.pageProgressBar) ?: return
         val completedGeneration = pageLoadingGeneration
-        progressBar.progress = 100
+        ObjectAnimator.ofInt(progressBar, "progress", progressBar.progress, 100).apply {
+            duration = 140L
+            interpolator = BUTTER_INTERPOLATOR
+            start()
+        }
+        progressBar.animate().cancel()
         progressBar.animate()
             .alpha(0f)
-            .setDuration(180L)
+            .setDuration(240L)
+            .setInterpolator(BUTTER_INTERPOLATOR)
             .withEndAction {
                 if (completedGeneration != pageLoadingGeneration) return@withEndAction
                 progressBar.visibility = View.GONE
@@ -4574,11 +5981,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupAddressBar() {
         addressBar.setOnEditorActionListener { _, actionId, event ->
-            if (actionId == EditorInfo.IME_ACTION_GO ||
-                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
-            ) {
+            val isEnter = (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            val isAction = actionId == EditorInfo.IME_ACTION_GO ||
+                    actionId == EditorInfo.IME_ACTION_SEARCH ||
+                    actionId == EditorInfo.IME_ACTION_DONE ||
+                    actionId == EditorInfo.IME_ACTION_SEND ||
+                    actionId == EditorInfo.IME_ACTION_NEXT ||
+                    (actionId == EditorInfo.IME_NULL && event?.action == KeyEvent.ACTION_DOWN)
+            if (isEnter || isAction) {
                 triggerStrongHaptic(addressBar)
-                loadUrlFromInput(addressBar.text.toString())
+                val typed = addressBar.text?.toString()?.trim() ?: ""
+                if (typed.isNotEmpty()) {
+                    loadUrlFromInput(typed)
+                }
                 val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.hideSoftInputFromWindow(addressBar.windowToken, 0)
                 addressBar.clearFocus()
@@ -4589,8 +6004,13 @@ class MainActivity : AppCompatActivity() {
 
     fun loadUrlFromInput(input: String) {
         if (activeTabIndex == -1) return
-        val query = input.trim()
-        if (query.isEmpty()) return
+        val raw = input.trim()
+        if (raw.isEmpty()) return
+        val query = if (raw.contains("%20") || raw.contains("%3A", ignoreCase = true)) {
+            runCatching { Uri.decode(raw) }.getOrDefault(raw).trim()
+        } else {
+            raw
+        }
 
         if (query == HAZE_HOME_URL || query == "haze://home" || query.startsWith("haze://home")) {
             val tab = currentTabsList[activeTabIndex]
@@ -4628,36 +6048,40 @@ class MainActivity : AppCompatActivity() {
             deactivateSearchMode()
             return
         }
-
-        val searchEngine = prefs.getString("search_engine", "Google") ?: "Google"
-        val searchEngineUrl = when (searchEngine) {
-            "Bing" -> "https://www.bing.com/search?q="
-            "DuckDuckGo" -> "https://duckduckgo.com/?q="
-            "Yahoo" -> "https://search.yahoo.com/search?p="
-            "Ecosia" -> "https://www.ecosia.org/search?q="
-            else -> "https://www.google.com/search?q="
+        if (query == "haze://qr" || query == "haze://scan" || query == "haze://qrcode") {
+            deactivateSearchMode()
+            omniboxManager.startQrScanner()
+            return
         }
 
-        val url = if (URLUtil.isValidUrl(query)) query
-        else if (query.contains(".") && !query.contains(" ")) "https://$query"
-        else "$searchEngineUrl${Uri.encode(query)}"
+        // 1. Omnibox search shortcut routing (e.g. "g cats", "yt lo-fi music", "gh chromium source", "w quantum mechanics")
+        val shortcut = omniboxManager.parseSearchShortcut(query)
+        val url = if (shortcut != null) {
+            omniboxManager.buildSearchUrl(shortcut.first, shortcut.second)
+        } else if (URLUtil.isValidUrl(query)) {
+            query
+        } else if (query.contains(".") && !query.contains(" ")) {
+            "https://$query"
+        } else {
+            val searchEngineName = prefs.getString("search_engine", "Google") ?: "Google"
+            val activeEngine = omniboxManager.getAllEngines().find { it.name.equals(searchEngineName, ignoreCase = true) }
+                ?: omniboxManager.defaultEngines[0]
+            omniboxManager.buildSearchUrl(activeEngine, query)
+        }
 
         val tab = currentTabsList[activeTabIndex]
+
+        val duplicateTab = currentTabsList.find { 
+            it != tab && !isHomeTab(it) && (it.url.equals(url, ignoreCase = true) || it.url.trimEnd('/').equals(url.trimEnd('/'), ignoreCase = true))
+        }
         if (tab.url == HAZE_HOME_URL) tab.title = "Loading..."
         tab.url = url
         
         saveRecentSearch(query)
         deactivateSearchMode()
         
-        if (!isNetworkAvailable()) {
-            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-            tab.title = "Offline"
-            tab.browserTab.navigationController.loadDataWithBaseURL(url, getOfflineErrorHtml(url, isDark), "text/html", "UTF-8", null)
-            updateChromeVisibility(url)
-            addressBar.setText(url)
-            return
-        }
-
+        updateChromeVisibility(url)
+        addressBar.setText(url)
         tab.browserTab.navigationController.loadUrl(url)
     }
 
@@ -4803,7 +6227,8 @@ class MainActivity : AppCompatActivity() {
         if (isInPictureInPictureMode) {
             addressBarContainer.visibility = View.GONE
             findBarContainer.visibility = View.GONE
-            recentSearchesContainer.visibility = View.GONE
+            searchSuggestionStrip.visibility = View.GONE
+            searchEngineSelectorBar.visibility = View.GONE
             dimOverlay.visibility = View.GONE
             if (::topRightActions.isInitialized) {
                 topRightActions.visibility = View.GONE
@@ -4860,10 +6285,7 @@ class MainActivity : AppCompatActivity() {
                 } else if (isFullScreenMode) {
                     toggleFullScreenMode()
                 } else if (findBarContainer.visibility == View.VISIBLE) {
-                    findBarContainer.visibility = View.GONE
-                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
-                    val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                    imm.hideSoftInputFromWindow(findInput.windowToken, 0)
+                    hideFindBar()
                 } else if (activeTabIndex != -1 && currentTabsList[activeTabIndex].browserTab.navigationController.canGoBack()) {
                     val tab = currentTabsList[activeTabIndex]
                     if (tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://")) tab.browserTab.navigationController.goBack() 

@@ -83,6 +83,15 @@ data class PasswordItem(
     val title: String = ""
 )
 
+data class OfflinePageItem(
+    val id: Long,
+    val title: String,
+    val url: String,
+    val content: String,
+    val savedAt: Long = System.currentTimeMillis()
+)
+
+
 class HazeDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
 
@@ -233,6 +242,7 @@ class HazeDatabase private constructor(context: Context) :
             """.trimIndent()
         )
         createPasswordTable(db)
+        createOfflineTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -250,6 +260,12 @@ class HazeDatabase private constructor(context: Context) :
         if (oldVersion < 4) {
             createPasswordTable(db)
         }
+        createOfflineTable(db)
+    }
+
+    override fun onConfigure(db: SQLiteDatabase) {
+        super.onConfigure(db)
+        db.enableWriteAheadLogging()
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -263,7 +279,30 @@ class HazeDatabase private constructor(context: Context) :
         } catch (ignored: Exception) {}
         createPrivacyTables(db)
         createPasswordTable(db)
+        createOfflineTable(db)
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_title ON history(title)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_bookmarks_title ON bookmarks(title)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_searches_query ON recent_searches(query)")
+        } catch (ignored: Exception) {}
     }
+
+    private fun createOfflineTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS offline_pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT UNIQUE NOT NULL,
+                content TEXT NOT NULL,
+                saved_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_offline_saved_at ON offline_pages(saved_at DESC)")
+    }
+
 
     private fun createPasswordTable(db: SQLiteDatabase) {
         db.execSQL(
@@ -1330,4 +1369,63 @@ class HazeDatabase private constructor(context: Context) :
 
         return Pair(points, labels)
     }
+
+    // ==========================================
+    // OFFLINE SAVED PAGES
+    // ==========================================
+
+    fun saveOfflinePage(title: String, url: String, content: String): Long {
+        val db = writableDatabase
+        val values = ContentValues().apply {
+            put("title", title.ifBlank { "Saved Page" })
+            put("url", url)
+            put("content", content)
+            put("saved_at", System.currentTimeMillis())
+        }
+        return db.insertWithOnConflict("offline_pages", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun getOfflinePages(): List<OfflinePageItem> {
+        val list = mutableListOf<OfflinePageItem>()
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, title, url, content, saved_at FROM offline_pages ORDER BY saved_at DESC", null)
+        while (cursor.moveToNext()) {
+            list.add(
+                OfflinePageItem(
+                    id = cursor.getLong(0),
+                    title = cursor.getString(1),
+                    url = cursor.getString(2),
+                    content = cursor.getString(3),
+                    savedAt = cursor.getLong(4)
+                )
+            )
+        }
+        cursor.close()
+        return list
+    }
+
+    fun getOfflinePage(url: String): OfflinePageItem? {
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, title, url, content, saved_at FROM offline_pages WHERE url = ?", arrayOf(url))
+        val item = if (cursor.moveToFirst()) {
+            OfflinePageItem(
+                id = cursor.getLong(0),
+                title = cursor.getString(1),
+                url = cursor.getString(2),
+                content = cursor.getString(3),
+                savedAt = cursor.getLong(4)
+            )
+        } else null
+        cursor.close()
+        return item
+    }
+
+    fun deleteOfflinePage(id: Long): Int {
+        return writableDatabase.delete("offline_pages", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun clearAllOfflinePages(): Int {
+        return writableDatabase.delete("offline_pages", null, null)
+    }
 }
+

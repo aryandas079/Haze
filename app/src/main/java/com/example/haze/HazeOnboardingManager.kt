@@ -356,6 +356,7 @@ object HazeOnboardingManager {
                     dismissOnboarding(container, root)
                     activity.triggerStrongHaptic(isHeavy = true)
                     Toast.makeText(activity, "Welcome to Haze, ${user.givenName}!", Toast.LENGTH_SHORT).show()
+                    activity.checkAndPromptGoogleWebLogin()
                 },
                 onError = { errorMsg ->
                     btnContinue.isEnabled = true
@@ -382,8 +383,8 @@ object HazeOnboardingManager {
         root.animate()
             .alpha(0f)
             .translationY(dpToPx(root.context, 32).toFloat())
-            .setDuration(280)
-            .setInterpolator(AccelerateDecelerateInterpolator())
+            .setDuration(320)
+            .setInterpolator(MainActivity.BUTTER_INTERPOLATOR)
             .setListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     try {

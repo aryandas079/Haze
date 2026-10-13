@@ -1,6 +1,7 @@
 package com.example.haze.engine.chromium
 
 import android.webkit.WebView
+import com.example.haze.HazeSecurityManager
 import com.example.haze.engine.INavigationController
 import com.example.haze.engine.NavigationEntry
 import com.example.haze.engine.NavigationHistory
@@ -13,10 +14,11 @@ class ChromiumNavigationController(
 ) : INavigationController {
 
     override fun loadUrl(url: String, headers: Map<String, String>?) {
-        if (headers.isNullOrEmpty()) {
-            webView.loadUrl(url)
+        val finalUrl = HazeSecurityManager.prepareAuthenticationNavigation(webView.context, url)
+        if (headers == null || headers.isEmpty()) {
+            webView.loadUrl(finalUrl)
         } else {
-            webView.loadUrl(url, headers)
+            webView.loadUrl(finalUrl, headers)
         }
     }
 

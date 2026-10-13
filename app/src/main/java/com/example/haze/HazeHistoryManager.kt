@@ -34,6 +34,7 @@ object HazeHistoryManager {
         val strokeColor = if (isDark) Color.parseColor("#2C2C2C") else Color.parseColor("#E0E0E0")
 
         val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
+        dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bgColor))
         dialog.window?.statusBarColor = bgColor
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
