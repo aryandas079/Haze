@@ -2031,6 +2031,46 @@ class MainActivity : AppCompatActivity() {
                 }
             }, 200)
         }
+        if (intent.getBooleanExtra("test_gesture_swipe_down", false)) {
+            webContainer.postDelayed({
+                val loc = IntArray(2)
+                addressBarContainer.getLocationOnScreen(loc)
+                val midX = (loc[0] + addressBarContainer.width / 2).toFloat()
+                val startY = (loc[1] + dpToPx(10)).toFloat()
+                val endY = (loc[1] + dpToPx(80)).toFloat()
+                val now = android.os.SystemClock.uptimeMillis()
+                dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, midX, startY, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_MOVE, midX, (startY + endY) / 2, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 100, MotionEvent.ACTION_UP, midX, endY, 0))
+            }, 300)
+        }
+        if (intent.getBooleanExtra("test_gesture_swipe_tabs", false)) {
+            val direction = intent.getIntExtra("swipe_dir", -1)
+            webContainer.postDelayed({
+                val loc = IntArray(2)
+                addressBarContainer.getLocationOnScreen(loc)
+                val midY = (loc[1] + addressBarContainer.height / 2).toFloat()
+                val startX = if (direction < 0) (loc[0] + addressBarContainer.width * 0.8f) else (loc[0] + addressBarContainer.width * 0.2f)
+                val endX = if (direction < 0) (loc[0] + addressBarContainer.width * 0.2f) else (loc[0] + addressBarContainer.width * 0.8f)
+                val now = android.os.SystemClock.uptimeMillis()
+                dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, midY, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_MOVE, (startX + endX) / 2, midY, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 100, MotionEvent.ACTION_UP, endX, midY, 0))
+            }, 300)
+        }
+        if (intent.getBooleanExtra("test_gesture_edge_nav", false)) {
+            val isLeft = intent.getBooleanExtra("is_left_edge", true)
+            webContainer.postDelayed({
+                val screenW = resources.displayMetrics.widthPixels.toFloat()
+                val midY = (resources.displayMetrics.heightPixels / 2).toFloat()
+                val startX = if (isLeft) dpToPx(10).toFloat() else (screenW - dpToPx(10).toFloat())
+                val endX = if (isLeft) dpToPx(120).toFloat() else (screenW - dpToPx(120).toFloat())
+                val now = android.os.SystemClock.uptimeMillis()
+                dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, startX, midY, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 50, MotionEvent.ACTION_MOVE, (startX + endX) / 2, midY, 0))
+                dispatchTouchEvent(MotionEvent.obtain(now, now + 100, MotionEvent.ACTION_UP, endX, midY, 0))
+            }, 300)
+        }
     }
 
     private fun getCustomShortcuts(): List<Shortcut> {
@@ -4293,18 +4333,28 @@ class MainActivity : AppCompatActivity() {
                     holder.cardTabGrid?.setCardBackgroundColor(Color.WHITE)
                 }
 
-                holder.cardTabGrid?.setOnClickListener {
-                    triggerStrongHaptic(it)
-                    onItemClick(tab)
-                }
-                holder.cardTabGrid?.setOnLongClickListener {
+                val tabLongClickListener = View.OnLongClickListener { v ->
                     val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
                     if (enabled) {
-                        triggerStrongHaptic(it)
+                        triggerStrongHaptic(v, isHeavy = true)
                         showTabOptionsMenu(tab)
                         true
                     } else false
                 }
+                holder.itemView.isLongClickable = true
+                holder.itemView.setOnLongClickListener(tabLongClickListener)
+                holder.cardTabGrid?.isLongClickable = true
+                holder.cardTabGrid?.setOnLongClickListener(tabLongClickListener)
+                holder.view.findViewById<View>(R.id.gridHeaderLayout)?.setOnLongClickListener(tabLongClickListener)
+                holder.view.findViewById<View>(R.id.gridTabThumbnail)?.setOnLongClickListener(tabLongClickListener)
+
+                val tabClickListener = View.OnClickListener {
+                    triggerStrongHaptic(it)
+                    onItemClick(tab)
+                }
+                holder.cardTabGrid?.setOnClickListener(tabClickListener)
+                holder.itemView.setOnClickListener(tabClickListener)
+
                 holder.gridTabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
                     onCloseClick(tab)
@@ -4367,15 +4417,26 @@ class MainActivity : AppCompatActivity() {
                 holder.tabTitle?.text = tab.title
                 holder.tabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
 
-                holder.rowContainer?.setOnClickListener {
+                val listLongClickListener = View.OnLongClickListener { v ->
+                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
+                    if (enabled) {
+                        triggerStrongHaptic(v, isHeavy = true)
+                        showTabOptionsMenu(tab)
+                        true
+                    } else false
+                }
+                holder.itemView.isLongClickable = true
+                holder.itemView.setOnLongClickListener(listLongClickListener)
+                holder.rowContainer?.isLongClickable = true
+                holder.rowContainer?.setOnLongClickListener(listLongClickListener)
+
+                val listClickListener = View.OnClickListener {
                     triggerStrongHaptic(it)
                     onItemClick(tab)
                 }
-                holder.rowContainer?.setOnLongClickListener {
-                    triggerStrongHaptic(it)
-                    showTabOptionsMenu(tab)
-                    true
-                }
+                holder.rowContainer?.setOnClickListener(listClickListener)
+                holder.itemView.setOnClickListener(listClickListener)
+
                 holder.tabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
                     onCloseClick(tab)
@@ -5894,110 +5955,212 @@ class MainActivity : AppCompatActivity() {
         tab.browserTab.reload()
     }
 
+    // -------------------------------------------------------------------------
+    // GESTURE CONTROLS (Swipe Address Bar, Swipe Down Overview, Edge Nav)
+    // -------------------------------------------------------------------------
+    private var gestureStartX = 0f
+    private var gestureStartY = 0f
+    private var isAddressBarTouch = false
+    private var isAddressBarSwiping = false
+    private var isEdgeTouch = false
+    private var isEdgeSwiping = false
+    private var isLeftEdge = false
+    private var isRightEdge = false
+    private var childTouchesCanceled = false
+
     fun setupSwipeBetweenTabs() {
-        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            private val SWIPE_THRESHOLD = 80
-            private val SWIPE_VELOCITY_THRESHOLD = 100
+        // Handled centrally in dispatchTouchEvent for 100% reliable interception across all Android views
+    }
 
-            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                if (e1 == null) return false
-                val diffX = e2.x - e1.x
-                val diffY = e2.y - e1.y
+    fun setupWebEdgeSwipeGestures() {
+        // Handled centrally in dispatchTouchEvent for 100% reliable interception across all Android views
+    }
 
-                // 1. Swipe down on address bar -> tab overview
-                if (diffY > Math.abs(diffX) && diffY > SWIPE_THRESHOLD && velocityY > SWIPE_VELOCITY_THRESHOLD) {
-                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
-                    if (enabled) {
-                        triggerStrongHaptic(addressBarContainer, isHeavy = true)
-                        showFullScreenTabs()
+    private fun resetGestures() {
+        isAddressBarTouch = false
+        isAddressBarSwiping = false
+        isEdgeTouch = false
+        isEdgeSwiping = false
+        isLeftEdge = false
+        isRightEdge = false
+        childTouchesCanceled = false
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val edgeZone = dpToPx(36)
+
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                gestureStartX = ev.rawX
+                gestureStartY = ev.rawY
+                isAddressBarTouch = false
+                isAddressBarSwiping = false
+                isEdgeTouch = false
+                isEdgeSwiping = false
+                isLeftEdge = false
+                isRightEdge = false
+                childTouchesCanceled = false
+
+                if (!isSearchActive) {
+                    // Check if touch down is inside bottom address bar
+                    if (::addressBarContainer.isInitialized && addressBarContainer.isShown) {
+                        val loc = IntArray(2)
+                        addressBarContainer.getLocationOnScreen(loc)
+                        val left = loc[0]
+                        val top = loc[1]
+                        val right = left + addressBarContainer.width
+                        val bottom = top + addressBarContainer.height
+                        if (gestureStartX >= left && gestureStartX <= right && gestureStartY >= top && gestureStartY <= bottom) {
+                            isAddressBarTouch = true
+                        }
+                    }
+
+                    // Check if touch down is within screen edge navigation zones
+                    if (!isAddressBarTouch) {
+                        val edgeEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_EDGE_SWIPE_NAVIGATE, true)
+                        if (edgeEnabled) {
+                            if (gestureStartX <= edgeZone) {
+                                isEdgeTouch = true
+                                isLeftEdge = true
+                            } else if (gestureStartX >= screenWidth - edgeZone) {
+                                isEdgeTouch = true
+                                isRightEdge = true
+                            }
+                        }
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                val dx = ev.rawX - gestureStartX
+                val dy = ev.rawY - gestureStartY
+                val absX = Math.abs(dx)
+                val absY = Math.abs(dy)
+
+                // 1. Address bar swipe tracking
+                if (isAddressBarTouch && !isSearchActive) {
+                    val swipeSwitchEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
+                    val swipeDownEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
+
+                    val isHorizontalDrag = swipeSwitchEnabled && absX > dpToPx(14) && absX > absY
+                    val isDownwardDrag = swipeDownEnabled && dy > dpToPx(14) && dy > absX
+
+                    if (isHorizontalDrag || isDownwardDrag) {
+                        isAddressBarSwiping = true
+                        if (!childTouchesCanceled) {
+                            val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                            super.dispatchTouchEvent(cancelEvent)
+                            cancelEvent.recycle()
+                            childTouchesCanceled = true
+                        }
                         return true
                     }
                 }
 
-                // 2. Horizontal swipe on address bar -> switch tab
-                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > SWIPE_THRESHOLD && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
-                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
-                    if (enabled) {
-                        if (diffX > 0) {
+                // 2. Edge swipe navigation tracking
+                if (isEdgeTouch && !isSearchActive) {
+                    val isEdgeDrag = (isLeftEdge && dx > dpToPx(16) && dx > absY) ||
+                                     (isRightEdge && dx < -dpToPx(16) && absX > absY)
+                    if (isEdgeDrag) {
+                        isEdgeSwiping = true
+                        if (!childTouchesCanceled) {
+                            val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                            super.dispatchTouchEvent(cancelEvent)
+                            cancelEvent.recycle()
+                            childTouchesCanceled = true
+                        }
+                        return true
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_UP -> {
+                val dx = ev.rawX - gestureStartX
+                val dy = ev.rawY - gestureStartY
+                val absX = Math.abs(dx)
+                val absY = Math.abs(dy)
+
+                // 1. Complete Address Bar Gestures
+                if (isAddressBarTouch && !isSearchActive) {
+                    val swipeSwitchEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
+                    val swipeDownEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
+
+                    // A: Swipe down -> Tab overview
+                    if (swipeDownEnabled && dy > dpToPx(32) && dy > absX) {
+                        triggerStrongHaptic(isHeavy = true)
+                        showFullScreenTabs()
+                        resetGestures()
+                        return true
+                    }
+
+                    // B: Horizontal swipe -> Switch tab
+                    if (swipeSwitchEnabled && absX > dpToPx(32) && absX > absY) {
+                        if (dx > 0) {
                             // Swipe right -> previous tab
                             if (activeTabIndex > 0) {
-                                triggerStrongHaptic(addressBarContainer)
+                                triggerStrongHaptic(isHeavy = true)
                                 switchTab(activeTabIndex - 1)
+                                resetGestures()
                                 return true
                             }
                         } else {
                             // Swipe left -> next tab
                             if (activeTabIndex < currentTabsList.size - 1) {
-                                triggerStrongHaptic(addressBarContainer)
+                                triggerStrongHaptic(isHeavy = true)
                                 switchTab(activeTabIndex + 1)
+                                resetGestures()
                                 return true
                             }
                         }
                     }
+
+                    if (isAddressBarSwiping || childTouchesCanceled) {
+                        resetGestures()
+                        return true
+                    }
                 }
-                return false
-            }
-        })
 
-        val touchListener = View.OnTouchListener { v, event ->
-            if (gestureDetector.onTouchEvent(event)) {
-                true
-            } else {
-                v.onTouchEvent(event)
-            }
-        }
-        addressBarContainer.setOnTouchListener(touchListener)
-        findViewById<LinearLayout>(R.id.addressBarInner)?.setOnTouchListener(touchListener)
-    }
-
-    fun setupWebEdgeSwipeGestures() {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val edgeZone = dpToPx(36)
-
-        var startX = 0f
-        var startY = 0f
-        var isEdgeSwipe = false
-
-        webContainer.setOnTouchListener { _, event ->
-            val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_EDGE_SWIPE_NAVIGATE, true)
-            if (!enabled) return@setOnTouchListener false
-
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startX = event.rawX
-                    startY = event.rawY
-                    isEdgeSwipe = (startX <= edgeZone || startX >= screenWidth - edgeZone)
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (isEdgeSwipe) {
-                        val deltaX = event.rawX - startX
-                        val deltaY = event.rawY - startY
-                        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > dpToPx(70)) {
-                            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-                            if (deltaX > 0 && startX <= edgeZone) {
-                                // Swiped right from left edge -> Navigate Back
-                                if (currentTab?.browserTab?.navigationController?.canGoBack() == true) {
-                                    triggerStrongHaptic(isHeavy = true)
-                                    currentTab.browserTab.navigationController.goBack()
-                                    Toast.makeText(this, "Navigating back", Toast.LENGTH_SHORT).show()
-                                    return@setOnTouchListener true
-                                }
-                            } else if (deltaX < 0 && startX >= screenWidth - edgeZone) {
-                                // Swiped left from right edge -> Navigate Forward
-                                if (currentTab?.browserTab?.navigationController?.canGoForward() == true) {
-                                    triggerStrongHaptic(isHeavy = true)
-                                    currentTab.browserTab.navigationController.goForward()
-                                    Toast.makeText(this, "Navigating forward", Toast.LENGTH_SHORT).show()
-                                    return@setOnTouchListener true
-                                }
+                // 2. Complete Edge Navigation Gestures
+                if (isEdgeTouch && !isSearchActive) {
+                    val edgeEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_EDGE_SWIPE_NAVIGATE, true)
+                    if (edgeEnabled) {
+                        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                        if (isLeftEdge && dx > dpToPx(40) && dx > absY) {
+                            // Swiped right from left edge -> Navigate Back
+                            if (currentTab?.browserTab?.navigationController?.canGoBack() == true) {
+                                triggerStrongHaptic(isHeavy = true)
+                                currentTab.browserTab.navigationController.goBack()
+                                Toast.makeText(this, "Navigating back", Toast.LENGTH_SHORT).show()
+                                resetGestures()
+                                return true
+                            }
+                        } else if (isRightEdge && dx < -dpToPx(40) && absX > absY) {
+                            // Swiped left from right edge -> Navigate Forward
+                            if (currentTab?.browserTab?.navigationController?.canGoForward() == true) {
+                                triggerStrongHaptic(isHeavy = true)
+                                currentTab.browserTab.navigationController.goForward()
+                                Toast.makeText(this, "Navigating forward", Toast.LENGTH_SHORT).show()
+                                resetGestures()
+                                return true
                             }
                         }
                     }
-                    isEdgeSwipe = false
+                    if (isEdgeSwiping || childTouchesCanceled) {
+                        resetGestures()
+                        return true
+                    }
                 }
+
+                resetGestures()
             }
-            false
+
+            MotionEvent.ACTION_CANCEL -> {
+                resetGestures()
+            }
         }
+
+        return super.dispatchTouchEvent(ev)
     }
 
     fun showPageZoomDialog() {

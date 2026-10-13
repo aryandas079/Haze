@@ -452,21 +452,7 @@ object HazeTabSystemManager {
             activity.startActivity(Intent.createChooser(shareIntent, "Send Tab via Quick Share"))
         }
 
-        // 2. Aryan's PC (Device Push)
-        addTarget("Aryan's PC (Windows / Linux)", "Push notification and open in desktop browser", R.drawable.ic_desktop) {
-            val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("Haze Tab Sync", targetTabs.first().url))
-            Toast.makeText(activity, "Tab sent to Aryan's PC! (Link copied to sync clipboard)", Toast.LENGTH_LONG).show()
-        }
-
-        // 3. Tablet Device
-        addTarget("Aryan's Tablet", "Send to connected tablet device", R.drawable.ic_desktop) {
-            val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("Haze Tab Sync", targetTabs.first().url))
-            Toast.makeText(activity, "Tab sent to Tablet! (Sync link active)", Toast.LENGTH_LONG).show()
-        }
-
-        // 4. Instant QR Code
+        // 2. Instant QR Code
         addTarget("Instant QR Code for Other Devices", "Scan with camera on any PC, phone, or tablet to open instantly", R.drawable.ic_qr_code) {
             showQrCodeDialog(activity, targetTabs.first().title, targetTabs.first().url)
         }
