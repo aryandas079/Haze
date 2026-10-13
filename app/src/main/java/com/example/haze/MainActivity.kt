@@ -2633,6 +2633,18 @@ class MainActivity : AppCompatActivity() {
             showMiniPlayer(previousTab, createBrowsingTab = false)
         }
         
+        if (::webContainer.isInitialized) {
+            webContainer.translationY = 0f
+            webContainer.translationX = 0f
+        }
+        if (::addressBarContainer.isInitialized) {
+            addressBarContainer.translationY = 0f
+            addressBarContainer.translationX = 0f
+        }
+        if (::addressBar.isInitialized) {
+            addressBar.translationX = 0f
+        }
+        
         val oldIndex = activeTabIndex
         if (isPrivateMode) activePrivateTabIndex = index else activeNormalTabIndex = index
         
@@ -4023,8 +4035,8 @@ class MainActivity : AppCompatActivity() {
         personalAdapter = TabsAdapter(normalTabs, currentMode, { clickedTab ->
             isPrivateMode = false
             val idx = normalTabs.indexOf(clickedTab)
-            if (idx != -1) switchTab(idx)
             dialog.dismiss()
+            if (idx != -1) switchTab(idx)
         }, { tabToClose ->
             if (tabToClose.isPinned) {
                 AlertDialog.Builder(this)
@@ -4041,8 +4053,8 @@ class MainActivity : AppCompatActivity() {
         privateAdapter = TabsAdapter(privateTabs, currentMode, { clickedTab ->
             isPrivateMode = true
             val idx = privateTabs.indexOf(clickedTab)
-            if (idx != -1) switchTab(idx)
             dialog.dismiss()
+            if (idx != -1) switchTab(idx)
         }, { tabToClose ->
             onTabClosed(tabToClose, true)
         }, true)
@@ -4351,6 +4363,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 holder.cardTabGrid?.setOnClickListener(tabClickListener)
                 holder.itemView.setOnClickListener(tabClickListener)
+                holder.gridTabThumbnail?.setOnClickListener(tabClickListener)
+                holder.view.findViewById<View>(R.id.gridHeaderLayout)?.setOnClickListener(tabClickListener)
+                holder.gridTabTitle?.setOnClickListener(tabClickListener)
+                holder.gridTabUrl?.setOnClickListener(tabClickListener)
+                holder.gridTabIcon?.setOnClickListener(tabClickListener)
 
                 holder.gridTabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
@@ -4433,6 +4450,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 holder.rowContainer?.setOnClickListener(listClickListener)
                 holder.itemView.setOnClickListener(listClickListener)
+                holder.tabTitle?.setOnClickListener(listClickListener)
+                holder.tabUrl?.setOnClickListener(listClickListener)
+                holder.tabIcon?.setOnClickListener(listClickListener)
 
                 holder.tabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
@@ -5997,6 +6017,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (activeFullScreenTabsDialog?.isShowing == true) {
+            return super.dispatchTouchEvent(ev)
+        }
+
         val screenWidth = resources.displayMetrics.widthPixels
         val edgeZone = dpToPx(36)
 
@@ -6230,11 +6254,12 @@ class MainActivity : AppCompatActivity() {
                     if (isAddressBarPullDown) {
                         addressBarContainer.animate().translationY(0f).setDuration(120L).setInterpolator(FAST_INTERPOLATOR).start()
                         webContainer.animate().translationY(0f).setDuration(120L).setInterpolator(FAST_INTERPOLATOR).start()
-                        if (dy > dpToPx(32) && dy > absX) {
+                        val shouldOpenOverview = (dy > dpToPx(32) && dy > absX)
+                        resetGestures()
+                        if (shouldOpenOverview) {
                             triggerStrongHaptic(isHeavy = true)
                             showFullScreenTabs()
                         }
-                        resetGestures()
                         return true
                     }
 
