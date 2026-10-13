@@ -46,7 +46,7 @@
                 app:tint="#5F6368"
                 android:contentDescription="Recently Closed Tabs" />
 
-            <!-- Toggle View Mode (List vs Grid) -->
+            <!-- Toggle View Mode (Cards / Grid / List) -->
             <ImageButton
                 android:id="@+id/btnToggleViewMode"
                 android:layout_width="36dp"
@@ -55,7 +55,18 @@
                 android:src="@drawable/ic_grid"
                 android:layout_marginEnd="6dp"
                 app:tint="#5F6368"
-                android:contentDescription="Toggle Grid / List View" />
+                android:contentDescription="Toggle Grid / Cards / List View" />
+
+            <!-- Tab Switcher Menu (Sort, Group, Close All, Inactive, Share, Gestures) -->
+            <ImageButton
+                android:id="@+id/btnTabsMoreOptions"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_more_vert"
+                android:layout_marginEnd="6dp"
+                app:tint="#5F6368"
+                android:contentDescription="Tab Manager Options" />
 
             <ImageButton
                 android:id="@+id/btnCloseTabs"

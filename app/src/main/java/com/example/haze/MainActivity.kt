@@ -421,6 +421,12 @@ class MainActivity : AppCompatActivity() {
         if (createBrowsingTab) addNewTab(HAZE_HOME_URL)
     }
 
+    enum class TabSortMode {
+        DEFAULT,
+        RECENT,
+        DOMAIN
+    }
+
     data class TabGroup(var id: String, var name: String, var color: Int, var isCollapsed: Boolean = false)
     data class Shortcut(val name: String, val url: String, val iconUrl: String = "", val svgPath: String = "", val fillColor: String = "")
     data class ClosedTabInfo(val title: String, val url: String, val timestamp: Long = System.currentTimeMillis(), val isPrivate: Boolean = false)
@@ -434,7 +440,8 @@ class MainActivity : AppCompatActivity() {
         var isPrivate: Boolean = false,
         var group: TabGroup? = null,
         var isDesktop: Boolean = false,
-        var isPinned: Boolean = false
+        var isPinned: Boolean = false,
+        var lastAccessedTime: Long = System.currentTimeMillis()
     ) {
         val webView: WebView? get() = (browserTab as? ChromiumBrowserTab)?.webView
 
@@ -448,7 +455,8 @@ class MainActivity : AppCompatActivity() {
             isPrivate: Boolean = false,
             group: TabGroup? = null,
             isDesktop: Boolean = false,
-            isPinned: Boolean = false
+            isPinned: Boolean = false,
+            lastAccessedTime: Long = System.currentTimeMillis()
         ) : this(
             id = id,
             browserTab = ChromiumBrowserTab(webView.context, id, isPrivate),
@@ -459,7 +467,8 @@ class MainActivity : AppCompatActivity() {
             isPrivate = isPrivate,
             group = group,
             isDesktop = isDesktop,
-            isPinned = isPinned
+            isPinned = isPinned,
+            lastAccessedTime = lastAccessedTime
         )
     }
 
@@ -468,6 +477,7 @@ class MainActivity : AppCompatActivity() {
     private val recentlyClosedTabs = mutableListOf<ClosedTabInfo>()
     var isPrivateMode = false
     private var isFullScreenMode = false
+    private var activeFullScreenTabsDialog: Dialog? = null
     
     private val currentTabsList: MutableList<Tab>
         get() = if (isPrivateMode) privateTabs else normalTabs
@@ -1047,6 +1057,7 @@ class MainActivity : AppCompatActivity() {
         handleCustomIntent(intent)
         applyTheme()
         setupSwipeBetweenTabs()
+        setupWebEdgeSwipeGestures()
         val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
         val shouldContinueSession = prefs.getBoolean("continue_where_left_off", true)
         val hasRestored = if (shouldContinueSession && initialUrl == HAZE_HOME_URL) {
@@ -1856,8 +1867,43 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_privacy_shield", false)) {
             webContainer.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 200)
         }
+        if (intent.hasExtra("set_tab_mode")) {
+            val mode = intent.getIntExtra("set_tab_mode", 0)
+            prefs.edit().putInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, mode).apply()
+        }
+        if (intent.getBooleanExtra("close_dialogs", false)) {
+            activeFullScreenTabsDialog?.dismiss()
+            activeFullScreenTabsDialog = null
+        }
         if (intent.getBooleanExtra("open_tabs", false)) {
-            webContainer.postDelayed({ showFullScreenTabs() }, 200)
+            val filterQ = intent.getStringExtra("filter_tabs_query")
+            webContainer.postDelayed({ showFullScreenTabs(filterQ) }, 200)
+        }
+        if (intent.getBooleanExtra("open_tab_menu", false)) {
+            webContainer.postDelayed({
+                HazeTabSystemManager.showTabSwitcherMenu(
+                    activity = this,
+                    tabs = currentTabsList,
+                    activeIndex = activeTabIndex,
+                    currentMode = prefs.getInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, HazeTabSystemManager.TAB_MODE_GRID),
+                    onModeChanged = { newMode ->
+                        prefs.edit().putInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, newMode).apply()
+                    },
+                    onSortRequested = { sortMode ->
+                        Toast.makeText(this, "Sorted by ${sortMode.name.lowercase()}", Toast.LENGTH_SHORT).show()
+                    },
+                    onRefresh = { },
+                    onCloseTab = { tab ->
+                        val idx = currentTabsList.indexOf(tab)
+                        if (idx != -1) {
+                            webContainer.removeView(tab.swipeRefreshLayout ?: tab.browserTab.renderView)
+                            tab.browserTab.destroy()
+                            currentTabsList.removeAt(idx)
+                            saveSessionState()
+                        }
+                    }
+                )
+            }, 200)
         }
         if (intent.getBooleanExtra("open_private_tab", false)) {
             val pUrl = intent.getStringExtra("private_url") ?: HAZE_HOME_URL
@@ -1921,6 +1967,70 @@ class MainActivity : AppCompatActivity() {
                 saveSessionState()
             }, 200)
         }
+        if (intent.getBooleanExtra("open_gestures_settings", false)) {
+            webContainer.postDelayed({ HazeTabSystemManager.showGesturesSettingsDialog(this) }, 200)
+        }
+        if (intent.getBooleanExtra("test_tab_history", false)) {
+            webContainer.postDelayed({
+                val tab = currentTabsList.getOrNull(activeTabIndex)
+                if (tab != null) {
+                    HazeTabSystemManager.showTabHistoryDialog(this, tab) { }
+                }
+            }, 200)
+        }
+        if (intent.getBooleanExtra("test_send_to_device", false)) {
+            webContainer.postDelayed({
+                HazeTabSystemManager.showSendToDeviceDialog(this, currentTabsList)
+            }, 200)
+        }
+        if (intent.getBooleanExtra("test_qr_dialog", false)) {
+            webContainer.postDelayed({
+                val tab = currentTabsList.getOrNull(activeTabIndex)
+                val url = tab?.url ?: HAZE_HOME_URL
+                val title = tab?.title ?: "Haze Tab"
+                HazeTabSystemManager.showQrCodeDialog(this, title, url)
+            }, 200)
+        }
+        if (intent.getBooleanExtra("test_auto_group", false)) {
+            webContainer.postDelayed({
+                HazeTabSystemManager.autoGroupByDomain(this, currentTabsList) {
+                    saveSessionState()
+                }
+            }, 200)
+        }
+        if (intent.getBooleanExtra("test_close_inactive", false)) {
+            webContainer.postDelayed({
+                HazeTabSystemManager.closeInactiveTabs(
+                    this,
+                    currentTabsList,
+                    activeTabIndex
+                ) { tab ->
+                    val idx = currentTabsList.indexOf(tab)
+                    if (idx != -1) {
+                        webContainer.removeView(tab.swipeRefreshLayout ?: tab.browserTab.renderView)
+                        tab.browserTab.destroy()
+                        currentTabsList.removeAt(idx)
+                        saveSessionState()
+                    }
+                }
+            }, 200)
+        }
+        if (intent.getBooleanExtra("test_close_all", false)) {
+            webContainer.postDelayed({
+                HazeTabSystemManager.closeAllTabs(
+                    this,
+                    currentTabsList
+                ) { tab ->
+                    val idx = currentTabsList.indexOf(tab)
+                    if (idx != -1) {
+                        webContainer.removeView(tab.swipeRefreshLayout ?: tab.browserTab.renderView)
+                        tab.browserTab.destroy()
+                        currentTabsList.removeAt(idx)
+                        saveSessionState()
+                    }
+                }
+            }, 200)
+        }
     }
 
     private fun getCustomShortcuts(): List<Shortcut> {
@@ -1981,7 +2091,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
     }
 
-    private fun isHomeTab(tab: Tab): Boolean {
+    fun isHomeTab(tab: Tab): Boolean {
         val u = tab.url.trim()
         return u == HAZE_HOME_URL || u == "$HAZE_HOME_URL/" || u.startsWith("haze://home") || u == "about:blank" || u.startsWith("about:") || u.isEmpty()
     }
@@ -2466,6 +2576,7 @@ class MainActivity : AppCompatActivity() {
 
         val previousTab = currentTabsList.getOrNull(activeTabIndex)
         val nextTab = currentTabsList[index]
+        nextTab.lastAccessedTime = System.currentTimeMillis()
         if (previousTab != null && previousTab !== nextTab) {
             if (activeMediaTab !== previousTab) {
                 try {
@@ -3617,7 +3728,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveSessionState() {
+    fun saveSessionState() {
         try {
             val tabsJson = JSONArray()
             val urlList = mutableListOf<String>()
@@ -3769,14 +3880,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showFullScreenTabs() {
+    private fun showFullScreenTabs(filterQuery: String? = null) {
+        activeFullScreenTabsDialog?.dismiss()
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar)
+        activeFullScreenTabsDialog = dialog
+        dialog.setOnDismissListener {
+            if (activeFullScreenTabsDialog == dialog) {
+                activeFullScreenTabsDialog = null
+            }
+        }
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.setContentView(R.layout.layout_full_screen_tabs)
 
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
         val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
         val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
+        val btnTabsMoreOptions = dialog.findViewById<ImageButton>(R.id.btnTabsMoreOptions)
         val btnTogglePersonal = dialog.findViewById<TextView>(R.id.btnTogglePersonal)
         val btnTogglePrivate = dialog.findViewById<TextView>(R.id.btnTogglePrivate)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
@@ -3785,11 +3904,20 @@ class MainActivity : AppCompatActivity() {
         val btnClearTabSearch = dialog.findViewById<ImageButton>(R.id.btnClearTabSearch)
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
 
+        if (!filterQuery.isNullOrEmpty()) {
+            etTabSearch.setText(filterQuery)
+        }
+
         var viewingPrivate = isPrivateMode
-        var isGridMode = prefs.getBoolean("tab_view_mode_grid", false)
+        var currentMode = prefs.getInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, HazeTabSystemManager.TAB_MODE_GRID)
 
         fun updateViewModeIcon() {
-            btnToggleViewMode.setImageResource(if (isGridMode) R.drawable.ic_view_list else R.drawable.ic_grid)
+            val iconRes = when (currentMode) {
+                HazeTabSystemManager.TAB_MODE_CARDS -> R.drawable.ic_view_card
+                HazeTabSystemManager.TAB_MODE_LIST -> R.drawable.ic_view_list
+                else -> R.drawable.ic_grid
+            }
+            btnToggleViewMode.setImageResource(iconRes)
         }
         updateViewModeIcon()
 
@@ -3855,7 +3983,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        personalAdapter = TabsAdapter(normalTabs, isGridMode, { clickedTab ->
+        personalAdapter = TabsAdapter(normalTabs, currentMode, { clickedTab ->
             isPrivateMode = false
             val idx = normalTabs.indexOf(clickedTab)
             if (idx != -1) switchTab(idx)
@@ -3873,7 +4001,7 @@ class MainActivity : AppCompatActivity() {
             }
         }, false)
 
-        privateAdapter = TabsAdapter(privateTabs, isGridMode, { clickedTab ->
+        privateAdapter = TabsAdapter(privateTabs, currentMode, { clickedTab ->
             isPrivateMode = true
             val idx = privateTabs.indexOf(clickedTab)
             if (idx != -1) switchTab(idx)
@@ -3883,24 +4011,55 @@ class MainActivity : AppCompatActivity() {
         }, true)
 
         fun setupLayoutManager() {
-            rvActiveTabs.layoutManager = if (isGridMode) {
-                androidx.recyclerview.widget.GridLayoutManager(this, 2)
-            } else {
-                LinearLayoutManager(this)
+            rvActiveTabs.layoutManager = when (currentMode) {
+                HazeTabSystemManager.TAB_MODE_GRID -> androidx.recyclerview.widget.GridLayoutManager(this, 2)
+                else -> LinearLayoutManager(this)
             }
         }
         setupLayoutManager()
 
-        btnToggleViewMode.setOnClickListener {
-            triggerStrongHaptic(it)
-            isGridMode = !isGridMode
-            prefs.edit().putBoolean("tab_view_mode_grid", isGridMode).apply()
+        fun applyNewViewMode(newMode: Int) {
+            currentMode = newMode
+            prefs.edit().putInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, newMode).apply()
             updateViewModeIcon()
             setupLayoutManager()
-            personalAdapter.isGridMode = isGridMode
-            privateAdapter.isGridMode = isGridMode
+            personalAdapter.tabMode = newMode
+            privateAdapter.tabMode = newMode
             personalAdapter.notifyDataSetChanged()
             privateAdapter.notifyDataSetChanged()
+        }
+
+        btnToggleViewMode.setOnClickListener {
+            triggerStrongHaptic(it)
+            HazeTabSystemManager.showViewModeSelector(this, currentMode) { newMode ->
+                applyNewViewMode(newMode)
+            }
+        }
+
+        btnTabsMoreOptions.setOnClickListener {
+            triggerStrongHaptic(it)
+            val list = if (viewingPrivate) privateTabs else normalTabs
+            HazeTabSystemManager.showTabSwitcherMenu(
+                activity = this@MainActivity,
+                tabs = list,
+                activeIndex = if (viewingPrivate) activePrivateTabIndex else activeNormalTabIndex,
+                currentMode = currentMode,
+                onModeChanged = { newMode -> applyNewViewMode(newMode) },
+                onSortRequested = { sortMode ->
+                    personalAdapter.sortMode = sortMode
+                    privateAdapter.sortMode = sortMode
+                    personalAdapter.notifyDataSetChanged()
+                    privateAdapter.notifyDataSetChanged()
+                    Toast.makeText(this@MainActivity, "Sorted tabs by ${sortMode.name.lowercase()}", Toast.LENGTH_SHORT).show()
+                },
+                onRefresh = {
+                    personalAdapter.notifyDataSetChanged()
+                    privateAdapter.notifyDataSetChanged()
+                },
+                onCloseTab = { tabToClose ->
+                    onTabClosed(tabToClose, viewingPrivate)
+                }
+            )
         }
 
         etTabSearch.addTextChangedListener(object : TextWatcher {
@@ -4010,12 +4169,13 @@ class MainActivity : AppCompatActivity() {
 
     inner class TabsAdapter(
         private val originalList: MutableList<Tab>,
-        var isGridMode: Boolean,
+        var tabMode: Int,
         private val onItemClick: (Tab) -> Unit,
         private val onCloseClick: (Tab) -> Unit,
         private val isPrivateList: Boolean
     ) : RecyclerView.Adapter<TabsAdapter.TabViewHolder>() {
 
+        var sortMode: TabSortMode = TabSortMode.DEFAULT
         private var filterQuery: String = ""
 
         private val displayedList: List<Tab>
@@ -4027,8 +4187,12 @@ class MainActivity : AppCompatActivity() {
                         it.title.contains(filterQuery, ignoreCase = true) || it.url.contains(filterQuery, ignoreCase = true)
                     }
                 }
-                val sorted = base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { it.group?.id ?: "" })
-                if (filterQuery.isNotEmpty() || isGridMode) return sorted
+                val sorted = when (sortMode) {
+                    TabSortMode.RECENT -> base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenByDescending { it.lastAccessedTime })
+                    TabSortMode.DOMAIN -> base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { HazeTabSystemManager.getDomain(it.url).lowercase() })
+                    TabSortMode.DEFAULT -> base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { it.group?.id ?: "" })
+                }
+                if (filterQuery.isNotEmpty() || tabMode != HazeTabSystemManager.TAB_MODE_LIST) return sorted
 
                 val seenCollapsedGroupIds = mutableSetOf<String>()
                 val result = mutableListOf<Tab>()
@@ -4078,7 +4242,8 @@ class MainActivity : AppCompatActivity() {
             val gridGroupIndicator: View? = view.findViewById(R.id.gridGroupIndicator)
         }
 
-        override fun getItemViewType(position: Int): Int = if (isGridMode) 1 else 0
+        override fun getItemViewType(position: Int): Int =
+            if (tabMode == HazeTabSystemManager.TAB_MODE_LIST) 0 else 1
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TabViewHolder {
             val layoutRes = if (viewType == 1) R.layout.item_tab_grid else R.layout.item_tab_row
@@ -4094,6 +4259,10 @@ class MainActivity : AppCompatActivity() {
             val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
 
             if (holder.isGrid) {
+                // Adjust card height for Cards mode (280dp) vs Grid mode (210dp)
+                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(280) else dpToPx(210)
+                holder.cardTabGrid?.layoutParams?.height = cardHeight
+
                 holder.gridTabTitle?.text = tab.title
                 holder.gridTabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
                 holder.gridTabPinIcon?.visibility = if (tab.isPinned) View.VISIBLE else View.GONE
@@ -4129,9 +4298,12 @@ class MainActivity : AppCompatActivity() {
                     onItemClick(tab)
                 }
                 holder.cardTabGrid?.setOnLongClickListener {
-                    triggerStrongHaptic(it)
-                    showTabOptionsMenu(tab)
-                    true
+                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
+                    if (enabled) {
+                        triggerStrongHaptic(it)
+                        showTabOptionsMenu(tab)
+                        true
+                    } else false
                 }
                 holder.gridTabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
@@ -4280,6 +4452,11 @@ class MainActivity : AppCompatActivity() {
                     options.add("Add to Existing Group...")
                 }
             }
+            options.add("Tab History (Back/Forward)")
+            options.add("Send Tab to Another Device...")
+            if (tab.group != null) {
+                options.add("Save Tab Group to Bookmarks")
+            }
             options.add("Share Tab URL")
             options.add("Close Tab")
 
@@ -4332,6 +4509,18 @@ class MainActivity : AppCompatActivity() {
                                     Toast.makeText(this@MainActivity, "Added to ${groups[gIdx].name}", Toast.LENGTH_SHORT).show()
                                 }
                                 .show()
+                        }
+                        action == "Tab History (Back/Forward)" -> {
+                            HazeTabSystemManager.showTabHistoryDialog(this@MainActivity, tab) {
+                                val idx = originalList.indexOf(tab)
+                                if (idx != -1) switchTab(idx)
+                            }
+                        }
+                        action == "Send Tab to Another Device..." -> {
+                            HazeTabSystemManager.showSendToDeviceDialog(this@MainActivity, listOf(tab))
+                        }
+                        action == "Save Tab Group to Bookmarks" -> {
+                            HazeTabSystemManager.saveTabGroup(this@MainActivity, tab.group, originalList)
                         }
                         action == "Share Tab URL" -> {
                             val intent = Intent(Intent.ACTION_SEND).apply {
@@ -5559,6 +5748,9 @@ class MainActivity : AppCompatActivity() {
         addTool("Restore previous session", R.drawable.ic_restore) {
             restorePreviousSession(promptUser = true)
         }
+        addTool("Gestures & Navigation", R.drawable.ic_view_card) {
+            HazeTabSystemManager.showGesturesSettingsDialog(this)
+        }
         addTool("Page Details", R.drawable.ic_globe) {
             showPageDetails()
         }
@@ -5711,20 +5903,35 @@ class MainActivity : AppCompatActivity() {
                 if (e1 == null) return false
                 val diffX = e2.x - e1.x
                 val diffY = e2.y - e1.y
+
+                // 1. Swipe down on address bar -> tab overview
+                if (diffY > Math.abs(diffX) && diffY > SWIPE_THRESHOLD && velocityY > SWIPE_VELOCITY_THRESHOLD) {
+                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
+                    if (enabled) {
+                        triggerStrongHaptic(addressBarContainer, isHeavy = true)
+                        showFullScreenTabs()
+                        return true
+                    }
+                }
+
+                // 2. Horizontal swipe on address bar -> switch tab
                 if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > SWIPE_THRESHOLD && Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
-                    if (diffX > 0) {
-                        // Swipe right -> previous tab
-                        if (activeTabIndex > 0) {
-                            triggerStrongHaptic(addressBarContainer)
-                            switchTab(activeTabIndex - 1)
-                            return true
-                        }
-                    } else {
-                        // Swipe left -> next tab
-                        if (activeTabIndex < currentTabsList.size - 1) {
-                            triggerStrongHaptic(addressBarContainer)
-                            switchTab(activeTabIndex + 1)
-                            return true
+                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
+                    if (enabled) {
+                        if (diffX > 0) {
+                            // Swipe right -> previous tab
+                            if (activeTabIndex > 0) {
+                                triggerStrongHaptic(addressBarContainer)
+                                switchTab(activeTabIndex - 1)
+                                return true
+                            }
+                        } else {
+                            // Swipe left -> next tab
+                            if (activeTabIndex < currentTabsList.size - 1) {
+                                triggerStrongHaptic(addressBarContainer)
+                                switchTab(activeTabIndex + 1)
+                                return true
+                            }
                         }
                     }
                 }
@@ -5741,6 +5948,56 @@ class MainActivity : AppCompatActivity() {
         }
         addressBarContainer.setOnTouchListener(touchListener)
         findViewById<LinearLayout>(R.id.addressBarInner)?.setOnTouchListener(touchListener)
+    }
+
+    fun setupWebEdgeSwipeGestures() {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val edgeZone = dpToPx(36)
+
+        var startX = 0f
+        var startY = 0f
+        var isEdgeSwipe = false
+
+        webContainer.setOnTouchListener { _, event ->
+            val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_EDGE_SWIPE_NAVIGATE, true)
+            if (!enabled) return@setOnTouchListener false
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.rawX
+                    startY = event.rawY
+                    isEdgeSwipe = (startX <= edgeZone || startX >= screenWidth - edgeZone)
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isEdgeSwipe) {
+                        val deltaX = event.rawX - startX
+                        val deltaY = event.rawY - startY
+                        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > dpToPx(70)) {
+                            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                            if (deltaX > 0 && startX <= edgeZone) {
+                                // Swiped right from left edge -> Navigate Back
+                                if (currentTab?.browserTab?.navigationController?.canGoBack() == true) {
+                                    triggerStrongHaptic(isHeavy = true)
+                                    currentTab.browserTab.navigationController.goBack()
+                                    Toast.makeText(this, "Navigating back", Toast.LENGTH_SHORT).show()
+                                    return@setOnTouchListener true
+                                }
+                            } else if (deltaX < 0 && startX >= screenWidth - edgeZone) {
+                                // Swiped left from right edge -> Navigate Forward
+                                if (currentTab?.browserTab?.navigationController?.canGoForward() == true) {
+                                    triggerStrongHaptic(isHeavy = true)
+                                    currentTab.browserTab.navigationController.goForward()
+                                    Toast.makeText(this, "Navigating forward", Toast.LENGTH_SHORT).show()
+                                    return@setOnTouchListener true
+                                }
+                            }
+                        }
+                    }
+                    isEdgeSwipe = false
+                }
+            }
+            false
+        }
     }
 
     fun showPageZoomDialog() {

@@ -88,6 +88,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:21.2.0")
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     implementation("com.google.guava:guava:33.2.1-android")
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
