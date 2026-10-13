@@ -11,8 +11,10 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="6dp"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
         android:visibility="gone"
         android:clickable="true"
         android:focusable="true"
@@ -20,8 +22,8 @@
 
         <View
             android:id="@+id/groupColorBox"
-            android:layout_width="12dp"
-            android:layout_height="12dp"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
             android:background="#FF0000" />
 
         <TextView
@@ -33,6 +35,33 @@
             android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="#202124" />
+
+        <TextView
+            android:id="@+id/groupCountText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="(1 tab)"
+            android:textSize="12sp"
+            android:textColor="#5F6368" />
+
+        <ImageView
+            android:id="@+id/groupChevron"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_chevron_down"
+            android:contentDescription="Collapse or Expand Group" />
+
+        <ImageView
+            android:id="@+id/btnGroupMore"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginStart="4dp"
+            android:padding="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_more_vert"
+            android:contentDescription="Group Options" />
     </LinearLayout>
 
     <!-- Main Tab Row -->

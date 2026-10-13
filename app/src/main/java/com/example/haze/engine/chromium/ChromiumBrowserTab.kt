@@ -111,9 +111,8 @@ class ChromiumBrowserTab(
     }
 
     private fun applyDesktopMode(desktop: Boolean) {
-        val currentUa = webView.settings.userAgentString ?: ""
         if (desktop) {
-            webView.settings.userAgentString = currentUa.replace("Mobile", "eliboM").replace("Android", "diordnA")
+            webView.settings.userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
             webView.settings.useWideViewPort = true
             webView.settings.loadWithOverviewMode = true
         } else {
@@ -418,5 +417,21 @@ class ChromiumBrowserTab(
 
     override fun stopLoading() {
         navigationController.stopLoading()
+    }
+
+    override fun setFindListener(listener: ((activeMatchOrdinal: Int, numberOfMatches: Int, isDoneCounting: Boolean) -> Unit)?) {
+        if (listener == null) {
+            webView.setFindListener(null)
+        } else {
+            webView.setFindListener { activeMatchOrdinal, numberOfMatches, isDoneCounting ->
+                listener(activeMatchOrdinal, numberOfMatches, isDoneCounting)
+            }
+        }
+    }
+
+    override fun saveWebArchive(filename: String, autoname: Boolean, callback: ((String?) -> Unit)?) {
+        webView.saveWebArchive(filename, autoname) { path ->
+            callback?.invoke(path)
+        }
     }
 }

@@ -161,4 +161,14 @@ interface IBrowserTab {
      * Stops loading the current page.
      */
     fun stopLoading()
+
+    /**
+     * Sets a listener to be notified of find-in-page progress and match counts.
+     */
+    fun setFindListener(listener: ((activeMatchOrdinal: Int, numberOfMatches: Int, isDoneCounting: Boolean) -> Unit)?)
+
+    /**
+     * Saves the current view as a web archive.
+     */
+    fun saveWebArchive(filename: String, autoname: Boolean, callback: ((String?) -> Unit)? = null)
 }

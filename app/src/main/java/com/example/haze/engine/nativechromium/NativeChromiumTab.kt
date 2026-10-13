@@ -348,4 +348,10 @@ class NativeChromiumTab(
     override fun stopLoading() {
         navigationController.stopLoading()
     }
+
+    override fun setFindListener(listener: ((activeMatchOrdinal: Int, numberOfMatches: Int, isDoneCounting: Boolean) -> Unit)?) {}
+
+    override fun saveWebArchive(filename: String, autoname: Boolean, callback: ((String?) -> Unit)?) {
+        callback?.invoke(null)
+    }
 }

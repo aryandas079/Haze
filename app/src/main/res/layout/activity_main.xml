@@ -155,6 +155,17 @@
             android:textColor="#202124"
             android:textSize="14sp"/>
 
+        <TextView
+            android:id="@+id/tvFindCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="6dp"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="#5F6368"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/btnFindPrev"
             android:layout_width="36dp"

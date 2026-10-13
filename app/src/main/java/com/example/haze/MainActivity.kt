@@ -699,6 +699,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
@@ -793,6 +798,7 @@ class MainActivity : AppCompatActivity() {
         val btnFindNext: ImageButton = findViewById(R.id.btnFindNext)
         val btnFindClose: ImageButton = findViewById(R.id.btnFindClose)
 
+        val tvFindCount = findViewById<TextView>(R.id.tvFindCount)
         btnFindClose.setOnClickListener {
             triggerStrongHaptic(it)
             hideFindBar()
@@ -808,11 +814,37 @@ class MainActivity : AppCompatActivity() {
 
         findInput.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
-                currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findAllAsync(s.toString())
+                val q = s?.toString() ?: ""
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                if (q.isNotEmpty()) {
+                    currentTab?.browserTab?.setFindListener { activeMatchOrdinal, numberOfMatches, _ ->
+                        runOnUiThread {
+                            if (numberOfMatches > 0) {
+                                tvFindCount.visibility = View.VISIBLE
+                                tvFindCount.text = "${activeMatchOrdinal + 1}/$numberOfMatches"
+                            } else {
+                                tvFindCount.visibility = View.VISIBLE
+                                tvFindCount.text = "0/0"
+                            }
+                        }
+                    }
+                    currentTab?.browserTab?.findAllAsync(q)
+                } else {
+                    tvFindCount.visibility = View.GONE
+                    tvFindCount.text = ""
+                    currentTab?.browserTab?.clearMatches()
+                }
             }
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
+
+        findInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH || actionId == EditorInfo.IME_ACTION_NEXT || actionId == EditorInfo.IME_ACTION_DONE) {
+                currentTabsList.getOrNull(activeTabIndex)?.browserTab?.findNext(true)
+                true
+            } else false
+        }
 
         val rootView = findViewById<View>(R.id.main)
         ViewCompat.setWindowInsetsAnimationCallback(
@@ -1016,9 +1048,16 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         setupSwipeBetweenTabs()
         val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
-        addNewTab(HAZE_HOME_URL)
-        if (initialUrl != HAZE_HOME_URL) {
-            loadUrlFromInput(initialUrl)
+        val shouldContinueSession = prefs.getBoolean("continue_where_left_off", true)
+        val hasRestored = if (shouldContinueSession && initialUrl == HAZE_HOME_URL) {
+            restoreSavedSessionOnStartup()
+        } else false
+
+        if (!hasRestored) {
+            addNewTab(HAZE_HOME_URL)
+            if (initialUrl != HAZE_HOME_URL) {
+                loadUrlFromInput(initialUrl)
+            }
         }
         updateProfileButton()
         updatePrivacyShieldButton()
@@ -1122,7 +1161,13 @@ class MainActivity : AppCompatActivity() {
                 findBarContainer.translationY = 0f
             }
             .start()
-        currentTabsList.getOrNull(activeTabIndex)?.browserTab?.clearMatches()
+        val tvFindCount = findViewById<TextView>(R.id.tvFindCount)
+        tvFindCount?.visibility = View.GONE
+        tvFindCount?.text = ""
+        findInput.setText("")
+        val tab = currentTabsList.getOrNull(activeTabIndex)
+        tab?.browserTab?.setFindListener(null)
+        tab?.browserTab?.clearMatches()
         WindowCompat.getInsetsController(window, findInput).hide(WindowInsetsCompat.Type.ime())
         findInput.clearFocus()
     }
@@ -1523,6 +1568,28 @@ class MainActivity : AppCompatActivity() {
         suggestionChipContainer.removeAllViews()
         val rowItems = mutableListOf<SuggestionRowItem>()
 
+        // 0. Search open tabs & "Switch to existing tab"
+        val trimmedSearch = query.trim().lowercase(Locale.US)
+        if (trimmedSearch.length >= 2) {
+            for ((idx, openTab) in currentTabsList.withIndex()) {
+                if (idx == activeTabIndex || isHomeTab(openTab)) continue
+                val matchesTitle = openTab.title.lowercase(Locale.US).contains(trimmedSearch)
+                val matchesUrl = openTab.url.lowercase(Locale.US).contains(trimmedSearch)
+                if (matchesTitle || matchesUrl) {
+                    val clean = cleanUrlForMatching(openTab.url)
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = openTab.title,
+                            subtitle = "Switch to open tab • $clean",
+                            iconRes = R.drawable.ic_restore,
+                            target = "haze://switch_tab/$idx"
+                        )
+                    )
+                    break
+                }
+            }
+        }
+
         // 1. Search shortcut routing e.g. "yt lo-fi music", "g cats", "gh chromium source", "w quantum mechanics"
         val shortcut = omniboxManager.parseSearchShortcut(query)
         if (shortcut != null) {
@@ -1637,6 +1704,13 @@ class MainActivity : AppCompatActivity() {
                 if (item.target == "haze://qr") {
                     deactivateSearchMode()
                     omniboxManager.startQrScanner()
+                } else if (item.target.startsWith("haze://switch_tab/")) {
+                    val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
+                    if (idx != null && idx in currentTabsList.indices) {
+                        deactivateSearchMode()
+                        switchTab(idx)
+                        Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     addressBar.setText(item.target)
                     addressBar.setSelection(item.target.length)
@@ -1648,6 +1722,13 @@ class MainActivity : AppCompatActivity() {
                 if (item.target == "haze://qr") {
                     deactivateSearchMode()
                     omniboxManager.startQrScanner()
+                } else if (item.target.startsWith("haze://switch_tab/")) {
+                    val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
+                    if (idx != null && idx in currentTabsList.indices) {
+                        deactivateSearchMode()
+                        switchTab(idx)
+                        Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
+                    }
                 } else {
                     addressBar.setText(item.target)
                     loadUrlFromInput(item.target)
@@ -1785,6 +1866,60 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("new_tab", false)) {
             val tUrl = intent.getStringExtra("tab_url") ?: HAZE_HOME_URL
             webContainer.postDelayed({ addNewTab(tUrl) }, 200)
+        }
+        if (intent.getBooleanExtra("open_zoom", false)) {
+            webContainer.postDelayed({ showPageZoomDialog() }, 200)
+        }
+        if (intent.getBooleanExtra("open_scaling", false)) {
+            webContainer.postDelayed({ showTextScalingDialog() }, 200)
+        }
+        if (intent.getBooleanExtra("open_translate", false)) {
+            webContainer.postDelayed({ translateCurrentPage() }, 200)
+        }
+        if (intent.getBooleanExtra("open_find_in_page", false)) {
+            webContainer.postDelayed({ showFindBar() }, 200)
+        }
+        if (intent.getBooleanExtra("open_offline_pages", false)) {
+            webContainer.postDelayed({ showOfflinePagesDialog() }, 200)
+        }
+        if (intent.getBooleanExtra("save_offline_page", false)) {
+            webContainer.postDelayed({ saveCurrentPageForOffline() }, 200)
+        }
+        if (intent.getBooleanExtra("open_recently_closed", false)) {
+            webContainer.postDelayed({ showRecentlyClosedTabsDialog() }, 200)
+        }
+        if (intent.getBooleanExtra("toggle_desktop", false)) {
+            webContainer.postDelayed({
+                currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
+            }, 200)
+        }
+        if (intent.getBooleanExtra("open_reader", false)) {
+            webContainer.postDelayed({ toggleReadingMode() }, 200)
+        }
+        if (intent.getBooleanExtra("toggle_fullscreen", false)) {
+            webContainer.postDelayed({ toggleFullScreenMode() }, 200)
+        }
+        if (intent.getBooleanExtra("reopen_closed_tab", false)) {
+            webContainer.postDelayed({ reopenLastClosedTab() }, 200)
+        }
+        if (intent.getBooleanExtra("duplicate_current_tab", false)) {
+            webContainer.postDelayed({
+                currentTabsList.getOrNull(activeTabIndex)?.let { duplicateTab(it) }
+            }, 200)
+        }
+        if (intent.getBooleanExtra("set_tab_pinned", false)) {
+            webContainer.postDelayed({
+                currentTabsList.getOrNull(activeTabIndex)?.let { it.isPinned = true }
+                saveSessionState()
+            }, 200)
+        }
+        if (intent.getBooleanExtra("create_tab_group", false)) {
+            val groupName = intent.getStringExtra("group_name") ?: "Research"
+            webContainer.postDelayed({
+                val group = TabGroup(java.util.UUID.randomUUID().toString(), groupName, Color.parseColor("#4285F4"))
+                currentTabsList.getOrNull(activeTabIndex)?.group = group
+                saveSessionState()
+            }, 200)
         }
     }
 
@@ -2241,15 +2376,20 @@ class MainActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT
         )
 
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
+            setColorSchemeColors(accentColor)
+            setOnChildScrollUpCallback { _, _ ->
+                val web = (browserTab as? ChromiumBrowserTab)?.webView
+                web?.canScrollVertically(-1) == true
+            }
             setOnRefreshListener {
                 triggerStrongHaptic()
                 browserTab.reload()
-                postDelayed({ isRefreshing = false }, 1000)
             }
         }
         swipeRefreshLayout.addView(renderView)
@@ -3479,48 +3619,117 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveSessionState() {
         try {
-            val urls = normalTabs.filter { !isHomeTab(it) && it.url.isNotEmpty() }.map { it.url }
-            val json = JSONArray(urls).toString()
+            val tabsJson = JSONArray()
+            val urlList = mutableListOf<String>()
+            for (tab in normalTabs) {
+                if (isHomeTab(tab) && normalTabs.size > 1) continue
+                urlList.add(tab.url)
+                val obj = JSONObject()
+                obj.put("url", tab.url)
+                obj.put("title", tab.title)
+                obj.put("isPinned", tab.isPinned)
+                obj.put("isDesktop", tab.isDesktop)
+                if (tab.group != null) {
+                    val gObj = JSONObject()
+                    gObj.put("id", tab.group!!.id)
+                    gObj.put("name", tab.group!!.name)
+                    gObj.put("color", tab.group!!.color)
+                    gObj.put("isCollapsed", tab.group!!.isCollapsed)
+                    obj.put("group", gObj)
+                }
+                tabsJson.put(obj)
+            }
             prefs.edit()
-                .putString("saved_session_urls", json)
-                .putInt("saved_session_active_index", activeNormalTabIndex)
+                .putString("saved_session_tabs_json", tabsJson.toString())
+                .putString("saved_session_urls", JSONArray(urlList).toString())
+                .putInt("saved_session_active_index", activeNormalTabIndex.coerceAtLeast(0))
                 .apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    fun restorePreviousSession(promptUser: Boolean = false) {
-        val raw = prefs.getString("saved_session_urls", null)
-        if (raw.isNullOrBlank()) {
-            if (promptUser) Toast.makeText(this, "No previous session saved", Toast.LENGTH_SHORT).show()
-            return
-        }
-        try {
-            val array = JSONArray(raw)
-            if (array.length() == 0) {
-                if (promptUser) Toast.makeText(this, "No tabs in previous session", Toast.LENGTH_SHORT).show()
-                return
-            }
-            if (promptUser) {
-                AlertDialog.Builder(this)
-                    .setTitle("Restore Session?")
-                    .setMessage("Restore ${array.length()} tab(s) from your previous session?")
-                    .setPositiveButton("Restore") { _, _ ->
-                        for (i in 0 until array.length()) {
-                            addNewTab(array.getString(i))
-                        }
-                        Toast.makeText(this, "Restored ${array.length()} tab(s)", Toast.LENGTH_SHORT).show()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            } else {
+    private fun restoreSavedSessionOnStartup(): Boolean {
+        val jsonStr = prefs.getString("saved_session_tabs_json", null)
+        if (jsonStr.isNullOrBlank()) {
+            val legacyUrls = prefs.getString("saved_session_urls", null) ?: return false
+            return try {
+                val array = JSONArray(legacyUrls)
+                if (array.length() == 0) return false
                 for (i in 0 until array.length()) {
                     addNewTab(array.getString(i))
                 }
+                val savedActive = prefs.getInt("saved_session_active_index", 0)
+                if (savedActive in normalTabs.indices) switchTab(savedActive, false)
+                true
+            } catch (_: Exception) { false }
+        }
+        return try {
+            val array = JSONArray(jsonStr)
+            if (array.length() == 0) return false
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val url = obj.optString("url", HAZE_HOME_URL)
+                val title = obj.optString("title", "New Tab")
+                val isPinned = obj.optBoolean("isPinned", false)
+                val isDesktop = obj.optBoolean("isDesktop", false)
+                val groupObj = obj.optJSONObject("group")
+                val group = if (groupObj != null) {
+                    TabGroup(
+                        id = groupObj.getString("id"),
+                        name = groupObj.getString("name"),
+                        color = groupObj.getInt("color"),
+                        isCollapsed = groupObj.optBoolean("isCollapsed", false)
+                    )
+                } else null
+
+                val tab = addNewTab(url)
+                tab.title = title
+                tab.isPinned = isPinned
+                tab.isDesktop = isDesktop
+                tab.group = group
+                if (isDesktop) tab.browserTab.isDesktop = true
             }
+            val savedActive = prefs.getInt("saved_session_active_index", 0)
+            if (savedActive in normalTabs.indices) {
+                switchTab(savedActive, false)
+            }
+            true
         } catch (e: Exception) {
             e.printStackTrace()
+            false
+        }
+    }
+
+    fun restorePreviousSession(promptUser: Boolean = false) {
+        val jsonStr = prefs.getString("saved_session_tabs_json", null)
+        val legacyUrls = prefs.getString("saved_session_urls", null)
+        if (jsonStr.isNullOrBlank() && legacyUrls.isNullOrBlank()) {
+            if (promptUser) Toast.makeText(this, "No previous session saved", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val count = try {
+            if (!jsonStr.isNullOrBlank()) JSONArray(jsonStr).length()
+            else JSONArray(legacyUrls).length()
+        } catch (_: Exception) { 0 }
+
+        if (count == 0) {
+            if (promptUser) Toast.makeText(this, "No tabs in previous session", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (promptUser) {
+            AlertDialog.Builder(this)
+                .setTitle("Restore Session?")
+                .setMessage("Restore $count tab(s) from your previous session?")
+                .setPositiveButton("Restore") { _, _ ->
+                    restoreSavedSessionOnStartup()
+                    Toast.makeText(this, "Restored $count tab(s)", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            restoreSavedSessionOnStartup()
         }
     }
 
@@ -3818,8 +4027,23 @@ class MainActivity : AppCompatActivity() {
                         it.title.contains(filterQuery, ignoreCase = true) || it.url.contains(filterQuery, ignoreCase = true)
                     }
                 }
-                // Pinned tabs first
-                return base.sortedByDescending { it.isPinned }
+                val sorted = base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { it.group?.id ?: "" })
+                if (filterQuery.isNotEmpty() || isGridMode) return sorted
+
+                val seenCollapsedGroupIds = mutableSetOf<String>()
+                val result = mutableListOf<Tab>()
+                for (tab in sorted) {
+                    val grp = tab.group
+                    if (grp != null && grp.isCollapsed) {
+                        if (!seenCollapsedGroupIds.contains(grp.id)) {
+                            seenCollapsedGroupIds.add(grp.id)
+                            result.add(tab)
+                        }
+                    } else {
+                        result.add(tab)
+                    }
+                }
+                return result
             }
 
         fun filter(query: String) {
@@ -3833,6 +4057,9 @@ class MainActivity : AppCompatActivity() {
             val groupHeader: LinearLayout? = view.findViewById(R.id.groupHeader)
             val groupColorBox: View? = view.findViewById(R.id.groupColorBox)
             val groupNameText: TextView? = view.findViewById(R.id.groupNameText)
+            val groupCountText: TextView? = view.findViewById(R.id.groupCountText)
+            val groupChevron: ImageView? = view.findViewById(R.id.groupChevron)
+            val btnGroupMore: ImageView? = view.findViewById(R.id.btnGroupMore)
             val groupSideIndicator: View? = view.findViewById(R.id.groupSideIndicator)
             val tabIcon: ImageView? = view.findViewById(R.id.tabIcon)
             val tabTitle: TextView? = view.findViewById(R.id.tabTitle)
@@ -3911,18 +4138,34 @@ class MainActivity : AppCompatActivity() {
                     onCloseClick(tab)
                 }
             } else {
-                // List row
+                // List / Vertical tab row
                 val prevTab = if (position > 0) currentItems[position - 1] else null
-                if (tab.group != null && (prevTab == null || prevTab.group?.id != tab.group?.id)) {
+                val isFirstInGroup = tab.group != null && (prevTab == null || prevTab.group?.id != tab.group?.id)
+                if (tab.group != null && isFirstInGroup) {
                     holder.groupHeader?.visibility = View.VISIBLE
                     holder.groupColorBox?.setBackgroundColor(tab.group!!.color)
                     holder.groupNameText?.text = tab.group!!.name
+                    val count = originalList.count { it.group?.id == tab.group!!.id }
+                    holder.groupCountText?.text = "($count tab${if (count > 1) "s" else ""})"
+                    holder.groupChevron?.setImageResource(if (tab.group!!.isCollapsed) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up)
+                    
                     holder.groupHeader?.setOnClickListener {
+                        triggerStrongHaptic(it)
+                        tab.group!!.isCollapsed = !tab.group!!.isCollapsed
+                        notifyDataSetChanged()
+                    }
+                    holder.btnGroupMore?.setOnClickListener {
                         triggerStrongHaptic(it)
                         showEditGroupDialog(tab.group!!)
                     }
                 } else {
                     holder.groupHeader?.visibility = View.GONE
+                }
+
+                if (tab.group != null && tab.group!!.isCollapsed) {
+                    holder.rowContainer?.visibility = View.GONE
+                } else {
+                    holder.rowContainer?.visibility = View.VISIBLE
                 }
 
                 if (tab.group != null) {
@@ -3971,67 +4214,126 @@ class MainActivity : AppCompatActivity() {
         override fun getItemCount(): Int = displayedList.size
 
         private fun showEditGroupDialog(group: TabGroup) {
-            val layout = LinearLayout(this@MainActivity)
-            layout.orientation = LinearLayout.VERTICAL
-            layout.setPadding(40, 20, 40, 20)
-            
-            val input = EditText(this@MainActivity)
-            input.setText(group.name)
-            layout.addView(input)
-
+            val options = arrayOf(
+                "Rename Group",
+                "Change Group Color",
+                "Close All Tabs in Group",
+                "Ungroup All Tabs"
+            )
             AlertDialog.Builder(this@MainActivity)
-                .setTitle("Edit Group")
-                .setView(layout)
-                .setPositiveButton("Save") { _, _ ->
-                    group.name = input.text.toString()
-                    group.color = groupColors.random()
-                    notifyDataSetChanged()
+                .setTitle(group.name)
+                .setItems(options) { _, which ->
+                    triggerStrongHaptic(addressBar)
+                    when (which) {
+                        0 -> { // Rename
+                            val input = EditText(this@MainActivity).apply { setText(group.name) }
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Rename Group")
+                                .setView(input)
+                                .setPositiveButton("Save") { _, _ ->
+                                    val newName = input.text.toString().trim()
+                                    if (newName.isNotEmpty()) {
+                                        group.name = newName
+                                        notifyDataSetChanged()
+                                    }
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
+                        1 -> { // Change Color
+                            val colorNames = arrayOf("Red", "Blue", "Green", "Yellow", "Orange", "Cyan", "Purple")
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Pick Group Color")
+                                .setItems(colorNames) { _, colorIdx ->
+                                    group.color = groupColors.getOrElse(colorIdx) { groupColors[0] }
+                                    notifyDataSetChanged()
+                                }
+                                .show()
+                        }
+                        2 -> { // Close All Tabs in Group
+                            val toRemove = originalList.filter { it.group?.id == group.id }
+                            for (t in toRemove) {
+                                onCloseClick(t)
+                            }
+                            notifyDataSetChanged()
+                        }
+                        3 -> { // Ungroup All Tabs
+                            originalList.forEach { if (it.group?.id == group.id) it.group = null }
+                            notifyDataSetChanged()
+                        }
+                    }
                 }
-                .setNegativeButton("Ungroup All") { _, _ ->
-                    originalList.forEach { if (it.group?.id == group.id) it.group = null }
-                    notifyDataSetChanged()
-                }
-                .setNeutralButton("Cancel", null)
+                .setNegativeButton("Cancel", null)
                 .show()
         }
 
         private fun showTabOptionsMenu(tab: Tab) {
-            val options = arrayOf(
-                if (tab.isPinned) "Unpin Tab" else "Pin Tab",
-                "Duplicate Tab",
-                if (tab.group != null) "Remove from Group" else "Add to Group",
-                "Share Tab URL",
-                "Close Tab"
-            )
+            val options = mutableListOf<String>()
+            options.add(if (tab.isPinned) "Unpin Tab" else "Pin Tab")
+            options.add("Duplicate Tab")
+            if (tab.group != null) {
+                options.add("Remove from '${tab.group!!.name}'")
+            } else {
+                options.add("Create New Group")
+                val otherGroups = originalList.mapNotNull { it.group }.distinctBy { it.id }
+                if (otherGroups.isNotEmpty()) {
+                    options.add("Add to Existing Group...")
+                }
+            }
+            options.add("Share Tab URL")
+            options.add("Close Tab")
+
             AlertDialog.Builder(this@MainActivity)
                 .setTitle(tab.title)
-                .setItems(options) { _, which ->
+                .setItems(options.toTypedArray()) { _, which ->
                     triggerStrongHaptic(addressBar)
-                    when (which) {
-                        0 -> { // Pin / Unpin
+                    val action = options[which]
+                    when {
+                        action.contains("Pin Tab") -> {
                             tab.isPinned = !tab.isPinned
                             notifyDataSetChanged()
                             Toast.makeText(this@MainActivity, if (tab.isPinned) "Tab pinned" else "Tab unpinned", Toast.LENGTH_SHORT).show()
                         }
-                        1 -> { // Duplicate
+                        action == "Duplicate Tab" -> {
                             duplicateTab(tab)
                             notifyDataSetChanged()
                         }
-                        2 -> { // Group
-                            if (tab.group != null) {
-                                tab.group = null
-                                notifyDataSetChanged()
-                            } else {
-                                val newGroup = TabGroup(
-                                    id = System.currentTimeMillis().toString(),
-                                    name = "Group",
-                                    color = groupColors.random()
-                                )
-                                tab.group = newGroup
-                                notifyDataSetChanged()
-                            }
+                        action.startsWith("Remove from") -> {
+                            tab.group = null
+                            notifyDataSetChanged()
+                            Toast.makeText(this@MainActivity, "Removed from group", Toast.LENGTH_SHORT).show()
                         }
-                        3 -> { // Share
+                        action == "Create New Group" -> {
+                            val input = EditText(this@MainActivity).apply { hint = "Group Name (e.g. Work, Shopping)" }
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("New Tab Group")
+                                .setView(input)
+                                .setPositiveButton("Create") { _, _ ->
+                                    val name = input.text.toString().trim().ifEmpty { "Group" }
+                                    val newGroup = TabGroup(
+                                        id = System.currentTimeMillis().toString(),
+                                        name = name,
+                                        color = groupColors.random()
+                                    )
+                                    tab.group = newGroup
+                                    notifyDataSetChanged()
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
+                        action == "Add to Existing Group..." -> {
+                            val groups = originalList.mapNotNull { it.group }.distinctBy { it.id }
+                            val groupNames = groups.map { it.name }.toTypedArray()
+                            AlertDialog.Builder(this@MainActivity)
+                                .setTitle("Select Group")
+                                .setItems(groupNames) { _, gIdx ->
+                                    tab.group = groups[gIdx]
+                                    notifyDataSetChanged()
+                                    Toast.makeText(this@MainActivity, "Added to ${groups[gIdx].name}", Toast.LENGTH_SHORT).show()
+                                }
+                                .show()
+                        }
+                        action == "Share Tab URL" -> {
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = "text/plain"
                                 putExtra(Intent.EXTRA_SUBJECT, tab.title)
@@ -4039,7 +4341,7 @@ class MainActivity : AppCompatActivity() {
                             }
                             startActivity(Intent.createChooser(intent, "Share Tab"))
                         }
-                        4 -> onCloseClick(tab)
+                        action == "Close Tab" -> onCloseClick(tab)
                     }
                 }
                 .show()
@@ -5443,42 +5745,252 @@ class MainActivity : AppCompatActivity() {
 
     fun showPageZoomDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val levels = arrayOf("50%", "75%", "90%", "100%", "110%", "125%", "150%", "175%", "200%", "250%")
-        AlertDialog.Builder(this)
-            .setTitle("Page Zoom")
-            .setItems(levels) { _, which ->
-                val zoomStr = levels[which].replace("%", "")
-                val zoomVal = zoomStr.toIntOrNull() ?: 100
-                tab.browserTab.evaluateJavascript("document.body.style.zoom = '${zoomVal}%';") {}
-                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = zoomVal
-                Toast.makeText(this, "Zoom: ${levels[which]}", Toast.LENGTH_SHORT).show()
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+
+        var currentZoom = (tab.browserTab.renderView as? WebView)?.settings?.textZoom ?: 100
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(24))
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        val title = TextView(this).apply {
+            text = "Page Zoom"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnClose = ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+            setBackgroundResource(getSelectableRes())
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(title)
+        header.addView(btnClose)
+        root.addView(header)
+
+        val stepper = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(8), 0, dpToPx(16))
+        }
+        val btnMinus = TextView(this).apply {
+            text = "–"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setBackgroundResource(R.drawable.bg_popup_rounded)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(44))
+        }
+        val tvValue = TextView(this).apply {
+            text = "$currentZoom%"
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(120), dpToPx(44))
+        }
+        val btnPlus = TextView(this).apply {
+            text = "+"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setBackgroundResource(R.drawable.bg_popup_rounded)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(44))
+        }
+
+        fun applyZoom(newVal: Int) {
+            currentZoom = newVal.coerceIn(50, 300)
+            tvValue.text = "$currentZoom%"
+            tab.browserTab.evaluateJavascript("document.body.style.zoom = '${currentZoom}%';") {}
+            (tab.browserTab.renderView as? WebView)?.settings?.textZoom = currentZoom
+        }
+
+        btnMinus.setOnClickListener {
+            triggerStrongHaptic(it)
+            applyZoom(currentZoom - 10)
+        }
+        btnPlus.setOnClickListener {
+            triggerStrongHaptic(it)
+            applyZoom(currentZoom + 10)
+        }
+        stepper.addView(btnMinus)
+        stepper.addView(tvValue)
+        stepper.addView(btnPlus)
+        root.addView(stepper)
+
+        val chipContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        for (preset in listOf(75, 100, 125, 150, 200)) {
+            val chip = TextView(this).apply {
+                text = "$preset%"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setBackgroundResource(R.drawable.bg_suggestion_chip)
+                setTextColor(if (isDark) Color.parseColor("#E0E0E0") else Color.parseColor("#202124"))
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(dpToPx(4), 0, dpToPx(4), 0)
+                }
+                setOnClickListener {
+                    triggerStrongHaptic(it)
+                    applyZoom(preset)
+                }
             }
-            .setNegativeButton("Reset (100%)") { _, _ ->
-                tab.browserTab.evaluateJavascript("document.body.style.zoom = '100%';") {}
-                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = 100
-                Toast.makeText(this, "Zoom reset to 100%", Toast.LENGTH_SHORT).show()
+            chipContainer.addView(chip)
+        }
+        root.addView(chipContainer)
+
+        val btnReset = Button(this).apply {
+            text = "Reset to 100%"
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.parseColor("#0A56D0"))
+            setOnClickListener {
+                triggerStrongHaptic(it)
+                applyZoom(100)
             }
-            .show()
+        }
+        root.addView(btnReset)
+
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     fun showTextScalingDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val scales = arrayOf("75%", "85%", "100%", "115%", "130%", "150%", "180%", "200%")
-        AlertDialog.Builder(this)
-            .setTitle("Text Scaling")
-            .setItems(scales) { _, which ->
-                val scaleStr = scales[which].replace("%", "")
-                val scaleVal = scaleStr.toIntOrNull() ?: 100
-                tab.browserTab.evaluateJavascript("document.documentElement.style.webkitTextSizeAdjust = '${scaleVal}%';") {}
-                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = scaleVal
-                Toast.makeText(this, "Text scale: ${scales[which]}", Toast.LENGTH_SHORT).show()
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+
+        var currentScale = (tab.browserTab.renderView as? WebView)?.settings?.textZoom ?: 100
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            setPadding(dpToPx(20), dpToPx(16), dpToPx(20), dpToPx(24))
+        }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        val title = TextView(this).apply {
+            text = "Text Scaling"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnClose = ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+            setBackgroundResource(getSelectableRes())
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(title)
+        header.addView(btnClose)
+        root.addView(header)
+
+        val stepper = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(8), 0, dpToPx(16))
+        }
+        val btnMinus = TextView(this).apply {
+            text = "–"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setBackgroundResource(R.drawable.bg_popup_rounded)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(44))
+        }
+        val tvValue = TextView(this).apply {
+            text = "$currentScale%"
+            textSize = 22f
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(120), dpToPx(44))
+        }
+        val btnPlus = TextView(this).apply {
+            text = "+"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setBackgroundResource(R.drawable.bg_popup_rounded)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(52), dpToPx(44))
+        }
+
+        fun applyScale(newVal: Int) {
+            currentScale = newVal.coerceIn(50, 250)
+            tvValue.text = "$currentScale%"
+            tab.browserTab.evaluateJavascript("document.documentElement.style.webkitTextSizeAdjust = '${currentScale}%';") {}
+            (tab.browserTab.renderView as? WebView)?.settings?.textZoom = currentScale
+        }
+
+        btnMinus.setOnClickListener {
+            triggerStrongHaptic(it)
+            applyScale(currentScale - 10)
+        }
+        btnPlus.setOnClickListener {
+            triggerStrongHaptic(it)
+            applyScale(currentScale + 10)
+        }
+        stepper.addView(btnMinus)
+        stepper.addView(tvValue)
+        stepper.addView(btnPlus)
+        root.addView(stepper)
+
+        val chipContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+        for (preset in listOf(80, 100, 120, 150, 180)) {
+            val chip = TextView(this).apply {
+                text = "$preset%"
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setBackgroundResource(R.drawable.bg_suggestion_chip)
+                setTextColor(if (isDark) Color.parseColor("#E0E0E0") else Color.parseColor("#202124"))
+                setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(dpToPx(4), 0, dpToPx(4), 0)
+                }
+                setOnClickListener {
+                    triggerStrongHaptic(it)
+                    applyScale(preset)
+                }
             }
-            .setNegativeButton("Reset (100%)") { _, _ ->
-                tab.browserTab.evaluateJavascript("document.documentElement.style.webkitTextSizeAdjust = '100%';") {}
-                (tab.browserTab.renderView as? WebView)?.settings?.textZoom = 100
-                Toast.makeText(this, "Text scale reset to 100%", Toast.LENGTH_SHORT).show()
+            chipContainer.addView(chip)
+        }
+        root.addView(chipContainer)
+
+        val btnReset = Button(this).apply {
+            text = "Reset to 100%"
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.parseColor("#0A56D0"))
+            setOnClickListener {
+                triggerStrongHaptic(it)
+                applyScale(100)
             }
-            .show()
+        }
+        root.addView(btnReset)
+
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     fun translateCurrentPage() {
@@ -5488,9 +6000,29 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Cannot translate internal page", Toast.LENGTH_SHORT).show()
             return
         }
-        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=${Uri.encode(url)}"
-        loadUrlFromInput(translateUrl)
-        Toast.makeText(this, "Translating page via Google Translate...", Toast.LENGTH_SHORT).show()
+        val languages = listOf(
+            Pair("English", "en"),
+            Pair("Hindi (हिन्दी)", "hi"),
+            Pair("Spanish (Español)", "es"),
+            Pair("French (Français)", "fr"),
+            Pair("German (Deutsch)", "de"),
+            Pair("Japanese (日本語)", "ja"),
+            Pair("Chinese (中文)", "zh-CN"),
+            Pair("Russian (Русский)", "ru"),
+            Pair("Arabic (العربية)", "ar"),
+            Pair("Portuguese (Português)", "pt")
+        )
+        val names = languages.map { it.first }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Translate Page Into")
+            .setItems(names) { _, which ->
+                val langCode = languages[which].second
+                val translateUrl = "https://translate.google.com/translate?sl=auto&tl=$langCode&u=${Uri.encode(url)}"
+                loadUrlFromInput(translateUrl)
+                Toast.makeText(this, "Translating to ${languages[which].first}...", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     fun saveCurrentPageForOffline() {
@@ -5500,21 +6032,33 @@ class MainActivity : AppCompatActivity() {
             return
         }
         Toast.makeText(this, "Saving page for offline reading...", Toast.LENGTH_SHORT).show()
-        tab.browserTab.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
-            val rawHtml = if (!htmlResult.isNullOrBlank() && htmlResult != "null") {
-                try {
-                    org.json.JSONTokener(htmlResult).nextValue().toString()
-                } catch (e: Exception) {
-                    htmlResult
+        val offlineDir = File(filesDir, "offline_pages").apply { if (!exists()) mkdirs() }
+        val archiveFile = File(offlineDir, "offline_${System.currentTimeMillis()}.mht")
+
+        tab.browserTab.saveWebArchive(archiveFile.absolutePath, false) { savedPath ->
+            if (!savedPath.isNullOrEmpty()) {
+                val db = HazeDatabase.getInstance(this)
+                db.saveOfflinePage(tab.title, tab.url, archiveFile.absolutePath)
+                runOnUiThread {
+                    Toast.makeText(this, "Page saved for offline reading!", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                "<html><body><h1>${tab.title}</h1><p>Saved from ${tab.url}</p></body></html>"
-            }
-            
-            val db = HazeDatabase.getInstance(this)
-            db.saveOfflinePage(tab.title, tab.url, rawHtml)
-            runOnUiThread {
-                Toast.makeText(this, "Page saved for offline reading!", Toast.LENGTH_SHORT).show()
+                tab.browserTab.evaluateJavascript("document.documentElement.outerHTML") { htmlResult ->
+                    val rawHtml = if (!htmlResult.isNullOrBlank() && htmlResult != "null") {
+                        try {
+                            org.json.JSONTokener(htmlResult).nextValue().toString()
+                        } catch (e: Exception) {
+                            htmlResult
+                        }
+                    } else {
+                        "<html><body><h1>${tab.title}</h1><p>Saved from ${tab.url}</p></body></html>"
+                    }
+                    val db = HazeDatabase.getInstance(this)
+                    db.saveOfflinePage(tab.title, tab.url, rawHtml)
+                    runOnUiThread {
+                        Toast.makeText(this, "Page saved for offline reading!", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
@@ -5532,40 +6076,46 @@ class MainActivity : AppCompatActivity() {
             .setItems(items) { _, which ->
                 if (which in pages.indices) {
                     val item = pages[which]
-                    val offlineHtml = """
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                            <style>
-                                #hazeOfflineBanner {
-                                    position: fixed;
-                                    top: 0;
-                                    left: 0;
-                                    right: 0;
-                                    background: #F2994A;
-                                    color: #FFFFFF;
-                                    font-family: sans-serif;
-                                    font-size: 13px;
-                                    font-weight: bold;
-                                    padding: 8px 16px;
-                                    text-align: center;
-                                    z-index: 999999;
-                                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-                                }
-                                body { padding-top: 36px !important; }
-                            </style>
-                        </head>
-                        <body>
-                            <div id="hazeOfflineBanner">Offline Saved Copy &bull; ${item.url}</div>
-                            ${item.content}
-                        </body>
-                        </html>
-                    """.trimIndent()
-                    val newTab = addNewTab(item.url)
-                    newTab.title = "[Offline] " + item.title
-                    newTab.browserTab.navigationController.loadDataWithBaseURL(item.url, offlineHtml, "text/html", "UTF-8", null)
-                    Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                    if (item.content.endsWith(".mht") && File(item.content).exists()) {
+                        val newTab = addNewTab("file://${item.content}")
+                        newTab.title = "[Offline] " + item.title
+                        Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val offlineHtml = """
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <style>
+                                    #hazeOfflineBanner {
+                                        position: fixed;
+                                        top: 0;
+                                        left: 0;
+                                        right: 0;
+                                        background: #F2994A;
+                                        color: #FFFFFF;
+                                        font-family: sans-serif;
+                                        font-size: 13px;
+                                        font-weight: bold;
+                                        padding: 8px 16px;
+                                        text-align: center;
+                                        z-index: 999999;
+                                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                                    }
+                                    body { padding-top: 36px !important; }
+                                </style>
+                            </head>
+                            <body>
+                                <div id="hazeOfflineBanner">Offline Saved Copy &bull; ${item.url}</div>
+                                ${item.content}
+                            </body>
+                            </html>
+                        """.trimIndent()
+                        val newTab = addNewTab(item.url)
+                        newTab.title = "[Offline] " + item.title
+                        newTab.browserTab.navigationController.loadDataWithBaseURL(item.url, offlineHtml, "text/html", "UTF-8", null)
+                        Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .setPositiveButton("Clear All") { _, _ ->
@@ -5674,15 +6224,20 @@ class MainActivity : AppCompatActivity() {
         val renderView = browserTab.renderView
         renderView.layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
 
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
+            setColorSchemeColors(accentColor)
+            setOnChildScrollUpCallback { _, _ ->
+                val web = (browserTab as? ChromiumBrowserTab)?.webView
+                web?.canScrollVertically(-1) == true
+            }
             setOnRefreshListener {
                 triggerStrongHaptic()
                 browserTab.reload()
-                postDelayed({ isRefreshing = false }, 1000)
             }
         }
         swipeRefreshLayout.addView(renderView)
@@ -5931,6 +6486,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun finishPageLoading() {
+        currentTabsList.getOrNull(activeTabIndex)?.swipeRefreshLayout?.isRefreshing = false
         val progressBar = findViewById<ProgressBar>(R.id.pageProgressBar) ?: return
         val completedGeneration = pageLoadingGeneration
         ObjectAnimator.ofInt(progressBar, "progress", progressBar.progress, 100).apply {
@@ -6073,6 +6629,16 @@ class MainActivity : AppCompatActivity() {
 
         val duplicateTab = currentTabsList.find { 
             it != tab && !isHomeTab(it) && (it.url.equals(url, ignoreCase = true) || it.url.trimEnd('/').equals(url.trimEnd('/'), ignoreCase = true))
+        }
+        if (duplicateTab != null) {
+            val duplicateIdx = currentTabsList.indexOf(duplicateTab)
+            if (duplicateIdx != -1) {
+                saveRecentSearch(query)
+                deactivateSearchMode()
+                switchTab(duplicateIdx)
+                Toast.makeText(this, "Switched to existing tab: ${duplicateTab.title}", Toast.LENGTH_SHORT).show()
+                return
+            }
         }
         if (tab.url == HAZE_HOME_URL) tab.title = "Loading..."
         tab.url = url
