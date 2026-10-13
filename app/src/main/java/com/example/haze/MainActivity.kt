@@ -404,6 +404,27 @@ class MainActivity : AppCompatActivity() {
     fun getActiveTab(): Tab? = currentTabsList.getOrNull(activeTabIndex)
 
     fun updatePrivacyShieldButton() {
+        val searchIcon = findViewById<ImageView>(R.id.searchIcon) ?: return
+        val currentTab = getActiveTab()
+        val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val accentColor = Color.parseColor(accentColorHex)
+
+        if (!isHome && !isSearchActive) {
+            val shieldEnabled = HazePrivacyShieldEngine.isShieldEnabled(this)
+            searchIcon.setImageResource(R.drawable.ic_privacy_shield)
+            searchIcon.setColorFilter(if (shieldEnabled) accentColor else hintColor)
+            searchIcon.setOnClickListener {
+                triggerStrongHaptic(isHeavy = false)
+                HazePrivacyShieldDashboard.showDashboard(this@MainActivity)
+            }
+        } else {
+            searchIcon.setImageResource(R.drawable.ic_search)
+            searchIcon.setColorFilter(hintColor)
+            searchIcon.setOnClickListener(null)
+        }
     }
 
     fun updateNavigationButtons() {
@@ -636,6 +657,18 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     loadUrlFromInput(url)
                 }
+            }
+        }
+        @JavascriptInterface
+        fun onPopupBlocked(blockedUrl: String) {
+            runOnUiThread {
+                val isPriv = (getTabForInterface(ownerTab, ownerWebView)?.isPrivate) ?: isPrivateMode
+                HazePrivacyShieldEngine.recordPopupBlocked(
+                    this@MainActivity,
+                    blockedUrl,
+                    ownerTab?.url ?: ownerWebView?.url,
+                    isPriv
+                )
             }
         }
         @JavascriptInterface
@@ -1193,6 +1226,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         isSearchActive = true
+        updatePrivacyShieldButton()
 
         dimOverlay.visibility = View.VISIBLE
         dimOverlay.alpha = 1f
@@ -1235,6 +1269,7 @@ class MainActivity : AppCompatActivity() {
     private fun deactivateSearchMode() {
         if (!isSearchActive) return
         isSearchActive = false
+        updatePrivacyShieldButton()
 
         // 1. Hide keyboard smoothly via WindowInsetsController
         WindowCompat.getInsetsController(window, addressBar).hide(WindowInsetsCompat.Type.ime())
@@ -1793,6 +1828,9 @@ class MainActivity : AppCompatActivity() {
                 saveCustomShortcuts(list)
                 changed = true
             }
+        }
+        if (intent.getBooleanExtra("open_privacy_shield", false)) {
+            window.decorView.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 300)
         }
         if (changed) {
             applyTheme()
@@ -3116,6 +3154,19 @@ class MainActivity : AppCompatActivity() {
                 }
                 return true
             }
+
+            override fun onNewWindowRequested(url: String, isUserGesture: Boolean, isDialog: Boolean): Boolean {
+                val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
+                val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)
+                if (shieldActive && blockPopups && !isUserGesture) {
+                    HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, url, getActiveTab()?.url, isPrivateMode)
+                    return false
+                }
+                runOnUiThread {
+                    addNewTab(if (url.isNotEmpty() && !url.startsWith("about:")) url else HAZE_HOME_URL)
+                }
+                return true
+            }
         })
     }
 
@@ -3301,19 +3352,52 @@ class MainActivity : AppCompatActivity() {
                 if (!url.isNullOrEmpty()) topLevelUrl = url
                 showPageLoading(5)
                 super.onPageStarted(view, url, favicon)
+                updatePrivacyShieldButton()
                 
-                if (url != null) {
-                    val earlyCss = """
+                if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    val domain = runCatching { Uri.parse(url).host }.getOrNull()
+                    val compiledCosmetic = HazeFilterListManager.getCosmeticCss(this@MainActivity, domain)
+                    val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+                    val earlyScript = """
                         (function() {
-                            if (window.__hazeEarlyCssInjected) return;
-                            window.__hazeEarlyCssInjected = true;
-                            var style = document.createElement('style');
-                            style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
-                            if (document.documentElement) document.documentElement.appendChild(style);
-                            else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
+                            // 1. Popup & Popunder early interceptor
+                            if (!window.__hazePopupBlockerInjected) {
+                                window.__hazePopupBlockerInjected = true;
+                                var origOpen = window.open;
+                                var lastTap = 0;
+                                ['pointerdown', 'click', 'touchend'].forEach(function(evt) {
+                                    document.addEventListener(evt, function() { lastTap = Date.now(); }, true);
+                                });
+                                window.open = function(u, target, features) {
+                                    var isRecent = (Date.now() - lastTap) < 1200;
+                                    var lower = (u || '').toLowerCase();
+                                    var isAd = lower.indexOf('pop') !== -1 || lower.indexOf('click') !== -1 || lower.indexOf('ad') !== -1 || lower.indexOf('promo') !== -1;
+                                    if (!isRecent || isAd) {
+                                        console.warn('[HazeShield] Blocked unsolicited popup/popunder:', u);
+                                        if (window.Android && window.Android.onPopupBlocked) {
+                                            window.Android.onPopupBlocked(u || 'about:blank');
+                                        }
+                                        return { closed: false, close: function(){}, focus: function(){}, blur: function(){}, location: { href: u || '' } };
+                                    }
+                                    return origOpen.apply(window, arguments);
+                                };
+                            }
+
+                            // 2. Element Hiding Cosmetic CSS
+                            if ('$escapedCss'.length > 0) {
+                                var style = document.getElementById('__haze_cosmetic_style');
+                                if (!style) {
+                                    style = document.createElement('style');
+                                    style.id = '__haze_cosmetic_style';
+                                    style.type = 'text/css';
+                                    if (document.documentElement) document.documentElement.appendChild(style);
+                                    else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
+                                }
+                                style.textContent = '$escapedCss';
+                            }
                         })();
                     """.trimIndent()
-                    view?.evaluateJavascript(earlyCss, null)
+                    view?.evaluateJavascript(earlyScript, null)
                 }
             }
 
@@ -3436,19 +3520,34 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     // 1. Advanced Cosmetic Filtering (Element Hiding CSS) across all websites
+                    val pageDomain = runCatching { Uri.parse(url).host }.getOrNull()
+                    val compiledCss = HazeFilterListManager.getCosmeticCss(this@MainActivity, pageDomain)
+                    val escapedCss = compiledCss.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
                     val cosmeticCss = """
                         (function() {
-                            if (window.__hazeCosmeticInjected) return;
-                            window.__hazeCosmeticInjected = true;
-                            var style = document.createElement('style');
-                            style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
-                            if (document.head) document.head.appendChild(style);
-                            else document.documentElement.appendChild(style);
+                            var style = document.getElementById('__haze_cosmetic_style');
+                            if (!style) {
+                                style = document.createElement('style');
+                                style.id = '__haze_cosmetic_style';
+                                style.type = 'text/css';
+                                (document.head || document.documentElement).appendChild(style);
+                            }
+                            if ('$escapedCss'.length > 0) {
+                                style.textContent = '$escapedCss';
+                            }
+                            // Unblock page scrolling if cookie banner or anti-adblock overlay locked overflow
+                            try {
+                                if (document.body && (getComputedStyle(document.body).overflow === 'hidden' || getComputedStyle(document.documentElement).overflow === 'hidden')) {
+                                    document.body.style.setProperty('overflow', 'auto', 'important');
+                                    document.documentElement.style.setProperty('overflow', 'auto', 'important');
+                                }
+                            } catch(_) {}
                         })();
                     """.trimIndent()
                     view?.evaluateJavascript(cosmeticCss, null)
+                    updatePrivacyShieldButton()
 
-                    // 2. Safe & Reliable YouTube Ad Skipper
+                    // 2. Safe & Reliable YouTube Ad Skipper with Audio Auto-Mute
                     if (url.contains("youtube.com", ignoreCase = true)) {
                         val safeYtSkips = """
                             (function() {
@@ -3461,16 +3560,18 @@ class MainActivity : AppCompatActivity() {
                                     '.ytp-ad-skip-button',
                                     '.ytp-ad-skip-button-modern',
                                     '.ytp-ad-overlay-close-button',
-                                    '.videoAdUiSkipButton'
+                                    '.videoAdUiSkipButton',
+                                    'button[class*="skip-button"]'
                                 ];
 
                                 function skipYouTubeAd() {
-                                    var adPlayer = document.querySelector('.ad-showing');
+                                    var adPlayer = document.querySelector('.ad-showing, .video-ads.ad-showing');
                                     if (!adPlayer) {
                                         if (adWasActive) {
                                             var normalVideo = document.querySelector('video');
-                                            if (normalVideo && normalVideo.playbackRate > 1) {
-                                                normalVideo.playbackRate = normalPlaybackRate;
+                                            if (normalVideo) {
+                                                if (normalVideo.playbackRate > 1) normalVideo.playbackRate = normalPlaybackRate;
+                                                normalVideo.muted = false; // Restore audio after ad finishes
                                             }
                                         }
                                         adWasActive = false;
@@ -3489,8 +3590,7 @@ class MainActivity : AppCompatActivity() {
                                     var video = document.querySelector('video');
                                     if (video) {
                                         if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
-                                        // Seek as soon as metadata exists. Do not wait for
-                                        // the ad duration or a timer tied to playback.
+                                        video.muted = true; // Auto-mute during ads
                                         if (isFinite(video.duration) && video.duration > 0) {
                                             video.currentTime = video.duration;
                                         } else {
@@ -3501,7 +3601,7 @@ class MainActivity : AppCompatActivity() {
                                     }
 
                                     var overlays = document.querySelectorAll(
-                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay'
+                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
                                     );
                                     for (var j = 0; j < overlays.length; j++) {
                                         overlays[j].style.setProperty('display', 'none', 'important');
@@ -3622,6 +3722,21 @@ class MainActivity : AppCompatActivity() {
                 super.onProgressChanged(view, newProgress)
                 if (newProgress < 100) showPageLoading(newProgress.coerceAtLeast(5))
                 else finishPageLoading()
+            }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
+                val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)
+                if (shieldActive && blockPopups && !isUserGesture) {
+                    HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, view?.url ?: "", view?.url, isPrivateMode)
+                    return false
+                }
+                return false
             }
 
             override fun onShowFileChooser(

@@ -11,6 +11,7 @@ import android.os.Message
 import android.view.View
 import android.webkit.*
 import com.example.haze.HazeSecurityManager
+import com.example.haze.HazePrivacyShieldEngine
 import com.example.haze.engine.*
 import java.io.ByteArrayInputStream
 
@@ -290,6 +291,19 @@ class ChromiumBrowserTab(
                 isUserGesture: Boolean,
                 resultMsg: Message?
             ): Boolean {
+                val ctx = view?.context
+                if (ctx != null) {
+                    val prefs = ctx.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+                    val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
+                    val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(ctx)
+
+                    if (shieldActive && blockPopups && !isUserGesture) {
+                        // Suppress unsolicited background popup/popunder!
+                        HazePrivacyShieldEngine.recordPopupBlocked(ctx, url, url, isPrivate)
+                        return false
+                    }
+                }
+
                 val transport = resultMsg?.obj as? WebView.WebViewTransport
                 if (transport != null) {
                     // Let the observer handle new window / tab opening

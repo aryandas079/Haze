@@ -14,6 +14,8 @@ object HazePrivacyShieldEngine {
 
     const val CATEGORY_ADS = "ADS"
     const val CATEGORY_TRACKERS = "TRACKERS"
+    const val CATEGORY_POPUPS = "POPUPS"
+    const val CATEGORY_MALWARE = "MALWARE"
     const val CATEGORY_MALICIOUS = "MALICIOUS"
     const val CATEGORY_PHISHING = "PHISHING"
     const val CATEGORY_UNWANTED_SCRIPTS = "UNWANTED_SCRIPTS"
@@ -23,7 +25,11 @@ object HazePrivacyShieldEngine {
     const val PREF_SHIELD_GLOBAL_ENABLED = "privacy_shield_global_enabled"
     const val PREF_BLOCK_ADS = "privacy_shield_block_ads"
     const val PREF_BLOCK_TRACKERS = "privacy_shield_block_trackers"
+    const val PREF_BLOCK_POPUPS = "privacy_shield_block_popups"
     const val PREF_BLOCK_MALWARE = "privacy_shield_block_malware"
+    const val PREF_BLOCK_OVERLAYS = "privacy_shield_block_overlays"
+    const val PREF_BLOCK_VIDEO_ADS = "privacy_shield_block_video_ads"
+    const val PREF_BLOCK_SPONSORED_WIDGETS = "privacy_shield_block_sponsored_widgets"
     const val PREF_BLOCK_UNWANTED_SCRIPTS = "privacy_shield_block_unwanted_scripts"
     const val PREF_BLOCK_THIRD_PARTY = "privacy_shield_block_third_party"
     const val PREF_ENHANCED_PRIVACY = "privacy_shield_enhanced_privacy"
@@ -31,6 +37,8 @@ object HazePrivacyShieldEngine {
     // In-memory Session Counters
     private val sessionAdsBlocked = AtomicLong(0)
     private val sessionTrackersBlocked = AtomicLong(0)
+    private val sessionPopupsBlocked = AtomicLong(0)
+    private val sessionMalwareBlocked = AtomicLong(0)
     private val sessionMaliciousBlocked = AtomicLong(0)
     private val sessionPhishingBlocked = AtomicLong(0)
     private val sessionUnwantedScriptsBlocked = AtomicLong(0)
@@ -178,6 +186,32 @@ object HazePrivacyShieldEngine {
         "cdnjs.cloudflare.com"
     )
 
+    // Known Popup, Popunder, and Redirect Ad Networks
+    private val popupNetworks = hashSetOf(
+        "popads.net", "popcash.net", "propellerads.com", "adsterra.com", "exoclick.com",
+        "hilltopads.net", "clickadu.com", "adcash.com", "popunder.net", "clickunder.ru",
+        "poponclick.com", "zeroredirect1.com", "tsyndicate.com"
+    )
+
+    // Sponsored Recommendation & Content Discovery Networks
+    private val sponsoredWidgetNetworks = hashSetOf(
+        "taboola.com", "outbrain.com", "revcontent.com", "mgid.com",
+        "nativo.com", "dianomi.com", "content.ad", "adblade.com"
+    )
+
+    fun recordPopupBlocked(context: Context, url: String, pageUrl: String?, isPrivate: Boolean) {
+        val decision = BlockDecision(
+            shouldBlock = true,
+            category = CATEGORY_POPUPS,
+            reason = "Unsolicited popup / popunder suppressed",
+            bytesSaved = 32_000L,
+            timeSavedMs = 120L,
+            targetUrl = url
+        )
+        val host = runCatching { Uri.parse(url).host ?: "popup" }.getOrDefault("popup")
+        recordEvent(context, decision, host, url, "POPUP", isPrivate)
+    }
+
     fun isShieldEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         return prefs.getBoolean(PREF_SHIELD_GLOBAL_ENABLED, true)
@@ -221,11 +255,13 @@ object HazePrivacyShieldEngine {
 
         val isYouTubePage = isYouTubeHost(pageHost)
         if (isYouTubePage) {
+            val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+            val blockVideoAds = prefs.getBoolean(PREF_BLOCK_VIDEO_ADS, true)
             // YouTube delivers the actual player through googlevideo.com. Never
             // send those media segments through generic ad/path filters.
             if (isYouTubeMediaRequest(requestUrl)) return BlockDecision.ALLOW
 
-            if (isYouTubeAdRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+            if (blockVideoAds && isYouTubeAdRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
                 val decision = BlockDecision(
                     shouldBlock = true,
                     category = CATEGORY_ADS,
@@ -260,7 +296,9 @@ object HazePrivacyShieldEngine {
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val blockAds = prefs.getBoolean(PREF_BLOCK_ADS, true)
         val blockTrackers = prefs.getBoolean(PREF_BLOCK_TRACKERS, true)
+        val blockPopups = prefs.getBoolean(PREF_BLOCK_POPUPS, true)
         val blockMalware = prefs.getBoolean(PREF_BLOCK_MALWARE, true)
+        val blockSponsoredWidgets = prefs.getBoolean(PREF_BLOCK_SPONSORED_WIDGETS, true)
         val blockUnwanted = prefs.getBoolean(PREF_BLOCK_UNWANTED_SCRIPTS, true)
         val blockThirdParty = prefs.getBoolean(PREF_BLOCK_THIRD_PARTY, true)
         val enhancedPrivacy = prefs.getBoolean(PREF_ENHANCED_PRIVACY, true)
@@ -294,6 +332,34 @@ object HazePrivacyShieldEngine {
                 targetUrl = requestUrl
             )
             recordEvent(context, decision, reqHost, requestUrl, if (isMainFrame) "HTML_DOCUMENT" else "SCRIPT", isPrivate)
+            return decision
+        }
+
+        // 4b. Popup / Popunder Ad Networks Check
+        if (blockPopups && matchesDomainOrSuffix(reqHost, popupNetworks)) {
+            val decision = BlockDecision(
+                shouldBlock = true,
+                category = CATEGORY_POPUPS,
+                reason = "Known popup / popunder redirect network",
+                bytesSaved = 32_000L,
+                timeSavedMs = 120L,
+                targetUrl = requestUrl
+            )
+            recordEvent(context, decision, reqHost, requestUrl, "POPUP", isPrivate)
+            return decision
+        }
+
+        // 4c. Sponsored Recommendation Widgets Check
+        if (blockSponsoredWidgets && matchesDomainOrSuffix(reqHost, sponsoredWidgetNetworks)) {
+            val decision = BlockDecision(
+                shouldBlock = true,
+                category = CATEGORY_ADS,
+                reason = "Sponsored recommendation / content discovery widget",
+                bytesSaved = 56_000L,
+                timeSavedMs = 140L,
+                targetUrl = requestUrl
+            )
+            recordEvent(context, decision, reqHost, requestUrl, "SPONSORED_WIDGET", isPrivate)
             return decision
         }
 
@@ -472,10 +538,24 @@ object HazePrivacyShieldEngine {
         when (decision.category) {
             CATEGORY_ADS -> sessionAdsBlocked.incrementAndGet()
             CATEGORY_TRACKERS -> sessionTrackersBlocked.incrementAndGet()
-            CATEGORY_MALICIOUS -> sessionMaliciousBlocked.incrementAndGet()
-            CATEGORY_PHISHING -> sessionPhishingBlocked.incrementAndGet()
-            CATEGORY_UNWANTED_SCRIPTS -> sessionUnwantedScriptsBlocked.incrementAndGet()
-            CATEGORY_THIRD_PARTY -> sessionThirdPartyBlocked.incrementAndGet()
+            CATEGORY_POPUPS -> sessionPopupsBlocked.incrementAndGet()
+            CATEGORY_MALWARE -> sessionMalwareBlocked.incrementAndGet()
+            CATEGORY_MALICIOUS -> {
+                sessionMaliciousBlocked.incrementAndGet()
+                sessionMalwareBlocked.incrementAndGet()
+            }
+            CATEGORY_PHISHING -> {
+                sessionPhishingBlocked.incrementAndGet()
+                sessionMalwareBlocked.incrementAndGet()
+            }
+            CATEGORY_UNWANTED_SCRIPTS -> {
+                sessionUnwantedScriptsBlocked.incrementAndGet()
+                sessionTrackersBlocked.incrementAndGet()
+            }
+            CATEGORY_THIRD_PARTY -> {
+                sessionThirdPartyBlocked.incrementAndGet()
+                sessionTrackersBlocked.incrementAndGet()
+            }
         }
         sessionTotalBlocked.incrementAndGet()
         sessionDataSavedBytes.addAndGet(decision.bytesSaved)
@@ -516,6 +596,8 @@ object HazePrivacyShieldEngine {
         return PrivacyShieldStats(
             adsBlocked = sessionAdsBlocked.get(),
             trackersBlocked = sessionTrackersBlocked.get(),
+            popupsBlocked = sessionPopupsBlocked.get(),
+            malwareBlocked = sessionMalwareBlocked.get(),
             maliciousBlocked = sessionMaliciousBlocked.get(),
             phishingBlocked = sessionPhishingBlocked.get(),
             unwantedScriptsBlocked = sessionUnwantedScriptsBlocked.get(),
@@ -524,6 +606,18 @@ object HazePrivacyShieldEngine {
             dataSavedBytes = sessionDataSavedBytes.get(),
             timeSavedMs = sessionTimeSavedMs.get(),
             lastUpdated = System.currentTimeMillis()
+        )
+    }
+
+    fun getBlockedToday(context: Context): BlockedTodayStats {
+        val dbStats = HazeDatabase.getInstance(context).getBlockedTodayStats()
+        return BlockedTodayStats(
+            ads = dbStats.ads + sessionAdsBlocked.get(),
+            trackers = dbStats.trackers + sessionTrackersBlocked.get(),
+            popups = dbStats.popups + sessionPopupsBlocked.get(),
+            malware = dbStats.malware + sessionMalwareBlocked.get(),
+            dataSavedBytes = dbStats.dataSavedBytes + sessionDataSavedBytes.get(),
+            timeSavedMs = dbStats.timeSavedMs + sessionTimeSavedMs.get()
         )
     }
 
@@ -541,6 +635,8 @@ object HazePrivacyShieldEngine {
         cachedAllTimeTotal.set(0)
         sessionAdsBlocked.set(0)
         sessionTrackersBlocked.set(0)
+        sessionPopupsBlocked.set(0)
+        sessionMalwareBlocked.set(0)
         sessionMaliciousBlocked.set(0)
         sessionPhishingBlocked.set(0)
         sessionUnwantedScriptsBlocked.set(0)
