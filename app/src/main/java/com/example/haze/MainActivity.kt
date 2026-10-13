@@ -36,6 +36,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.VelocityTracker
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.*
@@ -2656,7 +2657,7 @@ class MainActivity : AppCompatActivity() {
             prevView.animate()
                 .translationX(exitEndX)
                 .withLayer()
-                .setDuration(170L)
+                .setDuration(130L)
                 .setInterpolator(FAST_INTERPOLATOR)
                 .withEndAction {
                     prevView.visibility = View.GONE
@@ -2668,7 +2669,7 @@ class MainActivity : AppCompatActivity() {
             nextView.animate()
                 .translationX(0f)
                 .withLayer()
-                .setDuration(170L)
+                .setDuration(130L)
                 .setInterpolator(FAST_INTERPOLATOR)
                 .start()
 
@@ -2712,20 +2713,16 @@ class MainActivity : AppCompatActivity() {
         val targetText = if (isHome) "" else currentUrl
         if (animated && isDifferent && addressBar.text.toString() != targetText) {
             addressBar.animate().cancel()
+            addressBar.setText(targetText)
+            addressBar.alpha = 0.65f
             addressBar.animate()
-                .alpha(0f)
+                .alpha(1f)
                 .setDuration(90L)
-                .withEndAction {
-                    addressBar.setText(targetText)
-                    addressBar.animate()
-                        .alpha(1f)
-                        .setDuration(150L)
-                        .setInterpolator(BUTTER_INTERPOLATOR)
-                        .start()
-                }
+                .setInterpolator(FAST_INTERPOLATOR)
                 .start()
         } else {
             addressBar.setText(targetText)
+            addressBar.alpha = 1f
         }
     }
 
@@ -5962,11 +5959,16 @@ class MainActivity : AppCompatActivity() {
     private var gestureStartY = 0f
     private var isAddressBarTouch = false
     private var isAddressBarSwiping = false
+    private var isAddressBarPullDown = false
     private var isEdgeTouch = false
     private var isEdgeSwiping = false
     private var isLeftEdge = false
     private var isRightEdge = false
     private var childTouchesCanceled = false
+    private var gestureVelocityTracker: VelocityTracker? = null
+    private var activeGestureCurrView: View? = null
+    private var activeGestureAdjacentView: View? = null
+    private var activeGestureTargetIndex = -1
 
     fun setupSwipeBetweenTabs() {
         // Handled centrally in dispatchTouchEvent for 100% reliable interception across all Android views
@@ -5979,11 +5981,19 @@ class MainActivity : AppCompatActivity() {
     private fun resetGestures() {
         isAddressBarTouch = false
         isAddressBarSwiping = false
+        isAddressBarPullDown = false
         isEdgeTouch = false
         isEdgeSwiping = false
         isLeftEdge = false
         isRightEdge = false
         childTouchesCanceled = false
+        activeGestureCurrView = null
+        activeGestureAdjacentView = null
+        activeGestureTargetIndex = -1
+        try {
+            gestureVelocityTracker?.recycle()
+        } catch (_: Exception) {}
+        gestureVelocityTracker = null
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -5996,11 +6006,38 @@ class MainActivity : AppCompatActivity() {
                 gestureStartY = ev.rawY
                 isAddressBarTouch = false
                 isAddressBarSwiping = false
+                isAddressBarPullDown = false
                 isEdgeTouch = false
                 isEdgeSwiping = false
                 isLeftEdge = false
                 isRightEdge = false
                 childTouchesCanceled = false
+                activeGestureCurrView = null
+                activeGestureAdjacentView = null
+                activeGestureTargetIndex = -1
+
+                try {
+                    gestureVelocityTracker?.recycle()
+                } catch (_: Exception) {}
+                gestureVelocityTracker = VelocityTracker.obtain()
+                gestureVelocityTracker?.addMovement(ev)
+
+                // Cancel in-flight animations to ensure instant response (<0.01s)
+                for (i in 0 until webContainer.childCount) {
+                    val child = webContainer.getChildAt(i)
+                    if (child.translationX != 0f) {
+                        child.animate().cancel()
+                        child.translationX = 0f
+                    }
+                }
+                if (::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                    addressBarContainer.animate().cancel()
+                    addressBarContainer.translationY = 0f
+                }
+                if (::addressBar.isInitialized && addressBar.translationX != 0f) {
+                    addressBar.animate().cancel()
+                    addressBar.translationX = 0f
+                }
 
                 if (!isSearchActive) {
                     // Check if touch down is inside bottom address bar
@@ -6013,6 +6050,8 @@ class MainActivity : AppCompatActivity() {
                         val bottom = top + addressBarContainer.height
                         if (gestureStartX >= left && gestureStartX <= right && gestureStartY >= top && gestureStartY <= bottom) {
                             isAddressBarTouch = true
+                            val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                            activeGestureCurrView = currentTab?.swipeRefreshLayout ?: currentTab?.browserTab?.renderView
                         }
                     }
 
@@ -6033,6 +6072,9 @@ class MainActivity : AppCompatActivity() {
             }
 
             MotionEvent.ACTION_MOVE -> {
+                val tracker = gestureVelocityTracker ?: VelocityTracker.obtain().also { gestureVelocityTracker = it }
+                tracker.addMovement(ev)
+
                 val dx = ev.rawX - gestureStartX
                 val dy = ev.rawY - gestureStartY
                 val absX = Math.abs(dx)
@@ -6043,16 +6085,105 @@ class MainActivity : AppCompatActivity() {
                     val swipeSwitchEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
                     val swipeDownEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
 
-                    val isHorizontalDrag = swipeSwitchEnabled && absX > dpToPx(14) && absX > absY
-                    val isDownwardDrag = swipeDownEnabled && dy > dpToPx(14) && dy > absX
+                    // Ultra-low threshold of 6dp (~15px) triggers in <0.01s (first motion frame)
+                    if (!isAddressBarSwiping && !isAddressBarPullDown) {
+                        if (swipeSwitchEnabled && absX > dpToPx(6) && absX > absY) {
+                            isAddressBarSwiping = true
+                        } else if (swipeDownEnabled && dy > dpToPx(8) && dy > absX) {
+                            isAddressBarPullDown = true
+                        }
 
-                    if (isHorizontalDrag || isDownwardDrag) {
-                        isAddressBarSwiping = true
-                        if (!childTouchesCanceled) {
-                            val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                            super.dispatchTouchEvent(cancelEvent)
-                            cancelEvent.recycle()
-                            childTouchesCanceled = true
+                        if (isAddressBarSwiping || isAddressBarPullDown) {
+                            if (!childTouchesCanceled) {
+                                val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                                super.dispatchTouchEvent(cancelEvent)
+                                cancelEvent.recycle()
+                                childTouchesCanceled = true
+                            }
+                        }
+                    }
+
+                    if (isAddressBarPullDown) {
+                        val pullProgress = (dy.coerceAtLeast(0f) * 0.35f).coerceAtMost(dpToPx(60).toFloat())
+                        addressBarContainer.translationY = pullProgress
+                        webContainer.translationY = (dy.coerceAtLeast(0f) * 0.15f).coerceAtMost(dpToPx(30).toFloat())
+                        return true
+                    }
+
+                    if (isAddressBarSwiping) {
+                        val containerWidth = if (webContainer.width > 0) webContainer.width.toFloat() else resources.displayMetrics.widthPixels.toFloat()
+                        val currView = activeGestureCurrView ?: (currentTabsList.getOrNull(activeTabIndex)?.let { it.swipeRefreshLayout ?: it.browserTab.renderView })
+                        if (currView != null) {
+                            activeGestureCurrView = currView
+                            if (currView.layerType != View.LAYER_TYPE_HARDWARE) {
+                                currView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                            }
+
+                            if (dx > 0) {
+                                // Moving Right -> Seeking Previous Tab
+                                if (activeTabIndex > 0) {
+                                    val prevTab = currentTabsList[activeTabIndex - 1]
+                                    val prevView = prevTab.swipeRefreshLayout ?: prevTab.browserTab.renderView
+                                    if (prevView != null) {
+                                        if (activeGestureAdjacentView !== prevView) {
+                                            activeGestureAdjacentView?.visibility = View.GONE
+                                            activeGestureAdjacentView?.translationX = 0f
+                                            activeGestureAdjacentView = prevView
+                                            activeGestureTargetIndex = activeTabIndex - 1
+                                        }
+                                        if (prevView.visibility != View.VISIBLE) {
+                                            prevView.visibility = View.VISIBLE
+                                            if (prevView.parent == null) webContainer.addView(prevView)
+                                            prevView.bringToFront()
+                                            currView.bringToFront()
+                                        }
+                                        if (prevView.layerType != View.LAYER_TYPE_HARDWARE) {
+                                            prevView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                                        }
+                                        currView.translationX = dx
+                                        prevView.translationX = -containerWidth + dx
+                                    }
+                                } else {
+                                    activeGestureAdjacentView?.visibility = View.GONE
+                                    activeGestureAdjacentView = null
+                                    activeGestureTargetIndex = -1
+                                    currView.translationX = dx * 0.22f
+                                }
+                            } else if (dx < 0) {
+                                // Moving Left -> Seeking Next Tab
+                                if (activeTabIndex < currentTabsList.size - 1) {
+                                    val nextTab = currentTabsList[activeTabIndex + 1]
+                                    val nextView = nextTab.swipeRefreshLayout ?: nextTab.browserTab.renderView
+                                    if (nextView != null) {
+                                        if (activeGestureAdjacentView !== nextView) {
+                                            activeGestureAdjacentView?.visibility = View.GONE
+                                            activeGestureAdjacentView?.translationX = 0f
+                                            activeGestureAdjacentView = nextView
+                                            activeGestureTargetIndex = activeTabIndex + 1
+                                        }
+                                        if (nextView.visibility != View.VISIBLE) {
+                                            nextView.visibility = View.VISIBLE
+                                            if (nextView.parent == null) webContainer.addView(nextView)
+                                            nextView.bringToFront()
+                                        }
+                                        if (nextView.layerType != View.LAYER_TYPE_HARDWARE) {
+                                            nextView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                                        }
+                                        currView.translationX = dx
+                                        nextView.translationX = containerWidth + dx
+                                    }
+                                } else {
+                                    activeGestureAdjacentView?.visibility = View.GONE
+                                    activeGestureAdjacentView = null
+                                    activeGestureTargetIndex = -1
+                                    currView.translationX = dx * 0.22f
+                                }
+                            } else {
+                                currView.translationX = 0f
+                            }
+                            if (::addressBar.isInitialized) {
+                                addressBar.translationX = dx * 0.12f
+                            }
                         }
                         return true
                     }
@@ -6060,8 +6191,8 @@ class MainActivity : AppCompatActivity() {
 
                 // 2. Edge swipe navigation tracking
                 if (isEdgeTouch && !isSearchActive) {
-                    val isEdgeDrag = (isLeftEdge && dx > dpToPx(16) && dx > absY) ||
-                                     (isRightEdge && dx < -dpToPx(16) && absX > absY)
+                    val isEdgeDrag = (isLeftEdge && dx > dpToPx(14) && dx > absY) ||
+                                     (isRightEdge && dx < -dpToPx(14) && absX > absY)
                     if (isEdgeDrag) {
                         isEdgeSwiping = true
                         if (!childTouchesCanceled) {
@@ -6070,12 +6201,25 @@ class MainActivity : AppCompatActivity() {
                             cancelEvent.recycle()
                             childTouchesCanceled = true
                         }
+                        val currView = currentTabsList.getOrNull(activeTabIndex)?.let { it.swipeRefreshLayout ?: it.browserTab.renderView }
+                        if (currView != null) {
+                            currView.translationX = dx * 0.25f
+                        }
                         return true
                     }
                 }
             }
 
             MotionEvent.ACTION_UP -> {
+                val tracker = gestureVelocityTracker
+                tracker?.addMovement(ev)
+                tracker?.computeCurrentVelocity(1000)
+                val vx = tracker?.xVelocity ?: 0f
+                try {
+                    tracker?.recycle()
+                } catch (_: Exception) {}
+                gestureVelocityTracker = null
+
                 val dx = ev.rawX - gestureStartX
                 val dy = ev.rawY - gestureStartY
                 val absX = Math.abs(dx)
@@ -6083,39 +6227,139 @@ class MainActivity : AppCompatActivity() {
 
                 // 1. Complete Address Bar Gestures
                 if (isAddressBarTouch && !isSearchActive) {
-                    val swipeSwitchEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_SWITCH_TAB, true)
-                    val swipeDownEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_SWIPE_DOWN_TAB_OVERVIEW, true)
-
-                    // A: Swipe down -> Tab overview
-                    if (swipeDownEnabled && dy > dpToPx(32) && dy > absX) {
-                        triggerStrongHaptic(isHeavy = true)
-                        showFullScreenTabs()
+                    if (isAddressBarPullDown) {
+                        addressBarContainer.animate().translationY(0f).setDuration(120L).setInterpolator(FAST_INTERPOLATOR).start()
+                        webContainer.animate().translationY(0f).setDuration(120L).setInterpolator(FAST_INTERPOLATOR).start()
+                        if (dy > dpToPx(32) && dy > absX) {
+                            triggerStrongHaptic(isHeavy = true)
+                            showFullScreenTabs()
+                        }
                         resetGestures()
                         return true
                     }
 
-                    // B: Horizontal swipe -> Switch tab
-                    if (swipeSwitchEnabled && absX > dpToPx(32) && absX > absY) {
-                        if (dx > 0) {
-                            // Swipe right -> previous tab
-                            if (activeTabIndex > 0) {
-                                triggerStrongHaptic(isHeavy = true)
-                                switchTab(activeTabIndex - 1)
-                                resetGestures()
-                                return true
+                    if (isAddressBarSwiping) {
+                        val containerWidth = if (webContainer.width > 0) webContainer.width.toFloat() else resources.displayMetrics.widthPixels.toFloat()
+                        val currView = activeGestureCurrView
+                        val adjView = activeGestureAdjacentView
+                        val targetIdx = activeGestureTargetIndex
+
+                        val thresholdDist = containerWidth * 0.20f
+                        val minFlickVel = dpToPx(400).toFloat()
+                        val shouldSwitchRight = dx > 0 && targetIdx == activeTabIndex - 1 && (dx > thresholdDist || (vx > minFlickVel && dx > dpToPx(10)))
+                        val shouldSwitchLeft = dx < 0 && targetIdx == activeTabIndex + 1 && (-dx > thresholdDist || (vx < -minFlickVel && -dx > dpToPx(10)))
+
+                        val ultraFastDecel = DecelerateInterpolator(2.0f)
+
+                        if (shouldSwitchRight && currView != null && adjView != null) {
+                            val remainingDist = containerWidth - dx
+                            val speed = Math.max(Math.abs(vx), dpToPx(1200).toFloat())
+                            val duration = ((remainingDist / speed) * 1000).toLong().coerceIn(60L, 130L)
+
+                            currView.animate().cancel()
+                            adjView.animate().cancel()
+                            if (::addressBar.isInitialized) addressBar.animate().cancel()
+
+                            if (::addressBar.isInitialized) {
+                                addressBar.animate().translationX(0f).setDuration(duration).setInterpolator(ultraFastDecel).start()
                             }
+
+                            currView.animate()
+                                .translationX(containerWidth)
+                                .setDuration(duration)
+                                .setInterpolator(ultraFastDecel)
+                                .start()
+
+                            adjView.animate()
+                                .translationX(0f)
+                                .setDuration(duration)
+                                .setInterpolator(ultraFastDecel)
+                                .withEndAction {
+                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    adjView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    currView.translationX = 0f
+                                    switchTab(targetIdx, animated = false)
+                                }
+                                .start()
+
+                            triggerStrongHaptic(isHeavy = true)
+                            resetGestures()
+                            return true
+
+                        } else if (shouldSwitchLeft && currView != null && adjView != null) {
+                            val remainingDist = containerWidth - (-dx)
+                            val speed = Math.max(Math.abs(vx), dpToPx(1200).toFloat())
+                            val duration = ((remainingDist / speed) * 1000).toLong().coerceIn(60L, 130L)
+
+                            currView.animate().cancel()
+                            adjView.animate().cancel()
+                            if (::addressBar.isInitialized) addressBar.animate().cancel()
+
+                            if (::addressBar.isInitialized) {
+                                addressBar.animate().translationX(0f).setDuration(duration).setInterpolator(ultraFastDecel).start()
+                            }
+
+                            currView.animate()
+                                .translationX(-containerWidth)
+                                .setDuration(duration)
+                                .setInterpolator(ultraFastDecel)
+                                .start()
+
+                            adjView.animate()
+                                .translationX(0f)
+                                .setDuration(duration)
+                                .setInterpolator(ultraFastDecel)
+                                .withEndAction {
+                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    adjView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    currView.translationX = 0f
+                                    switchTab(targetIdx, animated = false)
+                                }
+                                .start()
+
+                            triggerStrongHaptic(isHeavy = true)
+                            resetGestures()
+                            return true
+
                         } else {
-                            // Swipe left -> next tab
-                            if (activeTabIndex < currentTabsList.size - 1) {
-                                triggerStrongHaptic(isHeavy = true)
-                                switchTab(activeTabIndex + 1)
-                                resetGestures()
-                                return true
+                            // Snap back
+                            currView?.animate()?.cancel()
+                            adjView?.animate()?.cancel()
+                            if (::addressBar.isInitialized) addressBar.animate().cancel()
+
+                            if (::addressBar.isInitialized) {
+                                addressBar.animate().translationX(0f).setDuration(100L).setInterpolator(ultraFastDecel).start()
                             }
+
+                            currView?.animate()
+                                ?.translationX(0f)
+                                ?.setDuration(100L)
+                                ?.setInterpolator(ultraFastDecel)
+                                ?.withEndAction {
+                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                }
+                                ?.start()
+
+                            if (adjView != null) {
+                                val cancelTargetX = if (dx > 0) -containerWidth else containerWidth
+                                adjView.animate()
+                                    .translationX(cancelTargetX)
+                                    .setDuration(100L)
+                                    .setInterpolator(ultraFastDecel)
+                                    .withEndAction {
+                                        adjView.visibility = View.GONE
+                                        adjView.translationX = 0f
+                                        adjView.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    }
+                                    .start()
+                            }
+
+                            resetGestures()
+                            return true
                         }
                     }
 
-                    if (isAddressBarSwiping || childTouchesCanceled) {
+                    if (childTouchesCanceled) {
                         resetGestures()
                         return true
                     }
@@ -6124,28 +6368,24 @@ class MainActivity : AppCompatActivity() {
                 // 2. Complete Edge Navigation Gestures
                 if (isEdgeTouch && !isSearchActive) {
                     val edgeEnabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_EDGE_SWIPE_NAVIGATE, true)
-                    if (edgeEnabled) {
+                    val currView = currentTabsList.getOrNull(activeTabIndex)?.let { it.swipeRefreshLayout ?: it.browserTab.renderView }
+                    if (edgeEnabled && isEdgeSwiping) {
                         val currentTab = currentTabsList.getOrNull(activeTabIndex)
                         if (isLeftEdge && dx > dpToPx(40) && dx > absY) {
-                            // Swiped right from left edge -> Navigate Back
                             if (currentTab?.browserTab?.navigationController?.canGoBack() == true) {
                                 triggerStrongHaptic(isHeavy = true)
                                 currentTab.browserTab.navigationController.goBack()
                                 Toast.makeText(this, "Navigating back", Toast.LENGTH_SHORT).show()
-                                resetGestures()
-                                return true
                             }
                         } else if (isRightEdge && dx < -dpToPx(40) && absX > absY) {
-                            // Swiped left from right edge -> Navigate Forward
                             if (currentTab?.browserTab?.navigationController?.canGoForward() == true) {
                                 triggerStrongHaptic(isHeavy = true)
                                 currentTab.browserTab.navigationController.goForward()
                                 Toast.makeText(this, "Navigating forward", Toast.LENGTH_SHORT).show()
-                                resetGestures()
-                                return true
                             }
                         }
                     }
+                    currView?.animate()?.translationX(0f)?.setDuration(100L)?.setInterpolator(FAST_INTERPOLATOR)?.start()
                     if (isEdgeSwiping || childTouchesCanceled) {
                         resetGestures()
                         return true
@@ -6156,6 +6396,21 @@ class MainActivity : AppCompatActivity() {
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                activeGestureCurrView?.animate()?.translationX(0f)?.setDuration(100L)?.start()
+                activeGestureAdjacentView?.let { adj ->
+                    adj.animate().translationX(0f).setDuration(100L).withEndAction {
+                        adj.visibility = View.GONE
+                    }.start()
+                }
+                if (::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                    addressBarContainer.animate().translationY(0f).setDuration(100L).start()
+                }
+                if (::webContainer.isInitialized && webContainer.translationY != 0f) {
+                    webContainer.animate().translationY(0f).setDuration(100L).start()
+                }
+                if (::addressBar.isInitialized && addressBar.translationX != 0f) {
+                    addressBar.animate().translationX(0f).setDuration(100L).start()
+                }
                 resetGestures()
             }
         }
