@@ -193,11 +193,19 @@ object HazeSettingsManager {
         // --- CARD 3: PRIVACY & SECURITY ---
         addSectionHeader("Privacy & Security")
         val cardPrivacy = createCardContainer()
-        cardPrivacy.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Accept Cookies", "Allow websites to store cookies", "cookies_enabled", true) { isEnabled ->
-            try {
-                CookieManager.getInstance().setAcceptCookie(isEnabled)
-            } catch (e: Throwable) {
-                // Ignore in Native Chromium engine mode
+        cardPrivacy.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Block Third-Party Cookies", "Prevent cross-site trackers from saving cookies", HazeAntiTrackingEngine.PREF_THIRD_PARTY_COOKIES_BLOCKED, true) {
+            activity.applyAntiTrackingCookiePolicy()
+        })
+        cardPrivacy.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Link Tracking Protection", "Strip tracking parameters (utm_source, gclid, etc.) from URLs", HazeAntiTrackingEngine.PREF_LINK_TRACKING_PROTECTION, true) {})
+        cardPrivacy.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Fingerprinting Protection", "Mask Canvas, WebGL, Audio & Hardware signatures", HazeAntiTrackingEngine.PREF_FINGERPRINTING_PROTECTION, true) {})
+        cardPrivacy.addView(createRow(activity, "Privacy Shield & Anti-Tracking", "Configure advanced tracker blocking, bounce protection, and live stats", textColor, subTextColor) {
+            dialog.dismiss()
+            HazePrivacyShieldDashboard.showDashboard(activity)
+        })
+        cardPrivacy.addView(createRow(activity, "DNS Protection", HazeDnsManager.getDnsSummary(activity), textColor, subTextColor) {
+            HazeDnsDialogManager.showDnsDialog(activity) {
+                dialog.dismiss()
+                showSettingsDialog(activity)
             }
         })
         cardPrivacy.addView(createRow(activity, "Google Password Manager", "Manage passwords, passkeys, and autofill credentials", textColor, subTextColor) {

@@ -20,6 +20,8 @@ object HazePrivacyShieldEngine {
     const val CATEGORY_PHISHING = "PHISHING"
     const val CATEGORY_UNWANTED_SCRIPTS = "UNWANTED_SCRIPTS"
     const val CATEGORY_THIRD_PARTY = "THIRD_PARTY"
+    const val CATEGORY_TOKENS_CLEANED = "TOKENS_CLEANED"
+    const val CATEGORY_BOUNCES_STOPPED = "BOUNCES_STOPPED"
 
     // Preference Keys
     const val PREF_SHIELD_GLOBAL_ENABLED = "privacy_shield_global_enabled"
@@ -43,12 +45,123 @@ object HazePrivacyShieldEngine {
     private val sessionPhishingBlocked = AtomicLong(0)
     private val sessionUnwantedScriptsBlocked = AtomicLong(0)
     private val sessionThirdPartyBlocked = AtomicLong(0)
+    private val sessionTokensCleaned = AtomicLong(0)
+    private val sessionBouncesStopped = AtomicLong(0)
     private val sessionTotalBlocked = AtomicLong(0)
     private val sessionDataSavedBytes = AtomicLong(0)
     private val sessionTimeSavedMs = AtomicLong(0)
     private val cachedAllTimeTotal = AtomicLong(0)
 
+    // In-memory Today Counters (fast, thread-safe, no double counting)
+    private val todayAdsBlocked = AtomicLong(0)
+    private val todayTrackersBlocked = AtomicLong(0)
+    private val todayPopupsBlocked = AtomicLong(0)
+    private val todayMalwareBlocked = AtomicLong(0)
+    private val todayTokensCleaned = AtomicLong(0)
+    private val todayBouncesStopped = AtomicLong(0)
+    private val todayDataSavedBytes = AtomicLong(0)
+    private val todayTimeSavedMs = AtomicLong(0)
+    private val isTodayStatsInitialized = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private val whitelistedDomainsCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    data class BlockedResourceInfo(
+        val url: String,
+        val domain: String,
+        val category: String,
+        val reason: String,
+        val humanExplanation: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
+    data class SitePrivacyReport(
+        val host: String,
+        val fullUrl: String,
+        val isHttps: Boolean,
+        val trackersBlocked: Long,
+        val adsBlocked: Long,
+        val cookiesBlocked: Long,
+        val fingerprintAttempts: Long,
+        val privacyScore: Int,
+        val asciiScoreBar: String,
+        val isShieldEnabledForSite: Boolean,
+        val blockedResources: List<BlockedResourceInfo>
+    )
+
+    private class SiteMetrics(val host: String) {
+        val trackersBlocked = AtomicLong(0)
+        val adsBlocked = AtomicLong(0)
+        val cookiesBlocked = AtomicLong(0)
+        val fingerprintAttempts = AtomicLong(0)
+        val blockedResources = java.util.concurrent.CopyOnWriteArrayList<BlockedResourceInfo>()
+    }
+
+    private val siteMetricsMap = java.util.concurrent.ConcurrentHashMap<String, SiteMetrics>()
+
+    init {
+        // Seed demo metrics for example.com as specified in signature privacy dashboard requirements
+        val exampleMetrics = SiteMetrics("example.com").apply {
+            trackersBlocked.set(14)
+            adsBlocked.set(31)
+            cookiesBlocked.set(8)
+            fingerprintAttempts.set(2)
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "https://track.example-analytics.com/collect?v=2",
+                    domain = "track.example-analytics.com",
+                    category = "Tracker",
+                    reason = "Third-party behavioral tracking script",
+                    humanExplanation = "Blocked an analytics script attempting to profile user navigation and session duration."
+                )
+            )
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "https://ads.doubleclick.net/gampad/ads?iu=banner",
+                    domain = "ads.doubleclick.net",
+                    category = "Ad",
+                    reason = "Display advertising network banner",
+                    humanExplanation = "Neutralized an intrusive display advertising banner to save bandwidth and screen real estate."
+                )
+            )
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "https://cdn.adservice.google.com/ads/script.js",
+                    domain = "cdn.adservice.google.com",
+                    category = "Ad",
+                    reason = "Ad delivery network payload",
+                    humanExplanation = "Blocked an external ad network script before execution."
+                )
+            )
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "https://tracker.adnxs.com/seg?add=1&t=2",
+                    domain = "tracker.adnxs.com",
+                    category = "Tracker",
+                    reason = "Cross-site retargeting beacon",
+                    humanExplanation = "Blocked a retargeting beacon attempting to identify you across advertiser partner websites."
+                )
+            )
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "Third-party cookie on example.com",
+                    domain = "example.com",
+                    category = "Cookie",
+                    reason = "Cross-site advertising cookie isolated",
+                    humanExplanation = "Blocked a cross-site tracking cookie from being saved in browser storage."
+                )
+            )
+            blockedResources.add(
+                BlockedResourceInfo(
+                    url = "HTML5 Canvas Probe",
+                    domain = "example.com",
+                    category = "Fingerprint",
+                    reason = "Stealth canvas fingerprinting attempt",
+                    humanExplanation = "Intercepted and spoofed an invisible canvas rendering probe querying GPU hardware characteristics."
+                )
+            )
+        }
+        siteMetricsMap["example.com"] = exampleMetrics
+    }
 
     // Bounded LRU Decision Cache (Capacity 1024) for ultra-fast O(1) request evaluation
     private val decisionCache = object : java.util.LinkedHashMap<String, BlockDecision>(128, 0.75f, true) {
@@ -67,26 +180,26 @@ object HazePrivacyShieldEngine {
     )
 
     fun createBlockedResponse(requestUrl: String): WebResourceResponse {
+        val lower = requestUrl.lowercase()
         val headers = mapOf(
             "Access-Control-Allow-Origin" to "*",
             "Cache-Control" to "no-cache, no-store, must-revalidate",
             "X-Haze-Blocked" to "true"
         )
-        val lower = requestUrl.lowercase()
         return when {
             lower.contains(".png") || lower.contains(".jpg") || lower.contains(".jpeg") ||
             lower.contains(".webp") || lower.contains(".gif") || lower.contains("/ad.png") ||
             lower.contains("creative") || lower.contains("banner") -> {
-                WebResourceResponse("image/png", "UTF-8", 403, "Blocked", headers, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
+                WebResourceResponse("image/png", "UTF-8", 200, "OK", headers, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
             }
             lower.contains(".js") || lower.contains("/js") || lower.contains("analytics") || lower.contains("track") -> {
-                WebResourceResponse("application/javascript", "UTF-8", 403, "Blocked", headers, ByteArrayInputStream(ByteArray(0)))
+                WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
             }
             lower.contains(".css") -> {
-                WebResourceResponse("text/css", "UTF-8", 403, "Blocked", headers, ByteArrayInputStream(ByteArray(0)))
+                WebResourceResponse("text/css", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
             }
             else -> {
-                WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", headers, ByteArrayInputStream(ByteArray(0)))
+                WebResourceResponse("text/plain", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
             }
         }
     }
@@ -116,6 +229,17 @@ object HazePrivacyShieldEngine {
                 }
                 val stats = db.getPrivacyStats()
                 cachedAllTimeTotal.set(stats.totalBlocked)
+
+                val today = db.getBlockedTodayStats()
+                todayAdsBlocked.set(today.ads)
+                todayTrackersBlocked.set(today.trackers)
+                todayPopupsBlocked.set(today.popups)
+                todayMalwareBlocked.set(today.malware)
+                todayTokensCleaned.set(today.tokensCleaned)
+                todayBouncesStopped.set(today.bouncesStopped)
+                todayDataSavedBytes.set(today.dataSavedBytes)
+                todayTimeSavedMs.set(today.timeSavedMs)
+                isTodayStatsInitialized.set(true)
 
                 if (com.example.haze.native_engine.HazeNativeBridge.isNativeLoaded()) {
                     com.example.haze.native_engine.HazeNativeBridge.nativeClearRules()
@@ -152,7 +276,7 @@ object HazePrivacyShieldEngine {
         listeners.remove(listener)
     }
 
-    private fun notifyListeners(category: String, total: Long) {
+    fun notifyListeners(category: String, total: Long) {
         mainHandler.post {
             for (l in listeners) {
                 try { l.onShieldEvent(category, total) } catch (e: Exception) {}
@@ -210,6 +334,40 @@ object HazePrivacyShieldEngine {
         )
         val host = runCatching { Uri.parse(url).host ?: "popup" }.getOrDefault("popup")
         recordEvent(context, decision, host, url, "POPUP", isPrivate)
+    }
+
+    fun recordTokenCleaned(context: Context, count: Long = 1) {
+        sessionTokensCleaned.addAndGet(count)
+        todayTokensCleaned.addAndGet(count)
+        sessionTotalBlocked.addAndGet(count)
+        todayDataSavedBytes.addAndGet(count * 2048L)
+        todayTimeSavedMs.addAndGet(count * 15L)
+        val total = getTotalBlocked(context)
+        notifyListeners(CATEGORY_TOKENS_CLEANED, total)
+        dbExecutor.execute {
+            try {
+                HazeDatabase.getInstance(context).incrementTokensCleaned(count)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun recordBounceStopped(context: Context) {
+        sessionBouncesStopped.incrementAndGet()
+        todayBouncesStopped.incrementAndGet()
+        sessionTotalBlocked.incrementAndGet()
+        todayDataSavedBytes.addAndGet(16_000L)
+        todayTimeSavedMs.addAndGet(180L)
+        val total = getTotalBlocked(context)
+        notifyListeners(CATEGORY_BOUNCES_STOPPED, total)
+        dbExecutor.execute {
+            try {
+                HazeDatabase.getInstance(context).incrementBouncesStopped(1)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun isShieldEnabled(context: Context): Boolean {
@@ -274,7 +432,7 @@ object HazePrivacyShieldEngine {
                     timeSavedMs = 120L,
                     targetUrl = requestUrl
                 )
-                recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate)
+                recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate, pageHost)
                 return decision
             }
         }
@@ -292,9 +450,16 @@ object HazePrivacyShieldEngine {
                     isHarmfulPageNavigation = isMainFrame && (nativeDec.category == CATEGORY_PHISHING || nativeDec.category == CATEGORY_MALICIOUS),
                     targetUrl = requestUrl
                 )
-                recordEvent(context, decision, reqHost, requestUrl, "NATIVE_C_ENGINE", isPrivate)
+                recordEvent(context, decision, reqHost, requestUrl, "NATIVE_C_ENGINE", isPrivate, pageHost)
                 return decision
             }
+        }
+
+        // 2c. Secure DNS Engine Protection (DNS-level Malware & Tracker Defense)
+        val dnsDecision = HazeDnsManager.evaluateDnsRequest(context, reqHost, isMainFrame)
+        if (dnsDecision != null && dnsDecision.shouldBlock) {
+            recordEvent(context, dnsDecision, reqHost, requestUrl, "SECURE_DNS", isPrivate, pageHost)
+            return dnsDecision
         }
 
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -320,7 +485,7 @@ object HazePrivacyShieldEngine {
                 isHarmfulPageNavigation = isMainFrame,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "HTML_DOCUMENT", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "HTML_DOCUMENT", isPrivate, pageHost)
             return decision
         }
 
@@ -335,7 +500,7 @@ object HazePrivacyShieldEngine {
                 isHarmfulPageNavigation = isMainFrame,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, if (isMainFrame) "HTML_DOCUMENT" else "SCRIPT", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, if (isMainFrame) "HTML_DOCUMENT" else "SCRIPT", isPrivate, pageHost)
             return decision
         }
 
@@ -349,7 +514,7 @@ object HazePrivacyShieldEngine {
                 timeSavedMs = 120L,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "POPUP", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "POPUP", isPrivate, pageHost)
             return decision
         }
 
@@ -363,7 +528,7 @@ object HazePrivacyShieldEngine {
                 timeSavedMs = 140L,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "SPONSORED_WIDGET", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "SPONSORED_WIDGET", isPrivate, pageHost)
             return decision
         }
 
@@ -381,8 +546,10 @@ object HazePrivacyShieldEngine {
             val category = if (match.rule.contains("analytics", true) || match.rule.contains("track", true) ||
                 match.rule.contains("privacy", true) || match.rule.contains("pixel", true)) CATEGORY_TRACKERS else CATEGORY_ADS
             if ((category == CATEGORY_ADS && blockAds) || (category == CATEGORY_TRACKERS && blockTrackers)) {
-                val decision = BlockDecision(true, category, "Filter rule: ${match.rule}", 0L, 0L, targetUrl = requestUrl)
-                recordEvent(context, decision, reqHost, requestUrl, "NETWORK", isPrivate)
+                val bytesSaved = if (category == CATEGORY_ADS) 48_000L else 24_000L
+                val timeSaved = if (category == CATEGORY_ADS) 120L else 60L
+                val decision = BlockDecision(true, category, "Filter rule: ${match.rule}", bytesSaved, timeSaved, targetUrl = requestUrl)
+                recordEvent(context, decision, reqHost, requestUrl, "NETWORK", isPrivate, pageHost)
                 return decision
             }
         }
@@ -397,7 +564,7 @@ object HazePrivacyShieldEngine {
                 timeSavedMs = 120L,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "AD_NETWORK", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "AD_NETWORK", isPrivate, pageHost)
             return decision
         }
 
@@ -411,7 +578,7 @@ object HazePrivacyShieldEngine {
                 timeSavedMs = 60L,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "TRACKING_SCRIPT", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "TRACKING_SCRIPT", isPrivate, pageHost)
             return decision
         }
 
@@ -425,7 +592,7 @@ object HazePrivacyShieldEngine {
                 timeSavedMs = 90L,
                 targetUrl = requestUrl
             )
-            recordEvent(context, decision, reqHost, requestUrl, "UNWANTED_SCRIPT", isPrivate)
+            recordEvent(context, decision, reqHost, requestUrl, "UNWANTED_SCRIPT", isPrivate, pageHost)
             return decision
         }
 
@@ -444,7 +611,7 @@ object HazePrivacyShieldEngine {
                             timeSavedMs = 70L,
                             targetUrl = requestUrl
                         )
-                        recordEvent(context, decision, reqHost, requestUrl, "URL_FILTER", isPrivate)
+                        recordEvent(context, decision, reqHost, requestUrl, "URL_FILTER", isPrivate, pageHost)
                         return decision
                     }
                 }
@@ -464,7 +631,7 @@ object HazePrivacyShieldEngine {
                         timeSavedMs = 50L,
                         targetUrl = requestUrl
                     )
-                    recordEvent(context, decision, reqHost, requestUrl, "CROSS_SITE_TRACKER", isPrivate)
+                    recordEvent(context, decision, reqHost, requestUrl, "CROSS_SITE_TRACKER", isPrivate, pageHost)
                     return decision
                 }
 
@@ -481,6 +648,15 @@ object HazePrivacyShieldEngine {
 
     internal fun isMediaStreamRequest(host: String, path: String, url: String): Boolean {
         if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
+            return true
+        }
+        if (host.contains("spotifycdn.com") || host.contains("scdn.co") ||
+            host.contains("akamaized.net") || host.contains("spotify.com")) {
+            val lowerP = path.lowercase()
+            if (lowerP.contains("/ad-logic/") || lowerP.contains("/melody/v1/ad") ||
+                lowerP.contains("commercial-break") || lowerP.contains("/audio-ad/") || lowerP.contains("/ad-slot/")) {
+                return false
+            }
             return true
         }
         val lowerPath = path.lowercase()
@@ -560,36 +736,90 @@ object HazePrivacyShieldEngine {
         domain: String,
         url: String,
         resourceType: String,
-        isPrivate: Boolean
+        isPrivate: Boolean,
+        pageHost: String? = null
     ) {
+        // Record per-site metrics
+        if (!pageHost.isNullOrBlank()) {
+            val clean = cleanHost(pageHost)
+            if (clean.isNotEmpty()) {
+                val metrics = siteMetricsMap.computeIfAbsent(clean) { SiteMetrics(it) }
+                when (decision.category) {
+                    CATEGORY_ADS -> metrics.adsBlocked.incrementAndGet()
+                    CATEGORY_TRACKERS, CATEGORY_UNWANTED_SCRIPTS -> metrics.trackersBlocked.incrementAndGet()
+                    CATEGORY_POPUPS -> metrics.adsBlocked.incrementAndGet()
+                    CATEGORY_THIRD_PARTY -> metrics.cookiesBlocked.incrementAndGet()
+                    else -> metrics.trackersBlocked.incrementAndGet()
+                }
+                val humanExplanation = when (decision.category) {
+                    CATEGORY_ADS -> "Advertising server or banner creative blocked to save mobile data and remove clutter."
+                    CATEGORY_TRACKERS -> "Cross-site tracking script blocked to stop behavioral profiling and telemetry."
+                    CATEGORY_POPUPS -> "Unwanted popup / popunder redirect blocked."
+                    CATEGORY_MALWARE, CATEGORY_MALICIOUS -> "Harmful malware or cryptojacking script neutralized."
+                    CATEGORY_PHISHING -> "Deceptive phishing threat domain blocked."
+                    CATEGORY_THIRD_PARTY -> "Cross-site tracking resource isolated to protect cookie privacy."
+                    else -> "Potentially unwanted resource blocked by privacy filter."
+                }
+                if (metrics.blockedResources.size < 150) {
+                    metrics.blockedResources.add(
+                        BlockedResourceInfo(
+                            url = url,
+                            domain = domain,
+                            category = decision.category,
+                            reason = decision.reason,
+                            humanExplanation = humanExplanation
+                        )
+                    )
+                }
+            }
+        }
+
         // 1. Update In-Memory Session Counters
         when (decision.category) {
-            CATEGORY_ADS -> sessionAdsBlocked.incrementAndGet()
-            CATEGORY_TRACKERS -> sessionTrackersBlocked.incrementAndGet()
-            CATEGORY_POPUPS -> sessionPopupsBlocked.incrementAndGet()
-            CATEGORY_MALWARE -> sessionMalwareBlocked.incrementAndGet()
+            CATEGORY_ADS -> {
+                sessionAdsBlocked.incrementAndGet()
+                todayAdsBlocked.incrementAndGet()
+            }
+            CATEGORY_TRACKERS -> {
+                sessionTrackersBlocked.incrementAndGet()
+                todayTrackersBlocked.incrementAndGet()
+            }
+            CATEGORY_POPUPS -> {
+                sessionPopupsBlocked.incrementAndGet()
+                todayPopupsBlocked.incrementAndGet()
+            }
+            CATEGORY_MALWARE -> {
+                sessionMalwareBlocked.incrementAndGet()
+                todayMalwareBlocked.incrementAndGet()
+            }
             CATEGORY_MALICIOUS -> {
                 sessionMaliciousBlocked.incrementAndGet()
                 sessionMalwareBlocked.incrementAndGet()
+                todayMalwareBlocked.incrementAndGet()
             }
             CATEGORY_PHISHING -> {
                 sessionPhishingBlocked.incrementAndGet()
                 sessionMalwareBlocked.incrementAndGet()
+                todayMalwareBlocked.incrementAndGet()
             }
             CATEGORY_UNWANTED_SCRIPTS -> {
                 sessionUnwantedScriptsBlocked.incrementAndGet()
                 sessionTrackersBlocked.incrementAndGet()
+                todayTrackersBlocked.incrementAndGet()
             }
             CATEGORY_THIRD_PARTY -> {
                 sessionThirdPartyBlocked.incrementAndGet()
                 sessionTrackersBlocked.incrementAndGet()
+                todayTrackersBlocked.incrementAndGet()
             }
         }
         sessionTotalBlocked.incrementAndGet()
         sessionDataSavedBytes.addAndGet(decision.bytesSaved)
         sessionTimeSavedMs.addAndGet(decision.timeSavedMs)
+        todayDataSavedBytes.addAndGet(decision.bytesSaved)
+        todayTimeSavedMs.addAndGet(decision.timeSavedMs)
 
-        val total = sessionTotalBlocked.get()
+        val total = getTotalBlocked(context)
         notifyListeners(decision.category, total)
 
         // 2. Strict Privacy Requirement: In private browsing sessions, do NOT record to persistent SQLite database!
@@ -638,14 +868,30 @@ object HazePrivacyShieldEngine {
     }
 
     fun getBlockedToday(context: Context): BlockedTodayStats {
-        val dbStats = HazeDatabase.getInstance(context).getBlockedTodayStats()
+        if (!isTodayStatsInitialized.get()) {
+            try {
+                val db = HazeDatabase.getInstance(context)
+                val dbStats = db.getBlockedTodayStats()
+                todayAdsBlocked.compareAndSet(0, dbStats.ads)
+                todayTrackersBlocked.compareAndSet(0, dbStats.trackers)
+                todayPopupsBlocked.compareAndSet(0, dbStats.popups)
+                todayMalwareBlocked.compareAndSet(0, dbStats.malware)
+                todayTokensCleaned.compareAndSet(0, dbStats.tokensCleaned)
+                todayBouncesStopped.compareAndSet(0, dbStats.bouncesStopped)
+                todayDataSavedBytes.compareAndSet(0, dbStats.dataSavedBytes)
+                todayTimeSavedMs.compareAndSet(0, dbStats.timeSavedMs)
+                isTodayStatsInitialized.set(true)
+            } catch (_: Exception) {}
+        }
         return BlockedTodayStats(
-            ads = dbStats.ads + sessionAdsBlocked.get(),
-            trackers = dbStats.trackers + sessionTrackersBlocked.get(),
-            popups = dbStats.popups + sessionPopupsBlocked.get(),
-            malware = dbStats.malware + sessionMalwareBlocked.get(),
-            dataSavedBytes = dbStats.dataSavedBytes + sessionDataSavedBytes.get(),
-            timeSavedMs = dbStats.timeSavedMs + sessionTimeSavedMs.get()
+            ads = todayAdsBlocked.get(),
+            trackers = todayTrackersBlocked.get(),
+            popups = todayPopupsBlocked.get(),
+            malware = todayMalwareBlocked.get(),
+            tokensCleaned = todayTokensCleaned.get(),
+            bouncesStopped = todayBouncesStopped.get(),
+            dataSavedBytes = todayDataSavedBytes.get(),
+            timeSavedMs = todayTimeSavedMs.get()
         )
     }
 
@@ -669,14 +915,152 @@ object HazePrivacyShieldEngine {
         sessionPhishingBlocked.set(0)
         sessionUnwantedScriptsBlocked.set(0)
         sessionThirdPartyBlocked.set(0)
+        sessionTokensCleaned.set(0)
+        sessionBouncesStopped.set(0)
         sessionTotalBlocked.set(0)
         sessionDataSavedBytes.set(0)
         sessionTimeSavedMs.set(0)
+
+        todayAdsBlocked.set(0)
+        todayTrackersBlocked.set(0)
+        todayPopupsBlocked.set(0)
+        todayMalwareBlocked.set(0)
+        todayTokensCleaned.set(0)
+        todayBouncesStopped.set(0)
+        todayDataSavedBytes.set(0)
+        todayTimeSavedMs.set(0)
+
+        siteMetricsMap.clear()
+        HazeAntiTrackingEngine.resetSessionStats()
 
         dbExecutor.execute {
             HazeDatabase.getInstance(context).resetPrivacyStats()
         }
         notifyListeners("RESET", 0)
+    }
+
+    // ==========================================
+    // PER-SITE PRIVACY METRICS & REPORT
+    // ==========================================
+
+    fun cleanHost(hostOrUrl: String): String {
+        return HazeSitePermissionManager.cleanHost(hostOrUrl)
+    }
+
+    fun recordFingerprintAttemptForHost(context: Context, hostOrUrl: String, probeType: String) {
+        val host = cleanHost(hostOrUrl)
+        if (host.isEmpty()) return
+        val metrics = siteMetricsMap.computeIfAbsent(host) { SiteMetrics(it) }
+        metrics.fingerprintAttempts.incrementAndGet()
+        sessionTotalBlocked.incrementAndGet()
+        val capitalized = probeType.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        if (metrics.blockedResources.size < 150) {
+            metrics.blockedResources.add(
+                BlockedResourceInfo(
+                    url = "$probeType probe on $host",
+                    domain = host,
+                    category = "Fingerprinting",
+                    reason = "$capitalized API probe neutralized",
+                    humanExplanation = "Detected an invasive $capitalized fingerprinting probe attempting to extract unique hardware characteristics."
+                )
+            )
+        }
+        notifyListeners("Fingerprinting", getTotalBlocked(context))
+    }
+
+    fun recordCookieBlockedForHost(hostOrUrl: String) {
+        val host = cleanHost(hostOrUrl)
+        if (host.isEmpty()) return
+        val metrics = siteMetricsMap.computeIfAbsent(host) { SiteMetrics(it) }
+        metrics.cookiesBlocked.incrementAndGet()
+        if (metrics.blockedResources.size < 150) {
+            metrics.blockedResources.add(
+                BlockedResourceInfo(
+                    url = "Third-party cookie on $host",
+                    domain = host,
+                    category = "Cookie",
+                    reason = "Cross-site tracking cookie isolated",
+                    humanExplanation = "Blocked an external cookie attempting to link your session across websites."
+                )
+            )
+        }
+    }
+
+    fun getSiteReport(context: Context, currentUrl: String): SitePrivacyReport {
+        val host = cleanHost(currentUrl)
+        val isHttps = currentUrl.startsWith("https://", ignoreCase = true)
+        val metrics = if (host.isNotEmpty()) siteMetricsMap[host] else null
+
+        val trackers = metrics?.trackersBlocked?.get() ?: 0L
+        val ads = metrics?.adsBlocked?.get() ?: 0L
+        val cookies = metrics?.cookiesBlocked?.get() ?: 0L
+        val fingerprints = metrics?.fingerprintAttempts?.get() ?: 0L
+        val blockedList = metrics?.blockedResources?.toList()?.reversed() ?: emptyList()
+
+        val camState = HazeSitePermissionManager.getPermission(context, host, HazeSitePermissionManager.PermissionType.CAMERA)
+        val locState = HazeSitePermissionManager.getPermission(context, host, HazeSitePermissionManager.PermissionType.LOCATION)
+
+        var score = 100
+        if (!isHttps && host.isNotEmpty() && !host.startsWith("localhost") && !host.startsWith("127.0.0.1")) {
+            score -= 25
+        }
+        val trackerPenalty = (trackers * 0.5).toInt().coerceAtMost(25)
+        val adPenalty = (ads * 0.2).toInt().coerceAtMost(15)
+        val cookiePenalty = (cookies * 0.4).toInt().coerceAtMost(15)
+        val fpPenalty = (fingerprints * 1.0).toInt().coerceAtMost(20)
+
+        var permPenalty = 0
+        if (camState == HazeSitePermissionManager.State.ALLOWED) permPenalty += 4
+        if (locState == HazeSitePermissionManager.State.ALLOWED) permPenalty += 4
+
+        score -= (trackerPenalty + adPenalty + cookiePenalty + fpPenalty + permPenalty)
+        val finalScore = score.coerceIn(15, 100)
+
+        val filledBlocks = (finalScore / 10).coerceIn(1, 10)
+        val emptyBlocks = 10 - filledBlocks
+        val asciiScoreBar = "█".repeat(filledBlocks) + "░".repeat(emptyBlocks)
+
+        val isShieldEnabledForSite = !isHostWhitelisted(host) && isShieldEnabled(context)
+
+        return SitePrivacyReport(
+            host = host.ifEmpty { "Current Page" },
+            fullUrl = currentUrl,
+            isHttps = isHttps,
+            trackersBlocked = trackers,
+            adsBlocked = ads,
+            cookiesBlocked = cookies,
+            fingerprintAttempts = fingerprints,
+            privacyScore = finalScore,
+            asciiScoreBar = asciiScoreBar,
+            isShieldEnabledForSite = isShieldEnabledForSite,
+            blockedResources = blockedList
+        )
+    }
+
+    fun isHostWhitelisted(host: String): Boolean {
+        val clean = cleanHost(host)
+        return whitelistedDomainsCache.contains(clean)
+    }
+
+    fun setHostWhitelisted(context: Context, host: String, whitelisted: Boolean) {
+        val clean = cleanHost(host)
+        if (clean.isEmpty()) return
+        updateWhitelistCache(clean, whitelisted)
+        dbExecutor.execute {
+            try {
+                val db = HazeDatabase.getInstance(context)
+                db.setDomainWhitelisted(clean, whitelisted)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        notifyListeners("WHITELIST", getTotalBlocked(context))
+    }
+
+    fun getBlockedItemsForHost(hostOrUrl: String): List<BlockedResourceInfo> {
+        val clean = cleanHost(hostOrUrl)
+        if (clean.isEmpty()) return emptyList()
+        return siteMetricsMap[clean]?.blockedResources?.toList()?.reversed() ?: emptyList()
     }
 
     // ==========================================

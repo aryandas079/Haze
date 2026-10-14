@@ -37,6 +37,10 @@ interface IEngineObserver {
      * Called when a website requests device permissions (Camera, Microphone, etc.).
      */
     fun onPermissionRequest(request: EnginePermissionRequest) {
+        if (request.resources.contains("android.webkit.resource.PROTECTED_MEDIA_ID")) {
+            request.grant(request.resources)
+            return
+        }
         request.deny()
     }
 

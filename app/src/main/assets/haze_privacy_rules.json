@@ -6,6 +6,10 @@
       "doubleclick.net",
       "googleadservices.com",
       "googlesyndication.com",
+      "googletagservices.com",
+      "2mdn.net",
+      "amazon-adsystem.com",
+      "aaxads.com",
       "adservice.google.com",
       "pagead2.googlesyndication.com",
       "ads.google.com",
@@ -505,9 +509,8 @@
       "/advert/",
       "/advertising/",
       "/ad-unit/",
-      "/ads/",
-      "/ad/",
-      "/tr/",
+      "/ad-server/",
+      "/tr?",
       "/pixel/",
       "/beacon/",
       "/collect?",
@@ -557,7 +560,12 @@
       "/gads/js/",
       "/gads.js",
       "/ad_manager/",
-      "/admanager/"
+      "/admanager/",
+      "/gpt.js",
+      "pubads",
+      "adsbygoogle",
+      "show_ads",
+      "/adunit"
     ]
   }
 }

@@ -229,19 +229,23 @@ class HazeOmniboxManager(
         val ivArrow = view.findViewById<ImageView>(R.id.ivClipboardActionArrow)
         val btnClose = view.findViewById<ImageButton>(R.id.btnCloseClipboard)
         val layoutNumberActions = view.findViewById<LinearLayout>(R.id.layoutNumberActions)
-        val btnClipCall = view.findViewById<TextView>(R.id.btnClipCall)
-        val btnClipSearch = view.findViewById<TextView>(R.id.btnClipSearch)
+        val btnClipCall = view.findViewById<View>(R.id.btnClipCall)
+        val ivClipCallIcon = view.findViewById<ImageView>(R.id.ivClipCallIcon)
+        val tvClipCallText = view.findViewById<TextView>(R.id.tvClipCallText)
+        val btnClipSearch = view.findViewById<View>(R.id.btnClipSearch)
+        val ivClipSearchIcon = view.findViewById<ImageView>(R.id.ivClipSearchIcon)
+        val tvClipSearchText = view.findViewById<TextView>(R.id.tvClipSearchText)
 
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
         val coralColor = Color.parseColor("#E53935")
 
         if (isDark) {
             val bgCard = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
                 setColor(Color.parseColor("#1E222A"))
-                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.5f, activity.resources.displayMetrics).toInt(), Color.parseColor("#2E3644"))
+                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#2E3644"))
             }
             card.background = bgCard
             tvAction.setTextColor(Color.WHITE)
@@ -254,8 +258,32 @@ class HazeOmniboxManager(
             }
             btnClipCall.background = pillBgDark
             btnClipSearch.background = pillBgDark.constantState?.newDrawable()?.mutate()
-            btnClipCall.setTextColor(accentColor)
-            btnClipSearch.setTextColor(Color.WHITE)
+            tvClipCallText?.setTextColor(accentColor)
+            ivClipCallIcon?.setColorFilter(accentColor)
+            tvClipSearchText?.setTextColor(Color.WHITE)
+            ivClipSearchIcon?.setColorFilter(Color.WHITE)
+        } else {
+            val bgCard = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
+                setColor(Color.WHITE)
+                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#E0E0E0"))
+            }
+            card.background = bgCard
+            tvAction.setTextColor(Color.parseColor("#202124"))
+            tvContent.setTextColor(Color.parseColor("#5F6368"))
+
+            val pillBgLight = GradientDrawable().apply {
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
+                setColor(Color.parseColor("#F1F3F4"))
+                setStroke(1, Color.parseColor("#D8DEE8"))
+            }
+            btnClipCall.background = pillBgLight
+            btnClipSearch.background = pillBgLight.constantState?.newDrawable()?.mutate()
+            tvClipCallText?.setTextColor(accentColor)
+            ivClipCallIcon?.setColorFilter(accentColor)
+            tvClipSearchText?.setTextColor(Color.parseColor("#202124"))
+            ivClipSearchIcon?.setColorFilter(Color.parseColor("#5F6368"))
         }
 
         val rowContent = view.findViewById<View>(R.id.rowClipboardContent)
@@ -272,8 +300,11 @@ class HazeOmniboxManager(
                 tvAction.text = "Go to: ${clipItem.url}"
                 tvContent.text = "Copied web address"
                 layoutNumberActions.visibility = View.VISIBLE
-                btnClipCall.text = "🌐 Open Link"
-                btnClipSearch.text = "🔍 Search Web"
+
+                ivClipCallIcon?.setImageResource(R.drawable.ic_globe)
+                tvClipCallText?.text = "Open Link"
+                ivClipSearchIcon?.setImageResource(R.drawable.ic_search)
+                tvClipSearchText?.text = "Search Web"
 
                 btnClipCall.setOnClickListener {
                     activity.triggerStrongHaptic(it)
@@ -302,12 +333,11 @@ class HazeOmniboxManager(
                 tvAction.text = "Call or Search: ${clipItem.number}"
                 tvContent.text = "Copied phone number"
                 layoutNumberActions.visibility = View.VISIBLE
-                btnClipCall.text = "📞 Call Number"
-                btnClipSearch.text = "🔍 Search Web"
-                if (!isDark) {
-                    btnClipCall.setTextColor(accentColor)
-                    btnClipSearch.setTextColor(Color.parseColor("#1F1F1F"))
-                }
+
+                ivClipCallIcon?.setImageResource(R.drawable.ic_call)
+                tvClipCallText?.text = "Call Number"
+                ivClipSearchIcon?.setImageResource(R.drawable.ic_search)
+                tvClipSearchText?.text = "Search Web"
 
                 btnClipCall.setOnClickListener {
                     activity.triggerStrongHaptic(it)
@@ -342,8 +372,11 @@ class HazeOmniboxManager(
                 tvAction.text = "Search: \"${clipItem.query}\""
                 tvContent.text = "Copied text snippet"
                 layoutNumberActions.visibility = View.VISIBLE
-                btnClipCall.text = "🔍 Search Web"
-                btnClipSearch.text = "📋 Paste in Bar"
+
+                ivClipCallIcon?.setImageResource(R.drawable.ic_search)
+                tvClipCallText?.text = "Search Web"
+                ivClipSearchIcon?.setImageResource(R.drawable.ic_content_paste)
+                tvClipSearchText?.text = "Paste in Bar"
 
                 btnClipCall.setOnClickListener {
                     activity.triggerStrongHaptic(it)
@@ -351,7 +384,8 @@ class HazeOmniboxManager(
                 }
                 btnClipSearch.setOnClickListener {
                     activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.query)
+                    activity.addressBar.setText(clipItem.query)
+                    activity.addressBar.setSelection(clipItem.query.length)
                 }
 
                 val openQuery = View.OnClickListener {
@@ -372,6 +406,7 @@ class HazeOmniboxManager(
             }
             lastDismissedClip = textToDismiss
             container.removeView(view)
+            container.visibility = View.GONE
         }
 
         return view

@@ -207,6 +207,14 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+        <!-- Separate Smart Clipboard Floating Card Container (Directly above search suggestions) -->
+        <FrameLayout
+            android:id="@+id/clipboardContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone" />
+
         <!-- Vertical Suggestion Search Strip (Appearing vertically over the address bar) -->
         <ScrollView
             android:id="@+id/searchSuggestionStrip"

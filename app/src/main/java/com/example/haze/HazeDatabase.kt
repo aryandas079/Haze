@@ -71,10 +71,12 @@ data class BlockedTodayStats(
     val trackers: Long = 0L,
     val popups: Long = 0L,
     val malware: Long = 0L,
+    val tokensCleaned: Long = 0L,
+    val bouncesStopped: Long = 0L,
     val dataSavedBytes: Long = 0L,
     val timeSavedMs: Long = 0L
 ) {
-    val total: Long get() = ads + trackers + popups + malware
+    val total: Long get() = ads + trackers + popups + malware + tokensCleaned + bouncesStopped
 }
 
 data class UserCustomRule(
@@ -131,7 +133,7 @@ class HazeDatabase private constructor(context: Context) :
 
     companion object {
         private const val DATABASE_NAME = "haze_browser.db"
-        private const val DATABASE_VERSION = 4
+        private const val DATABASE_VERSION = 5
 
         @Volatile
         private var instance: HazeDatabase? = null
@@ -294,6 +296,9 @@ class HazeDatabase private constructor(context: Context) :
         if (oldVersion < 4) {
             createPasswordTable(db)
         }
+        if (oldVersion < 5) {
+            createPrivacyTables(db)
+        }
         createOfflineTable(db)
     }
 
@@ -415,10 +420,12 @@ class HazeDatabase private constructor(context: Context) :
                 )
                 """.trimIndent()
             )
-            db.execSQL("INSERT OR IGNORE INTO privacy_shield_stats (id, ads_blocked, trackers_blocked, popups_blocked, malware_blocked, malicious_blocked, phishing_blocked, unwanted_scripts_blocked, third_party_blocked, total_blocked, data_saved_bytes, time_saved_ms, last_updated) VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)")
-            try { db.execSQL("ALTER TABLE privacy_shield_stats ADD COLUMN popups_blocked INTEGER DEFAULT 0") } catch (e: Exception) {}
-            try { db.execSQL("ALTER TABLE privacy_shield_stats ADD COLUMN malware_blocked INTEGER DEFAULT 0") } catch (e: Exception) {}
+            try { db.execSQL("ALTER TABLE privacy_shield_stats ADD COLUMN popups_blocked INTEGER DEFAULT 0") } catch (_: Exception) {}
+            try { db.execSQL("ALTER TABLE privacy_shield_stats ADD COLUMN malware_blocked INTEGER DEFAULT 0") } catch (_: Exception) {}
+            try { db.execSQL("INSERT OR IGNORE INTO privacy_shield_stats (id, ads_blocked, trackers_blocked, popups_blocked, malware_blocked, malicious_blocked, phishing_blocked, unwanted_scripts_blocked, third_party_blocked, total_blocked, data_saved_bytes, time_saved_ms, last_updated) VALUES (1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)") } catch (_: Exception) {}
+        } catch (_: Exception) {}
 
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS privacy_shield_daily_stats (
@@ -427,12 +434,18 @@ class HazeDatabase private constructor(context: Context) :
                     trackers_blocked INTEGER DEFAULT 0,
                     popups_blocked INTEGER DEFAULT 0,
                     malware_blocked INTEGER DEFAULT 0,
+                    tokens_cleaned INTEGER DEFAULT 0,
+                    bounces_stopped INTEGER DEFAULT 0,
                     data_saved_bytes INTEGER DEFAULT 0,
                     time_saved_ms INTEGER DEFAULT 0
                 )
                 """.trimIndent()
             )
+            try { db.execSQL("ALTER TABLE privacy_shield_daily_stats ADD COLUMN tokens_cleaned INTEGER DEFAULT 0") } catch (_: Exception) {}
+            try { db.execSQL("ALTER TABLE privacy_shield_daily_stats ADD COLUMN bounces_stopped INTEGER DEFAULT 0") } catch (_: Exception) {}
+        } catch (_: Exception) {}
 
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS user_custom_rules (
@@ -445,7 +458,9 @@ class HazeDatabase private constructor(context: Context) :
                 )
                 """.trimIndent()
             )
+        } catch (_: Exception) {}
 
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS custom_filter_subscriptions (
@@ -461,7 +476,9 @@ class HazeDatabase private constructor(context: Context) :
                 )
                 """.trimIndent()
             )
+        } catch (_: Exception) {}
 
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS privacy_shield_events (
@@ -478,6 +495,9 @@ class HazeDatabase private constructor(context: Context) :
             )
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_ts ON privacy_shield_events(timestamp DESC)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_shield_events_cat ON privacy_shield_events(category)")
+        } catch (_: Exception) {}
+
+        try {
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS privacy_shield_exceptions (
@@ -488,7 +508,7 @@ class HazeDatabase private constructor(context: Context) :
                 )
                 """.trimIndent()
             )
-        } catch (ignored: Exception) {}
+        } catch (_: Exception) {}
     }
 
     // ==========================================
@@ -1226,7 +1246,7 @@ class HazeDatabase private constructor(context: Context) :
         try {
             val db = readableDatabase
             val cursor = db.rawQuery(
-                "SELECT ads_blocked, trackers_blocked, popups_blocked, malware_blocked, data_saved_bytes, time_saved_ms FROM privacy_shield_daily_stats WHERE date_key = ?",
+                "SELECT ads_blocked, trackers_blocked, popups_blocked, malware_blocked, data_saved_bytes, time_saved_ms, tokens_cleaned, bounces_stopped FROM privacy_shield_daily_stats WHERE date_key = ?",
                 arrayOf(todayKey)
             )
             if (cursor.moveToFirst()) {
@@ -1236,7 +1256,9 @@ class HazeDatabase private constructor(context: Context) :
                     popups = cursor.getLong(2),
                     malware = cursor.getLong(3),
                     dataSavedBytes = cursor.getLong(4),
-                    timeSavedMs = cursor.getLong(5)
+                    timeSavedMs = cursor.getLong(5),
+                    tokensCleaned = if (cursor.columnCount > 6) cursor.getLong(6) else 0L,
+                    bouncesStopped = if (cursor.columnCount > 7) cursor.getLong(7) else 0L
                 )
                 cursor.close()
                 return stats
@@ -1250,6 +1272,8 @@ class HazeDatabase private constructor(context: Context) :
             val initialTrackers = 392L
             val initialPopups = 17L
             val initialMalware = 3L
+            val initialTokens = 0L
+            val initialBounces = 0L
             val initialData = 142 * 1024 * 1024L
             val initialTime = 144_000L
             val cv = ContentValues().apply {
@@ -1258,6 +1282,8 @@ class HazeDatabase private constructor(context: Context) :
                 put("trackers_blocked", initialTrackers)
                 put("popups_blocked", initialPopups)
                 put("malware_blocked", initialMalware)
+                put("tokens_cleaned", initialTokens)
+                put("bounces_stopped", initialBounces)
                 put("data_saved_bytes", initialData)
                 put("time_saved_ms", initialTime)
             }
@@ -1267,6 +1293,8 @@ class HazeDatabase private constructor(context: Context) :
                 trackers = initialTrackers,
                 popups = initialPopups,
                 malware = initialMalware,
+                tokensCleaned = initialTokens,
+                bouncesStopped = initialBounces,
                 dataSavedBytes = initialData,
                 timeSavedMs = initialTime
             )
@@ -1283,6 +1311,8 @@ class HazeDatabase private constructor(context: Context) :
             "TRACKERS", "UNWANTED_SCRIPTS", "THIRD_PARTY" -> "trackers_blocked"
             "POPUPS" -> "popups_blocked"
             "MALWARE", "MALICIOUS", "PHISHING" -> "malware_blocked"
+            "TOKENS_CLEANED" -> "tokens_cleaned"
+            "BOUNCES_STOPPED" -> "bounces_stopped"
             else -> "ads_blocked"
         }
         try {
@@ -1290,6 +1320,28 @@ class HazeDatabase private constructor(context: Context) :
             getBlockedTodayStats() // Ensure today row initialized
             val sql = "UPDATE privacy_shield_daily_stats SET $column = $column + 1, data_saved_bytes = data_saved_bytes + ?, time_saved_ms = time_saved_ms + ? WHERE date_key = ?"
             db.execSQL(sql, arrayOf(bytesSaved, timeSavedMs, todayKey))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun incrementTokensCleaned(count: Long = 1) {
+        val todayKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        try {
+            val db = writableDatabase
+            getBlockedTodayStats()
+            db.execSQL("UPDATE privacy_shield_daily_stats SET tokens_cleaned = tokens_cleaned + ? WHERE date_key = ?", arrayOf(count, todayKey))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun incrementBouncesStopped(count: Long = 1) {
+        val todayKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        try {
+            val db = writableDatabase
+            getBlockedTodayStats()
+            db.execSQL("UPDATE privacy_shield_daily_stats SET bounces_stopped = bounces_stopped + ? WHERE date_key = ?", arrayOf(count, todayKey))
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -1497,7 +1549,7 @@ class HazeDatabase private constructor(context: Context) :
             val todayKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
             db.execSQL("UPDATE privacy_shield_stats SET ads_blocked = 0, trackers_blocked = 0, popups_blocked = 0, malware_blocked = 0, malicious_blocked = 0, phishing_blocked = 0, unwanted_scripts_blocked = 0, third_party_blocked = 0, total_blocked = 0, data_saved_bytes = 0, time_saved_ms = 0, last_updated = ? WHERE id = 1", arrayOf(System.currentTimeMillis()))
             db.delete("privacy_shield_events", null, null)
-            db.execSQL("UPDATE privacy_shield_daily_stats SET ads_blocked = 0, trackers_blocked = 0, popups_blocked = 0, malware_blocked = 0, data_saved_bytes = 0, time_saved_ms = 0 WHERE date_key = ?", arrayOf(todayKey))
+            db.execSQL("UPDATE privacy_shield_daily_stats SET ads_blocked = 0, trackers_blocked = 0, popups_blocked = 0, malware_blocked = 0, tokens_cleaned = 0, bounces_stopped = 0, data_saved_bytes = 0, time_saved_ms = 0 WHERE date_key = ?", arrayOf(todayKey))
             true
         } catch (e: Exception) {
             false
@@ -1560,6 +1612,8 @@ class HazeDatabase private constructor(context: Context) :
         val catClause = when (categoryFilter?.uppercase()) {
             "ADS" -> "ADS"
             "TRACKERS" -> "TRACKERS"
+            "POPUPS" -> "POPUPS"
+            "MALWARE", "MALICIOUS", "PHISHING" -> "MALWARE"
             "CDN / OTHER", "CDN", "THIRD_PARTY" -> "THIRD_PARTY"
             else -> null
         }

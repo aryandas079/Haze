@@ -78,6 +78,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.media.AudioManager
@@ -207,10 +208,9 @@ class MainActivity : AppCompatActivity() {
     }
     private var pageLoadingGeneration = 0
     // Chromium can report dozens of progress ticks per page.  Updating Android
-    // views for every one creates a queue on the main thread and is especially
-    // visible on lower-end devices.
     private val renderedProgressByTab = mutableMapOf<Long, Int>()
     private val suggestionExecutor = Executors.newFixedThreadPool(2)
+    private val dbExecutor = Executors.newSingleThreadExecutor()
     private val suggestionCache = Collections.synchronizedMap(
         object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean {
@@ -235,10 +235,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webContainer: FrameLayout
-    private lateinit var addressBar: EditText
+    internal lateinit var addressBar: EditText
     private lateinit var tabCountBtn: TextView
     private lateinit var btnTabsCircular: FrameLayout
     private lateinit var addressBarContainer: LinearLayout
+    private lateinit var clipboardContainer: FrameLayout
     private lateinit var searchSuggestionStrip: ScrollView
     private lateinit var suggestionChipContainer: LinearLayout
     private lateinit var findBarContainer: LinearLayout
@@ -461,11 +462,23 @@ class MainActivity : AppCompatActivity() {
         var favicon: Bitmap? = null,
         var isPrivate: Boolean = false,
         var group: TabGroup? = null,
-        var isDesktop: Boolean = false,
+        private var initialIsDesktop: Boolean = false,
         var isPinned: Boolean = false,
         var lastAccessedTime: Long = System.currentTimeMillis()
     ) {
         val webView: WebView? get() = (browserTab as? ChromiumBrowserTab)?.webView
+
+        var isDesktop: Boolean
+            get() = browserTab.isDesktop
+            set(value) {
+                browserTab.isDesktop = value
+            }
+
+        init {
+            if (initialIsDesktop) {
+                browserTab.isDesktop = true
+            }
+        }
 
         constructor(
             id: Long = System.currentTimeMillis(),
@@ -488,7 +501,7 @@ class MainActivity : AppCompatActivity() {
             favicon = favicon,
             isPrivate = isPrivate,
             group = group,
-            isDesktop = isDesktop,
+            initialIsDesktop = isDesktop,
             isPinned = isPinned,
             lastAccessedTime = lastAccessedTime
         )
@@ -508,6 +521,19 @@ class MainActivity : AppCompatActivity() {
     private var activePrivateTabIndex = -1
     private val activeTabIndex: Int
         get() = if (isPrivateMode) activePrivateTabIndex else activeNormalTabIndex
+
+    fun applyAntiTrackingCookiePolicy() {
+        normalTabs.forEach { tab ->
+            (tab.browserTab.renderView as? WebView)?.let { wv ->
+                HazeAntiTrackingEngine.configureWebViewCookies(wv, this, isPrivate = false)
+            }
+        }
+        privateTabs.forEach { tab ->
+            (tab.browserTab.renderView as? WebView)?.let { wv ->
+                HazeAntiTrackingEngine.configureWebViewCookies(wv, this, isPrivate = true)
+            }
+        }
+    }
 
 
     private val groupColors = listOf(
@@ -646,6 +672,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
         @JavascriptInterface
+        fun recordFingerprintAttempt(type: String) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: getActiveTab()
+                val pageUrl = tab?.url ?: return@runOnUiThread
+                val host = HazeSitePermissionManager.cleanHost(pageUrl)
+                if (host.isNotEmpty()) {
+                    HazePrivacyShieldEngine.recordFingerprintAttemptForHost(this@MainActivity, host, type)
+                    HazeAntiTrackingEngine.incrementFingerprintAttemptsBlocked()
+                }
+            }
+        }
+        @JavascriptInterface
         fun bypassSecurityWarning(url: String) {
             runOnUiThread {
                 try {
@@ -740,14 +778,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun wakeScreen() {
+        try {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+                val km = getSystemService(KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                km?.requestDismissKeyguard(this, null)
+            }
+            val pm = getSystemService(POWER_SERVICE) as? android.os.PowerManager
+            @Suppress("DEPRECATION")
+            val wl = pm?.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "Haze:WakeUpLock"
+            )
+            wl?.acquire(5000L)
+        } catch (_: Exception) {}
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        wakeScreen()
         enableEdgeToEdge()
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        }
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
@@ -772,7 +831,9 @@ class MainActivity : AppCompatActivity() {
         val btnVoiceSearch: ImageButton = findViewById(R.id.btnVoiceSearch)
 
         dimOverlay = findViewById(R.id.dimOverlay)
+        clipboardContainer = findViewById(R.id.clipboardContainer)
         searchSuggestionStrip = findViewById(R.id.searchSuggestionStrip)
+        searchSuggestionStrip.isNestedScrollingEnabled = true
         suggestionChipContainer = findViewById(R.id.suggestionChipContainer)
         btnClearQuery = findViewById(R.id.btnClearQuery)
         btnQrScan = findViewById(R.id.btnQrScan)
@@ -1121,6 +1182,9 @@ class MainActivity : AppCompatActivity() {
         HazeSecurityManager.checkAndPromptGooglePasswordManager(this)
 
         checkAndPromptGoogleWebLogin()
+        if (intent != null && (intent.hasExtra("open_dns_protection") || intent.hasExtra("open_settings") || intent.hasExtra("open_menu") || intent.hasExtra("toggle_orientation") || intent.hasExtra("toggle_desktop"))) {
+            onNewIntent(intent)
+        }
     }
 
     fun checkAndPromptGoogleWebLogin() {
@@ -1228,14 +1292,21 @@ class MainActivity : AppCompatActivity() {
         isSearchActive = true
         updatePrivacyShieldButton()
 
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        dimOverlay.setBackgroundColor(if (isDark) Color.parseColor("#CC101216") else Color.parseColor("#66000000"))
+        dimOverlay.alpha = 0f
         dimOverlay.visibility = View.VISIBLE
-        dimOverlay.alpha = 1f
+        dimOverlay.animate().cancel()
+        dimOverlay.animate().alpha(1f).setDuration(180L).start()
 
         dimOverlay.bringToFront()
         addressBarContainer.bringToFront()
         addressBarContainer.elevation = dpToPx(30).toFloat()
 
         btnTabsCircular.visibility = View.GONE
+        if (::topRightActions.isInitialized) {
+            topRightActions.visibility = View.GONE
+        }
         findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.GONE
         btnQrScan.visibility = View.VISIBLE
         findViewById<ImageButton>(R.id.btnVoiceSearch)?.visibility = View.VISIBLE
@@ -1276,6 +1347,10 @@ class MainActivity : AppCompatActivity() {
         addressBar.clearFocus()
 
         // 2. Hide suggestions strip & Omnibox controls
+        if (::clipboardContainer.isInitialized) {
+            clipboardContainer.removeAllViews()
+            clipboardContainer.visibility = View.GONE
+        }
         searchSuggestionStrip.visibility = View.GONE
         suggestionChipContainer.removeAllViews()
         searchEngineSelectorBar.visibility = View.GONE
@@ -1285,9 +1360,11 @@ class MainActivity : AppCompatActivity() {
 
         updateClearQueryButtonVisibility(animate = true)
 
-        // 3. Dismiss overlay hides
+        // 3. Dismiss overlay hides smoothly
         dimOverlay.animate().cancel()
-        dimOverlay.visibility = View.GONE
+        dimOverlay.animate().alpha(0f).setDuration(150L).withEndAction {
+            dimOverlay.visibility = View.GONE
+        }.start()
 
         // 4. Reset translation if keyboard is closed
         val root = findViewById<View>(R.id.main)
@@ -1367,10 +1444,25 @@ class MainActivity : AppCompatActivity() {
         val isRecent: Boolean = false
     )
 
-    private fun adjustSuggestionStripHeight(itemCount: Int) {
-        val rowHeight = dpToPx(48)
-        val maxAllowedHeight = dpToPx(240)
-        val computedHeight = (itemCount * rowHeight) + dpToPx(8)
+    private fun applySuggestionTheme(isDark: Boolean) {
+        val bgCard = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dpToPx(20f).toFloat()
+            if (isDark) {
+                setColor(Color.parseColor("#1E222A"))
+                setStroke(dpToPx(1f), Color.parseColor("#2E3644"))
+            } else {
+                setColor(Color.WHITE)
+                setStroke(dpToPx(1f), Color.parseColor("#E0E0E0"))
+            }
+        }
+        searchSuggestionStrip.background = bgCard
+    }
+
+    private fun adjustSuggestionStripHeight(itemCount: Int, hasClipboard: Boolean = false) {
+        val rowHeight = dpToPx(50)
+        val maxAllowedHeight = if (hasClipboard) dpToPx(160) else dpToPx(270)
+        val computedHeight = (itemCount * rowHeight) + dpToPx(12)
         val params = searchSuggestionStrip.layoutParams
         if (computedHeight > maxAllowedHeight) {
             params.height = maxAllowedHeight
@@ -1458,10 +1550,21 @@ class MainActivity : AppCompatActivity() {
     private fun renderRecentSearchesAndShortcuts() {
         suggestionChipContainer.removeAllViews()
 
-        // 1. Smart Clipboard Card at the top
-        val clipboardCard = omniboxManager.renderSmartClipboardCard(suggestionChipContainer)
-        if (clipboardCard != null) {
-            suggestionChipContainer.addView(clipboardCard)
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        applySuggestionTheme(isDark)
+
+        var hasClipboard = false
+        // 1. Separate Smart Clipboard Card directly above suggestions
+        if (::clipboardContainer.isInitialized) {
+            clipboardContainer.removeAllViews()
+            val clipboardCard = omniboxManager.renderSmartClipboardCard(clipboardContainer)
+            if (clipboardCard != null) {
+                clipboardContainer.addView(clipboardCard)
+                clipboardContainer.visibility = View.VISIBLE
+                hasClipboard = true
+            } else {
+                clipboardContainer.visibility = View.GONE
+            }
         }
 
         val rowItems = mutableListOf<SuggestionRowItem>()
@@ -1490,13 +1593,17 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {}
 
-        if (rowItems.isEmpty() && clipboardCard == null) {
+        if (rowItems.isEmpty()) {
             searchSuggestionStrip.visibility = View.GONE
             return
         }
 
         val itemsToDisplay = rowItems.take(8)
-        adjustSuggestionStripHeight(itemsToDisplay.size + if (clipboardCard != null) 2 else 0)
+        adjustSuggestionStripHeight(itemsToDisplay.size, hasClipboard = hasClipboard)
+
+        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
         for (item in itemsToDisplay) {
             val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
@@ -1506,13 +1613,17 @@ class MainActivity : AppCompatActivity() {
             val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
 
             ivIcon.setImageResource(item.iconRes)
+            ivIcon.setColorFilter(iconColor)
             tvTitle.text = item.title
+            tvTitle.setTextColor(titleColor)
             if (!item.subtitle.isNullOrBlank()) {
                 tvSub.text = item.subtitle
+                tvSub.setTextColor(subColor)
                 tvSub.visibility = View.VISIBLE
             } else {
                 tvSub.visibility = View.GONE
             }
+            btnFill.setColorFilter(subColor)
 
             btnFill.setOnClickListener {
                 triggerStrongHaptic(it)
@@ -1613,6 +1724,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
         suggestionChipContainer.removeAllViews()
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        applySuggestionTheme(isDark)
+        if (::clipboardContainer.isInitialized) {
+            clipboardContainer.removeAllViews()
+            clipboardContainer.visibility = View.GONE
+        }
         val rowItems = mutableListOf<SuggestionRowItem>()
 
         // 0. Search open tabs & "Switch to existing tab"
@@ -1730,6 +1847,10 @@ class MainActivity : AppCompatActivity() {
         val itemsToDisplay = rowItems.take(8)
         adjustSuggestionStripHeight(itemsToDisplay.size)
 
+        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
         for (item in itemsToDisplay) {
             val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
             val ivIcon = rowView.findViewById<ImageView>(R.id.ivSuggestionIcon)
@@ -1738,13 +1859,17 @@ class MainActivity : AppCompatActivity() {
             val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
 
             ivIcon.setImageResource(item.iconRes)
+            ivIcon.setColorFilter(iconColor)
             tvTitle.text = item.title
+            tvTitle.setTextColor(titleColor)
             if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
                 tvSub.text = item.subtitle
+                tvSub.setTextColor(subColor)
                 tvSub.visibility = View.VISIBLE
             } else {
                 tvSub.visibility = View.GONE
             }
+            btnFill.setColorFilter(subColor)
 
             btnFill.setOnClickListener {
                 triggerStrongHaptic(it)
@@ -1790,6 +1915,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        wakeScreen()
         setIntent(intent)
         handleCustomIntent(intent)
         val incomingUrl = intent?.dataString
@@ -1830,7 +1956,42 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (intent.getBooleanExtra("open_privacy_shield", false)) {
-            window.decorView.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 300)
+            val scrollY = intent.getIntExtra("privacy_shield_scroll_y", 0)
+            val inspectBlocked = intent.getBooleanExtra("inspect_blocked", false)
+            val topTab = intent.getIntExtra("privacy_shield_tab", -1)
+            window.decorView.postDelayed({
+                HazePrivacyShieldDashboard.showDashboard(
+                    this,
+                    initialScrollY = scrollY,
+                    openInspect = inspectBlocked,
+                    initialTopTab = topTab
+                )
+            }, 300)
+        }
+        val startUrl = intent.getStringExtra("load_url")
+        if (!startUrl.isNullOrEmpty()) {
+            window.decorView.postDelayed({ loadUrlFromInput(startUrl) }, 300)
+        }
+        if (intent.getBooleanExtra("open_tab_switcher", false)) {
+            window.decorView.postDelayed({ showFullScreenTabs() }, 200)
+        }
+        if (intent.hasExtra("set_clipboard")) {
+            val clip = intent.getStringExtra("set_clipboard") ?: ""
+            val clipManager = getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            clipManager?.setPrimaryClip(android.content.ClipData.newPlainText("haze_clip", clip))
+        }
+        if (intent.getBooleanExtra("open_search", false)) {
+            window.decorView.postDelayed({ activateSearchMode() }, 200)
+        }
+        if (intent.hasExtra("activate_search")) {
+            val q = intent.getStringExtra("activate_search") ?: ""
+            window.decorView.postDelayed({
+                activateSearchMode()
+                if (q.isNotEmpty()) {
+                    addressBar.setText(q)
+                    addressBar.setSelection(q.length)
+                }
+            }, 200)
         }
         if (changed) {
             applyTheme()
@@ -1906,6 +2067,10 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_privacy_shield", false)) {
             webContainer.postDelayed({ HazePrivacyShieldDashboard.showDashboard(this) }, 200)
         }
+        val loadUrl = intent.getStringExtra("load_url")
+        if (!loadUrl.isNullOrEmpty()) {
+            webContainer.postDelayed({ loadUrlFromInput(loadUrl) }, 200)
+        }
         if (intent.hasExtra("set_tab_mode")) {
             val mode = intent.getIntExtra("set_tab_mode", 0)
             prefs.edit().putInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, mode).apply()
@@ -1977,6 +2142,15 @@ class MainActivity : AppCompatActivity() {
             webContainer.postDelayed({
                 currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
             }, 200)
+        }
+        if (intent.getBooleanExtra("toggle_orientation", false)) {
+            webContainer.postDelayed({ toggleScreenOrientation() }, 200)
+        }
+        if (intent.getBooleanExtra("open_dns_protection", false)) {
+            webContainer.postDelayed({ HazeDnsDialogManager.showDnsDialog(this) }, 200)
+        }
+        if (intent.getBooleanExtra("open_settings", false)) {
+            webContainer.postDelayed({ HazeSettingsManager.showSettingsDialog(this) }, 200)
         }
         if (intent.getBooleanExtra("open_reader", false)) {
             webContainer.postDelayed({ toggleReadingMode() }, 200)
@@ -2831,8 +3005,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (::topRightActions.isInitialized) {
-            topRightActions.visibility = if (isHome && !isPrivateMode) View.VISIBLE else View.GONE
-            if (isHome && !isPrivateMode) {
+            topRightActions.visibility = if (isHome && !isPrivateMode && !isSearchActive) View.VISIBLE else View.GONE
+            if (isHome && !isPrivateMode && !isSearchActive) {
                 topRightActions.bringToFront()
             }
         }
@@ -2923,12 +3097,14 @@ class MainActivity : AppCompatActivity() {
 
                     if (url != HAZE_HOME_URL && !url.startsWith("haze://")) {
                         showPageLoading(5)
+                        val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
+                        tab.evaluateJavascript(antiTrackingScript, null)
                         val earlyCss = """
                             (function() {
                                 if (window.__hazeEarlyCssInjected) return;
                                 window.__hazeEarlyCssInjected = true;
                                 var style = document.createElement('style');
-                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
                                 if (document.documentElement) document.documentElement.appendChild(style);
                                 else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
                             })();
@@ -2988,7 +3164,7 @@ class MainActivity : AppCompatActivity() {
                                 if (window.__hazeCosmeticInjected) return;
                                 window.__hazeCosmeticInjected = true;
                                 var style = document.createElement('style');
-                                style.innerHTML = '.adsbygoogle, ins.adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-overlay-container, .ytp-ad-message-container { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }\nvideo, video.video-stream, video.html5-main-video, .html5-main-video, .html5-video-player, .html5-video-container, #movie_player, #player, [class*="video-stream"], [class*="player-container"] video, [class*="player-container"] { display: block !important; opacity: 1 !important; visibility: visible !important; max-height: none !important; max-width: none !important; pointer-events: auto !important; }';
+                                style.innerHTML = '.adsbygoogle, ins.adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer, .ytp-ad-overlay-container, .ytp-ad-message-container { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }\nvideo, video.video-stream, video.html5-main-video, .html5-main-video, [class*="video-stream"] video, [class*="player-container"] video { opacity: 1 !important; visibility: visible !important; max-height: none !important; max-width: none !important; pointer-events: auto !important; }';
                                 if (document.head) document.head.appendChild(style);
                                 else document.documentElement.appendChild(style);
                             })();
@@ -3012,18 +3188,36 @@ class MainActivity : AppCompatActivity() {
                                         '.ytm-ad-overlay-close-button'
                                     ];
 
+                                    function handleYtPlayerVisibility() {
+                                        try {
+                                            var isWatch = window.location.pathname.indexOf('/watch') !== -1 ||
+                                                          window.location.pathname.indexOf('/shorts') !== -1 ||
+                                                          window.location.search.indexOf('v=') !== -1;
+                                            var containers = document.querySelectorAll('#player-container-id, .player-container');
+                                            for (var k = 0; k < containers.length; k++) {
+                                                var c = containers[k];
+                                                var activeVideo = c.querySelector('video[src], video:not([src=""])');
+                                                if (!isWatch && (!activeVideo || activeVideo.paused)) {
+                                                    c.style.setProperty('display', 'none', 'important');
+                                                } else if (isWatch) {
+                                                    c.style.removeProperty('display');
+                                                }
+                                            }
+                                        } catch(e) {}
+                                    }
+
                                     function restoreNormalVideo(v) {
                                         if (!v) v = document.querySelector('video');
                                         if (v) {
                                             if (v.playbackRate > 1) v.playbackRate = normalPlaybackRate;
                                             v.muted = false;
-                                            v.style.setProperty('display', 'block', 'important');
                                             v.style.setProperty('visibility', 'visible', 'important');
                                             v.style.setProperty('opacity', '1', 'important');
                                         }
                                     }
 
                                     function skipYouTubeAd() {
+                                        handleYtPlayerVisibility();
                                         var adPlayer = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
                                         var video = document.querySelector('video');
                                         if (!adPlayer) {
@@ -3051,12 +3245,15 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         }
                                         var overlays = document.querySelectorAll(
-                                            '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
+                                            '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, #masthead-ad'
                                         );
                                         for (var j = 0; j < overlays.length; j++) overlays[j].style.setProperty('display', 'none', 'important');
                                     }
+                                    handleYtPlayerVisibility();
                                     setInterval(skipYouTubeAd, 300);
-                                    document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
+                                    window.addEventListener('popstate', handleYtPlayerVisibility);
+                                    document.addEventListener('yt-navigate-finish', handleYtPlayerVisibility);
+                                    document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); setTimeout(handleYtPlayerVisibility, 200); }, true);
                                     var observer = new MutationObserver(skipYouTubeAd);
                                     observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
                                     skipYouTubeAd();
@@ -3201,6 +3398,32 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    private fun injectCosmeticAdBlockers(targetView: WebView?, targetUrl: String?) {
+        if (targetView == null || targetUrl.isNullOrEmpty() || targetUrl.startsWith("haze://") || targetUrl.startsWith("about:") || targetUrl.startsWith("data:")) return
+        if (!HazePrivacyShieldEngine.isShieldEnabled(this)) return
+        val domain = runCatching { Uri.parse(targetUrl).host }.getOrNull()
+        val compiledCosmetic = HazeFilterListManager.getCosmeticCss(this, domain)
+        if (compiledCosmetic.isNotEmpty()) {
+            val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+            val cosmeticScript = """
+                (function() {
+                    try {
+                        var style = document.getElementById('__haze_cosmetic_style');
+                        if (!style) {
+                            style = document.createElement('style');
+                            style.id = '__haze_cosmetic_style';
+                            style.type = 'text/css';
+                            (document.head || document.documentElement).appendChild(style);
+                        }
+                        style.textContent = '$escapedCss';
+                    } catch(e) {}
+                })();
+            """.trimIndent()
+            targetView.evaluateJavascript(cosmeticScript, null)
+        }
+        targetView.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DYNAMIC_BANNER_CLEANER_SCRIPT, null)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(webView: WebView) {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
@@ -3226,8 +3449,17 @@ class MainActivity : AppCompatActivity() {
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
-            useWideViewPort = true
-            loadWithOverviewMode = true
+            mediaPlaybackRequiresUserGesture = false
+            val tabForSettings = getTabFromWebView(webView)
+            val isDesk = tabForSettings?.isDesktop == true || tabForSettings?.browserTab?.isDesktop == true
+            val isSpotify = (tabForSettings?.url ?: "").contains("spotify.com", ignoreCase = true)
+            userAgentString = if (isDesk) {
+                if (isSpotify) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
+            } else {
+                WebSettings.getDefaultUserAgent(this@MainActivity)
+            }
+            useWideViewPort = isDesk
+            loadWithOverviewMode = isDesk
             cacheMode = if (isPrivateMode) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
             // Pre-rasterizing every tab consumes significant memory and competes
             // with the active tab for rendering time.
@@ -3241,12 +3473,8 @@ class MainActivity : AppCompatActivity() {
             savePassword = true
         }
 
-        // Chromium Cookie Store Session Security & Browser Isolation Policy
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            cookieManager.setAcceptThirdPartyCookies(webView, true)
-        }
+        // Chromium Cookie Store Session Security & Anti-Tracking Policy
+        HazeAntiTrackingEngine.configureWebViewCookies(webView, this, isPrivateMode)
         HazeSecurityManager.configureSessionSecurity(webView)
         HazeSecurityManager.applyBrowserIsolation(webView)
 
@@ -3336,7 +3564,23 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url?.toString() ?: return false
+                var url = request?.url?.toString() ?: return false
+                if (HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(this@MainActivity)) {
+                    val unwrapped = HazeAntiTrackingEngine.unwrapBounceTrackingUrl(url, this@MainActivity)
+                    if (unwrapped != null) {
+                        url = unwrapped
+                        view?.loadUrl(url)
+                        return true
+                    }
+                }
+                if (HazeAntiTrackingEngine.isLinkTrackingProtectionEnabled(this@MainActivity)) {
+                    val cleaned = HazeAntiTrackingEngine.stripTrackingParameters(url, this@MainActivity)
+                    if (cleaned != url) {
+                        url = cleaned
+                        view?.loadUrl(url)
+                        return true
+                    }
+                }
                 if (request.isForMainFrame) {
                     if (handleNavigationSecurity(view, url)) return true
                 }
@@ -3346,8 +3590,25 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url == null) return false
-                if (handleNavigationSecurity(view, url)) return true
-                return super.shouldOverrideUrlLoading(view, url)
+                var finalUrl = url
+                if (HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(this@MainActivity)) {
+                    val unwrapped = HazeAntiTrackingEngine.unwrapBounceTrackingUrl(finalUrl, this@MainActivity)
+                    if (unwrapped != null) {
+                        finalUrl = unwrapped
+                        view?.loadUrl(finalUrl)
+                        return true
+                    }
+                }
+                if (HazeAntiTrackingEngine.isLinkTrackingProtectionEnabled(this@MainActivity)) {
+                    val cleaned = HazeAntiTrackingEngine.stripTrackingParameters(finalUrl, this@MainActivity)
+                    if (cleaned != finalUrl) {
+                        finalUrl = cleaned
+                        view?.loadUrl(finalUrl)
+                        return true
+                    }
+                }
+                if (handleNavigationSecurity(view, finalUrl)) return true
+                return super.shouldOverrideUrlLoading(view, finalUrl)
             }
 
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -3386,49 +3647,32 @@ class MainActivity : AppCompatActivity() {
                 updatePrivacyShieldButton()
                 
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
-                    val domain = runCatching { Uri.parse(url).host }.getOrNull()
-                    val compiledCosmetic = HazeFilterListManager.getCosmeticCss(this@MainActivity, domain)
-                    val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-                    val earlyScript = """
-                        (function() {
-                            // 1. Popup & Popunder early interceptor
-                            if (!window.__hazePopupBlockerInjected) {
-                                window.__hazePopupBlockerInjected = true;
-                                var origOpen = window.open;
-                                var lastTap = 0;
-                                ['pointerdown', 'click', 'touchend'].forEach(function(evt) {
-                                    document.addEventListener(evt, function() { lastTap = Date.now(); }, true);
-                                });
-                                window.open = function(u, target, features) {
-                                    var isRecent = (Date.now() - lastTap) < 1200;
-                                    var lower = (u || '').toLowerCase();
-                                    var isAd = lower.indexOf('pop') !== -1 || lower.indexOf('click') !== -1 || lower.indexOf('ad') !== -1 || lower.indexOf('promo') !== -1;
-                                    if (!isRecent || isAd) {
-                                        console.warn('[HazeShield] Blocked unsolicited popup/popunder:', u);
-                                        if (window.Android && window.Android.onPopupBlocked) {
-                                            window.Android.onPopupBlocked(u || 'about:blank');
-                                        }
-                                        return { closed: false, close: function(){}, focus: function(){}, blur: function(){}, location: { href: u || '' } };
-                                    }
-                                    return origOpen.apply(window, arguments);
-                                };
-                            }
+                    val currentTab = getTabFromWebView(view ?: webView)
+                    val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
+                    val isSpotify = url.contains("spotify.com", ignoreCase = true)
+                    if (isSpotify) {
+                        try {
+                            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view ?: webView, true)
+                        } catch (_: Throwable) {}
+                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.useWideViewPort = isDesk
+                        view?.settings?.loadWithOverviewMode = isDesk
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
+                    } else if (isDesk) {
+                        view?.settings?.userAgentString = com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
+                        view?.settings?.useWideViewPort = true
+                        view?.settings?.loadWithOverviewMode = true
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                    } else {
+                        view?.settings?.userAgentString = WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.useWideViewPort = false
+                        view?.settings?.loadWithOverviewMode = false
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
+                    }
+                    val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
+                    view?.evaluateJavascript(antiTrackingScript, null)
 
-                            // 2. Element Hiding Cosmetic CSS
-                            if ('$escapedCss'.length > 0) {
-                                var style = document.getElementById('__haze_cosmetic_style');
-                                if (!style) {
-                                    style = document.createElement('style');
-                                    style.id = '__haze_cosmetic_style';
-                                    style.type = 'text/css';
-                                    if (document.documentElement) document.documentElement.appendChild(style);
-                                    else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
-                                }
-                                style.textContent = '$escapedCss';
-                            }
-                        })();
-                    """.trimIndent()
-                    view?.evaluateJavascript(earlyScript, null)
+                    injectCosmeticAdBlockers(view, url)
                 }
             }
 
@@ -3507,6 +3751,19 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 finishPageLoading()
                 HazeSecurityManager.persistCookieStore()
+                if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    val currentTab = getTabFromWebView(view ?: webView)
+                    val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
+                    val isSpotify = url.contains("spotify.com", ignoreCase = true)
+                    if (isSpotify) {
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
+                    } else if (isDesk) {
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                    } else {
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
+                    }
+                    injectCosmeticAdBlockers(view, url)
+                }
 
                 // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
                 val authHook = """
@@ -3542,12 +3799,18 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    // Record history if not private and not internal
+                    // Record history asynchronously off UI thread
                     if (!isPrivateMode && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
                         val pageTitle = tab.title.ifEmpty { view?.title ?: "Web Page" }
-                        val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
-                        val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
-                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
+                        dbExecutor.execute {
+                            try {
+                                val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
+                                val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
+                                HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
                     }
 
                     // 1. Advanced Cosmetic Filtering (Element Hiding CSS) across all websites
@@ -3597,18 +3860,36 @@ class MainActivity : AppCompatActivity() {
                                     '.ytm-ad-overlay-close-button'
                                 ];
 
+                                function handleYtPlayerVisibility() {
+                                    try {
+                                        var isWatch = window.location.pathname.indexOf('/watch') !== -1 ||
+                                                      window.location.pathname.indexOf('/shorts') !== -1 ||
+                                                      window.location.search.indexOf('v=') !== -1;
+                                        var containers = document.querySelectorAll('#player-container-id, .player-container');
+                                        for (var k = 0; k < containers.length; k++) {
+                                            var c = containers[k];
+                                            var activeVideo = c.querySelector('video[src], video:not([src=""])');
+                                            if (!isWatch && (!activeVideo || activeVideo.paused)) {
+                                                c.style.setProperty('display', 'none', 'important');
+                                            } else if (isWatch) {
+                                                c.style.removeProperty('display');
+                                            }
+                                        }
+                                    } catch(e) {}
+                                }
+
                                 function restoreNormalVideo(v) {
                                     if (!v) v = document.querySelector('video');
                                     if (v) {
                                         if (v.playbackRate > 1) v.playbackRate = normalPlaybackRate;
                                         v.muted = false;
-                                        v.style.setProperty('display', 'block', 'important');
                                         v.style.setProperty('visibility', 'visible', 'important');
                                         v.style.setProperty('opacity', '1', 'important');
                                     }
                                 }
 
                                 function skipYouTubeAd() {
+                                    handleYtPlayerVisibility();
                                     var adPlayer = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
                                     var video = document.querySelector('video');
                                     if (!adPlayer) {
@@ -3642,20 +3923,30 @@ class MainActivity : AppCompatActivity() {
                                     }
 
                                     var overlays = document.querySelectorAll(
-                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
+                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer'
                                     );
                                     for (var j = 0; j < overlays.length; j++) {
                                         overlays[j].style.setProperty('display', 'none', 'important');
                                     }
                                 }
 
-                                // Mutation events handle ad-state changes; retain a
-                                // low-frequency fallback without taxing every frame.
+                                handleYtPlayerVisibility();
                                 setInterval(skipYouTubeAd, 300);
+                                window.addEventListener('popstate', handleYtPlayerVisibility);
+                                document.addEventListener('yt-navigate-finish', handleYtPlayerVisibility);
                                 document.addEventListener('click', function() {
                                     setTimeout(skipYouTubeAd, 0);
+                                    setTimeout(handleYtPlayerVisibility, 200);
                                 }, true);
-                                var observer = new MutationObserver(skipYouTubeAd);
+                                var ytSkipTimer = null;
+                                var observer = new MutationObserver(function() {
+                                    if (!ytSkipTimer) {
+                                        ytSkipTimer = setTimeout(function() {
+                                            ytSkipTimer = null;
+                                            skipYouTubeAd();
+                                        }, 500);
+                                    }
+                                });
                                 observer.observe(document.documentElement, {
                                     childList: true,
                                     subtree: true,
@@ -3738,8 +4029,14 @@ class MainActivity : AppCompatActivity() {
 
                             scanElements();
 
+                            var mediaScanTimer = null;
                             var observer = new MutationObserver(function() {
-                                scanElements();
+                                if (!mediaScanTimer) {
+                                    mediaScanTimer = setTimeout(function() {
+                                        mediaScanTimer = null;
+                                        scanElements();
+                                    }, 2000);
+                                }
                             });
                             if (document.body || document.documentElement) {
                                 observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
@@ -3802,12 +4099,28 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPermissionRequest(request: PermissionRequest?) {
                 if (request == null) return
+                if (request.resources.contains(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID)) {
+                    request.grant(request.resources)
+                    return
+                }
+                val origin = request.origin?.toString() ?: ""
+                val isCameraRequested = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                val isMicRequested = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+
+                val camState = if (isCameraRequested) HazeSitePermissionManager.getPermission(this@MainActivity, origin, HazeSitePermissionManager.PermissionType.CAMERA) else null
+                val micState = if (isMicRequested) HazeSitePermissionManager.getPermission(this@MainActivity, origin, HazeSitePermissionManager.PermissionType.MICROPHONE) else null
+
+                if (camState == HazeSitePermissionManager.State.DENIED || micState == HazeSitePermissionManager.State.DENIED) {
+                    request.deny()
+                    return
+                }
+
                 val missingPermissions = mutableListOf<String>()
-                if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+                if (isCameraRequested &&
                     checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     missingPermissions.add(android.Manifest.permission.CAMERA)
                 }
-                if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+                if (isMicRequested &&
                     checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     missingPermissions.add(android.Manifest.permission.RECORD_AUDIO)
                 }
@@ -3825,11 +4138,26 @@ class MainActivity : AppCompatActivity() {
                 callback: GeolocationPermissions.Callback?
             ) {
                 if (origin == null || callback == null) return
+                val locState = HazeSitePermissionManager.getPermission(this@MainActivity, origin, HazeSitePermissionManager.PermissionType.LOCATION)
+                if (locState == HazeSitePermissionManager.State.DENIED) {
+                    callback.invoke(origin, false, false)
+                    return
+                } else if (locState == HazeSitePermissionManager.State.ALLOWED) {
+                    callback.invoke(origin, true, false)
+                    return
+                }
+
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Location Permission")
                     .setMessage("$origin wants to access your device location.")
-                    .setPositiveButton("Allow") { _, _ -> callback.invoke(origin, true, true) }
-                    .setNegativeButton("Block") { _, _ -> callback.invoke(origin, false, true) }
+                    .setPositiveButton("Allow") { _, _ -> 
+                        HazeSitePermissionManager.setPermission(this@MainActivity, origin, HazeSitePermissionManager.PermissionType.LOCATION, HazeSitePermissionManager.State.ALLOWED)
+                        callback.invoke(origin, true, true) 
+                    }
+                    .setNegativeButton("Block") { _, _ -> 
+                        HazeSitePermissionManager.setPermission(this@MainActivity, origin, HazeSitePermissionManager.PermissionType.LOCATION, HazeSitePermissionManager.State.DENIED)
+                        callback.invoke(origin, false, true) 
+                    }
                     .show()
             }
 
@@ -4115,6 +4443,15 @@ class MainActivity : AppCompatActivity() {
         val etTabSearch = dialog.findViewById<EditText>(R.id.etTabSearch)
         val btnClearTabSearch = dialog.findViewById<ImageButton>(R.id.btnClearTabSearch)
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
+        val layoutEmptyIncognito = dialog.findViewById<LinearLayout>(R.id.layoutEmptyIncognito)
+        val btnEmptyNewIncognito = dialog.findViewById<TextView>(R.id.btnEmptyNewIncognito)
+
+        btnEmptyNewIncognito?.setOnClickListener {
+            triggerStrongHaptic(it)
+            dialog.dismiss()
+            isPrivateMode = true
+            addNewTab(HAZE_HOME_URL)
+        }
 
         if (!filterQuery.isNullOrEmpty()) {
             etTabSearch.setText(filterQuery)
@@ -4303,7 +4640,7 @@ class MainActivity : AppCompatActivity() {
 
         fun updateUI(animate: Boolean = false) {
             val isDarkTheme = prefs.getBoolean("is_dark", false) || viewingPrivate
-            val count = if (viewingPrivate) privateTabs.size else normalTabs.size
+            val count = normalTabs.size
             tvTabCountPill?.text = count.toString()
 
             if (viewingPrivate) {
@@ -4325,26 +4662,38 @@ class MainActivity : AppCompatActivity() {
 
                 // Personal icon inactive
                 btnTogglePersonal?.background = null
+                btnTogglePersonal?.elevation = 0f
                 tvTabCountPill?.setTextColor(Color.parseColor("#9AA0A6"))
+                tvTabCountPill?.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_tab_box)?.mutate()?.apply {
+                    setTint(Color.parseColor("#5F6368"))
+                }
 
                 // Private icon active (highlighted rounded pill)
                 btnTogglePrivate?.background = GradientDrawable().apply {
-                    cornerRadius = dpToPx(12f).toFloat()
+                    cornerRadius = dpToPx(14f).toFloat()
                     setColor(Color.parseColor("#383B40"))
                 }
+                btnTogglePrivate?.elevation = dpToPx(1f).toFloat()
                 ivPrivatePillIcon?.setColorFilter(Color.WHITE)
 
                 tvCurrentModeLabel.text = "Private Tabs"
                 btnNewTabAction.text = "+ New Private"
                 btnNewTabAction.setTextColor(accentColor)
                 
-                if (animate) {
-                    rvActiveTabs.animate().cancel()
-                    rvActiveTabs.alpha = 0f
-                    rvActiveTabs.adapter = privateAdapter
-                    rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+                if (privateTabs.isEmpty()) {
+                    layoutEmptyIncognito?.visibility = View.VISIBLE
+                    rvActiveTabs.visibility = View.GONE
                 } else {
-                    rvActiveTabs.adapter = privateAdapter
+                    layoutEmptyIncognito?.visibility = View.GONE
+                    rvActiveTabs.visibility = View.VISIBLE
+                    if (animate) {
+                        rvActiveTabs.animate().cancel()
+                        rvActiveTabs.alpha = 0f
+                        rvActiveTabs.adapter = privateAdapter
+                        rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+                    } else {
+                        rvActiveTabs.adapter = privateAdapter
+                    }
                 }
                 currentTouchHelper?.attachToRecyclerView(null)
             } else {
@@ -4371,22 +4720,29 @@ class MainActivity : AppCompatActivity() {
 
                 // Personal active (white rounded card inside pill)
                 btnTogglePersonal?.background = GradientDrawable().apply {
-                    cornerRadius = dpToPx(12f).toFloat()
+                    cornerRadius = dpToPx(14f).toFloat()
                     setColor(if (isDarkTheme) Color.parseColor("#383B40") else Color.WHITE)
                     if (!isDarkTheme) {
                         setStroke(dpToPx(1f), Color.parseColor("#D8DEE8"))
                     }
                 }
+                btnTogglePersonal?.elevation = dpToPx(1f).toFloat()
                 tvTabCountPill?.setTextColor(if (isDarkTheme) Color.WHITE else Color.parseColor("#202124"))
+                tvTabCountPill?.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_tab_box)?.mutate()?.apply {
+                    setTint(if (isDarkTheme) Color.WHITE else Color.parseColor("#202124"))
+                }
 
                 // Private inactive
                 btnTogglePrivate?.background = null
+                btnTogglePrivate?.elevation = 0f
                 ivPrivatePillIcon?.setColorFilter(subColor)
 
                 tvCurrentModeLabel.text = "Personal Tabs"
                 btnNewTabAction.text = "+ New Tab"
                 btnNewTabAction.setTextColor(accentColor)
                 
+                layoutEmptyIncognito?.visibility = View.GONE
+                rvActiveTabs.visibility = View.VISIBLE
                 if (animate) {
                     rvActiveTabs.animate().cancel()
                     rvActiveTabs.alpha = 0f
@@ -5374,6 +5730,9 @@ class MainActivity : AppCompatActivity() {
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)
         
+        val activeTab = currentTabsList.getOrNull(activeTabIndex)
+        val isDesktopActive = activeTab?.isDesktop == true || activeTab?.browserTab?.isDesktop == true
+
         val menuItems = listOf(
             Pair("New Tab", R.drawable.ic_add),
             Pair("New InPrivate", R.drawable.ic_private),
@@ -5383,8 +5742,8 @@ class MainActivity : AppCompatActivity() {
             Pair("History", R.drawable.ic_history),
             Pair("Downloads", R.drawable.ic_download),
             Pair("Full Screen", R.drawable.ic_fullscreen),
-            Pair("Accessibility", R.drawable.ic_accessibility),
-            Pair("Desktop Site", R.drawable.ic_desktop),
+            Pair("Orientation", R.drawable.ic_screen_rotation),
+            Pair(if (isDesktopActive) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop),
             Pair("Find on Page", R.drawable.ic_search),
             Pair("Share", R.drawable.ic_share),
             Pair("Recent Tabs", R.drawable.ic_restore),
@@ -5399,7 +5758,11 @@ class MainActivity : AppCompatActivity() {
             val textView = itemView.findViewById<TextView>(R.id.menuText)
             iconView.setImageResource(item.second)
             textView.text = item.first
-            if (isDark) {
+            if (item.first == "Mobile Site" || (item.first == "Desktop Site" && isDesktopActive)) {
+                val activeTint = Color.parseColor("#4A90E2")
+                iconView.setColorFilter(activeTint)
+                textView.setTextColor(activeTint)
+            } else if (isDark) {
                 iconView.setColorFilter(Color.parseColor("#E0E0E0"))
                 textView.setTextColor(Color.parseColor("#E0E0E0"))
             }
@@ -5426,8 +5789,8 @@ class MainActivity : AppCompatActivity() {
                     "History" -> HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) }
                     "Downloads" -> HazeDownloadsManager.showDownloadsDialog(this)
                     "Full Screen" -> toggleFullScreenMode()
-                    "Accessibility" -> showAccessibilityDialog()
-                    "Desktop Site" -> currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
+                    "Orientation" -> toggleScreenOrientation()
+                    "Desktop Site", "Mobile Site" -> currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
                     "Find on Page" -> showFindBar()
                     "Share" -> shareCurrentPage()
                     "Recent Tabs" -> showRecentlyClosedTabsDialog()
@@ -6278,10 +6641,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun toggleDesktopSite(tab: Tab) {
-        tab.browserTab.isDesktop = !tab.browserTab.isDesktop
-        tab.isDesktop = tab.browserTab.isDesktop
-        Toast.makeText(this, if (tab.isDesktop) "Desktop site enabled" else "Mobile site enabled", Toast.LENGTH_SHORT).show()
+        val targetDesktop = !(tab.isDesktop || tab.browserTab.isDesktop)
+        tab.isDesktop = targetDesktop
+        tab.browserTab.isDesktop = targetDesktop
+        val webView = tab.browserTab.renderView as? WebView
+        val isSpotify = (tab.url ?: "").contains("spotify.com", ignoreCase = true)
+        if (targetDesktop) {
+            webView?.settings?.userAgentString = if (isSpotify) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
+            webView?.settings?.useWideViewPort = true
+            webView?.settings?.loadWithOverviewMode = true
+        } else {
+            webView?.settings?.userAgentString = WebSettings.getDefaultUserAgent(this)
+            webView?.settings?.useWideViewPort = false
+            webView?.settings?.loadWithOverviewMode = false
+        }
         tab.browserTab.reload()
+        Toast.makeText(this, if (targetDesktop) "Desktop site enabled" else "Mobile site enabled", Toast.LENGTH_SHORT).show()
+    }
+
+    fun toggleScreenOrientation() {
+        val currentOrientation = resources.configuration.orientation
+        if (currentOrientation == Configuration.ORIENTATION_PORTRAIT) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            Toast.makeText(this, "Switched to Landscape", Toast.LENGTH_SHORT).show()
+        } else {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            Toast.makeText(this, "Switched to Portrait", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val tab = currentTabsList.getOrNull(activeTabIndex)
+        val webView = tab?.browserTab?.renderView as? WebView
+        webView?.requestLayout()
+        val isDesk = tab?.isDesktop == true || tab?.browserTab?.isDesktop == true
+        val isSpotify = (tab?.url ?: "").contains("spotify.com", ignoreCase = true)
+        if (isDesk) {
+            webView?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+        } else if (isSpotify) {
+            webView?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
+        } else {
+            webView?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -6329,7 +6731,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (activeFullScreenTabsDialog?.isShowing == true) {
+        if (isSearchActive || activeFullScreenTabsDialog?.isShowing == true) {
             return super.dispatchTouchEvent(ev)
         }
 
@@ -6366,7 +6768,7 @@ class MainActivity : AppCompatActivity() {
                         child.translationX = 0f
                     }
                 }
-                if (::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                if (!isSearchActive && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
                     addressBarContainer.animate().cancel()
                     addressBarContainer.translationY = 0f
                 }
@@ -6739,7 +7141,7 @@ class MainActivity : AppCompatActivity() {
                         adj.visibility = View.GONE
                     }.start()
                 }
-                if (::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                if (!isSearchActive && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
                     addressBarContainer.animate().translationY(0f).setDuration(100L).start()
                 }
                 if (::webContainer.isInitialized && webContainer.translationY != 0f) {
@@ -7624,7 +8026,7 @@ class MainActivity : AppCompatActivity() {
 
         // 1. Omnibox search shortcut routing (e.g. "g cats", "yt lo-fi music", "gh chromium source", "w quantum mechanics")
         val shortcut = omniboxManager.parseSearchShortcut(query)
-        val url = if (shortcut != null) {
+        var url = if (shortcut != null) {
             omniboxManager.buildSearchUrl(shortcut.first, shortcut.second)
         } else if (URLUtil.isValidUrl(query)) {
             query
@@ -7635,6 +8037,17 @@ class MainActivity : AppCompatActivity() {
             val activeEngine = omniboxManager.getAllEngines().find { it.name.equals(searchEngineName, ignoreCase = true) }
                 ?: omniboxManager.defaultEngines[0]
             omniboxManager.buildSearchUrl(activeEngine, query)
+        }
+
+        // Apply Haze Anti-Tracking Engine protections (Bounce protection & Link tracking parameter stripping)
+        if (HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(this)) {
+            val unwrapped = HazeAntiTrackingEngine.unwrapBounceTrackingUrl(url)
+            if (unwrapped != null) {
+                url = unwrapped
+            }
+        }
+        if (HazeAntiTrackingEngine.isLinkTrackingProtectionEnabled(this)) {
+            url = HazeAntiTrackingEngine.stripTrackingParameters(url)
         }
 
         val tab = currentTabsList[activeTabIndex]
@@ -7837,6 +8250,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         mainHandler.removeCallbacks(suggestionDebounce)
         suggestionExecutor.shutdownNow()
+        dbExecutor.shutdownNow()
         miniPlayerManager?.release()
         super.onDestroy()
         try {

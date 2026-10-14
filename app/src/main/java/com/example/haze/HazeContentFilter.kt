@@ -16,7 +16,7 @@ object HazeContentFilter {
     internal data class Rule(
         val source: String, val pattern: Regex, val domainAnchor: Boolean,
         val thirdParty: Boolean?, val includeDomains: Set<String>, val excludeDomains: Set<String>,
-        val exception: Boolean
+        val exception: Boolean, val anchorDomain: String? = null
     )
 
     internal data class CosmeticRule(
@@ -31,8 +31,21 @@ object HazeContentFilter {
     private val BUILTIN_COSMETIC_SELECTORS = listOf(
         // Banner & display ads
         ".adsbygoogle", "ins.adsbygoogle", "iframe[src*=\"doubleclick\"]",
-        ".banner-ad", ".ad-banner", ".ad-slot", ".ad-card", ".advertisement",
-        "[data-ad-unit]", "[data-ad-slot]", "[id*=\"google_ads\"]",
+        "iframe[src*=\"googlesyndication.com\"]", "iframe[src*=\"googleadservices.com\"]",
+        "iframe[src*=\"amazon-adsystem.com\"]", "iframe[src*=\"adnxs.com\"]",
+        "iframe[src*=\"rubiconproject.com\"]", "iframe[src*=\"pubmatic.com\"]",
+        "iframe[src*=\"smartadserver.com\"]", "iframe[src*=\"criteo\"]",
+        "iframe[src*=\"openx.net\"]", "iframe[src*=\"teads.tv\"]", "iframe[src*=\"moatads\"]",
+        "iframe[src*=\"adform\"]", "iframe[src*=\"serving-sys\"]",
+        "div[id^=\"google_ads_\"]", "div[id*=\"google_ads_\"]", "iframe[id^=\"google_ads_\"]", "iframe[id*=\"google_ads_\"]",
+        "div[id^=\"dfp-\"]", "div[id^=\"gpt-\"]", "div[id*=\"gpt-ad\"]", "div[id^=\"ad-slot\"]", "div[id^=\"ad-container\"]", "div[id^=\"ad-wrapper\"]", "div[id^=\"ad-banner\"]",
+        ".banner-ad", ".banner_ad", ".ad-banner", ".ad-slot", ".ad-card", ".ad-box", ".ad-container", ".ad-wrapper", ".ad-unit",
+        ".ad-holder", ".ad-placeholder", ".ad-placement", ".ad-leaderboard", ".ad-rectangle", ".ad-skyscraper",
+        ".advertisement", "[data-ad-unit]", "[data-ad-slot]", "[data-ad-client]", "[data-ad-name]", "[data-ad-format]",
+        "[id*=\"google_ads\"]", "[data-testid=\"ad-banner\"]", "[data-testid=\"companion-ad\"]",
+        "[aria-label=\"Advertisement\"]", "[aria-label=\"Sponsored\"]", "[aria-label=\"Advert\"]", "[data-advertisement]",
+        ".sponsored-post", ".sponsored-content", ".promoted-content", ".sponsored-badge",
+        ".header-ad", ".footer-ad", ".sidebar-ad", ".top-ad", ".bottom-ad", ".inline-ad",
         // Sponsored widgets (Taboola, Outbrain, Revcontent, MGID, Nativo)
         ".tbl-feed-container", ".trc_rbox_div", "div[id*=\"taboola\"]", "[data-taboola-placeholder]",
         ".outbrain_widget", ".OB-widget", "#outbrain_widget_0", "[data-widget-id*=\"outbrain\"]",
@@ -62,10 +75,11 @@ object HazeContentFilter {
         val totalCosmeticRules: Int get() = genericCosmetic.size + domainCosmetic.values.sumOf { it.size }
 
         fun match(request: Request): Match? {
-            val uri = runCatching { URI(request.url) }.getOrNull() ?: return null
+            val uri = runCatching { android.net.Uri.parse(request.url) }.getOrNull() ?: return null
             val host = uri.host?.lowercase() ?: return null
-            val topHost = request.documentUrl?.let { runCatching { URI(it).host?.lowercase() }.getOrNull() }
+            val topHost = request.documentUrl?.let { runCatching { android.net.Uri.parse(it).host?.lowercase() }.getOrNull() }
             fun applies(rule: Rule): Boolean {
+                if (rule.anchorDomain != null && !host.contains(rule.anchorDomain)) return false
                 val thirdParty = topHost != null && !sameSite(host, topHost)
                 if (rule.thirdParty != null && rule.thirdParty != thirdParty) return false
                 if (rule.includeDomains.isNotEmpty() && !rule.includeDomains.any { domainMatches(topHost, it) }) return false
@@ -113,21 +127,14 @@ object HazeContentFilter {
             if (activeSelectors.isEmpty()) return ""
 
             val joined = activeSelectors.joinToString(", ")
-            val hideRules = "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; width: 0 !important; }"
+            val hideRules = "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; clip: rect(0, 0, 0, 0) !important; }"
             val videoProtectionRule = """
                 video,
                 video.video-stream,
                 video.html5-main-video,
                 .html5-main-video,
-                .html5-video-player,
-                .html5-video-container,
-                #movie_player,
-                #player,
-                video.video-stream,
-                [class*="video-stream"],
-                [class*="player-container"] video,
-                [class*="player-container"] {
-                    display: block !important;
+                [class*="video-stream"] video,
+                [class*="player-container"] video {
                     opacity: 1 !important;
                     visibility: visible !important;
                     max-height: none !important;
@@ -208,6 +215,9 @@ object HazeContentFilter {
         val domainAnchor = expression.startsWith("||")
         val normalized = expression.removePrefix("||").removePrefix("|").removeSuffix("|")
         if (normalized.isBlank()) return null
+        val anchorDomain = if (domainAnchor) {
+            normalized.substringBefore('^').substringBefore('/').substringBefore('*').lowercase().ifBlank { null }
+        } else null
         val regex = buildString {
             if (domainAnchor) append("^[a-z][a-z0-9+.-]*://(?:[^/]*\\.)?")
             normalized.forEach { ch ->
@@ -219,7 +229,7 @@ object HazeContentFilter {
             }
         }
         return runCatching {
-            Rule(raw, Regex(regex, RegexOption.IGNORE_CASE), domainAnchor, thirdParty, includeDomains, excludeDomains, exception)
+            Rule(raw, Regex(regex, RegexOption.IGNORE_CASE), domainAnchor, thirdParty, includeDomains, excludeDomains, exception, anchorDomain)
         }.getOrNull()
     }
 

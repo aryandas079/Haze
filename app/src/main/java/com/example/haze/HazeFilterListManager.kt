@@ -107,14 +107,24 @@ object HazeFilterListManager {
     private fun fallbackNetworkRules() = sequenceOf(
         // Advertising networks & banner ads
         "||doubleclick.net^", "||googlesyndication.com^", "||googleadservices.com^",
-        "||adservice.google.com^", "||adnxs.com^", "||criteo.com^", "||amazon-adsystem.com^",
+        "||adservice.google.com^", "||googletagservices.com^", "||2mdn.net^",
+        "||amazon-adsystem.com^", "||aaxads.com^",
+        "||adnxs.com^", "||adnxs-simple.com^", "||ib.adnxs.com^", "||criteo.com^", "||criteo.net^",
         "||rubiconproject.com^", "||pubmatic.com^", "||openx.net^", "||smartadserver.com^",
-        "||media.net^", "||sovrn.com^", "||bidswitch.net^", "||casalemedia.com^",
+        "||media.net^", "||sovrn.com^", "||bidswitch.net^", "||casalemedia.com^", "||indexexchange.com^",
+        "||teads.tv^", "||triplelift.com^", "||yieldmo.com^", "||sharethrough.com^", "||inmobi.com^",
+        "||moatads.com^", "||adform.net^", "||flashtalking.com^", "||serving-sys.com^", "||contextweb.com^",
+        "||lijit.com^", "||adroll.com^", "||yandexadexchange.net^", "||an.yandex.ru^", "||invitemedia.com^",
+        "||admeld.com^", "||applovin.com^", "||ironsrc.com^", "||vungle.com^", "||unity3d.com^",
+        "||chartboost.com^", "||zergnet.com^", "||adblade.com^", "||undertone.com^", "||exponential.com^",
+        "||hilltopads.net^", "||clickadu.com^", "||adcash.com^", "||juicyads.com^", "||trafficjunky.com^",
+        "||dianomi.com^", "||content.ad^", "||adcolony.com^", "||smaato.net^", "||gumgum.com^", "||onetag.com^",
         // Tracking scripts & telemetry
-        "||google-analytics.com^", "||connect.facebook.net^", "||hotjar.com^",
+        "||google-analytics.com^", "||googletagmanager.com^", "||connect.facebook.net^", "||hotjar.com^",
         "||fingerprintjs.com^", "||onesignal.com^", "||clarity.ms^", "||quantserve.com^",
         "||scorecardresearch.com^", "||analytics.tiktok.com^", "||segment.io^",
         "||mixpanel.com^", "||amplitude.com^", "||yandex.ru/metrika^", "||chartbeat.com^",
+        "||crazyegg.com^", "||branch.io^", "||appsflyer.com^", "||adjust.com^",
         // Sponsored recommendation widgets (Taboola, Outbrain, Revcontent, MGID, Nativo)
         "||taboola.com^", "||cdn.taboola.com^", "||trc.taboola.com^",
         "||outbrain.com^", "||widgets.outbrain.com^", "||log.outbrain.com^",
@@ -125,7 +135,23 @@ object HazeFilterListManager {
         "||popads.net^", "||popcash.net^", "||propellerads.com^", "||adsterra.com^",
         "||exoclick.com^", "||hilltopads.net^", "||clickadu.com^", "||adcash.com^",
         // Malvertising & Cryptomining
-        "||coinhive.com^", "||coin-hive.com^", "||cryptoloot.pro^", "||webminepool.com^"
+        "||coinhive.com^", "||coin-hive.com^", "||cryptoloot.pro^", "||webminepool.com^",
+        // Primary Banner & Display Ads Cosmetic Rules
+        "##.adsbygoogle", "##ins.adsbygoogle", "##div[id^='google_ads_']", "##div[id*='google_ads_']",
+        "##iframe[id^='google_ads_']", "##iframe[id*='google_ads_']",
+        "##iframe[src*='doubleclick.net']", "##iframe[src*='googleadservices.com']",
+        "##iframe[src*='googlesyndication.com']", "##iframe[src*='amazon-adsystem.com']",
+        "##iframe[src*='adnxs.com']", "##iframe[src*='rubiconproject.com']", "##iframe[src*='pubmatic.com']",
+        "##iframe[src*='smartadserver.com']", "##iframe[src*='criteo']", "##iframe[src*='openx.net']", "##iframe[src*='teads.tv']",
+        "##.ad-banner", "##.banner-ad", "##.ad-box", "##.ad-slot", "##.ad-container",
+        "##.ad-wrapper", "##.ad-unit", "##.advertisement", "##[data-ad-unit]", "##[data-ad-slot]", "##[data-ad]", "##[data-ad-name]",
+        "##[aria-label='Advertisement']", "##[aria-label='Sponsored']",
+        "##div[class*='sponsored']", "##div[class*='promoted-content']", "##.sponsored-post", "##.sponsored-content",
+        "##.header-ad", "##.footer-ad", "##.sidebar-ad", "##.top-ad", "##.bottom-ad", "##.inline-ad",
+        "##.taboola", "##.outbrain", "##.mgid", "##.revcontent", "##div[id*='taboola']", "##div[id*='outbrain']",
+        "##ytd-ad-slot-renderer", "##ytm-promoted-sparkles-web-renderer",
+        "##ytm-promoted-video-renderer", "##ytm-ad-slot-renderer", "##ytm-companion-ad-renderer",
+        "##div[data-testid='ad-banner']", "##div[data-testid='companion-ad']"
     ).toList()
 
     fun getRules(context: Context): FilterRules {
@@ -214,13 +240,26 @@ object HazeFilterListManager {
             lastUpdated = "2026-10-14",
             adDomains = setOf(
                 "doubleclick.net", "googleadservices.com", "googlesyndication.com", "adservice.google.com",
-                "adnxs.com", "criteo.com", "taboola.com", "outbrain.com", "popads.net", "propellerads.com",
-                "revcontent.com", "mgid.com", "adsterra.com", "popcash.net", "exoclick.com", "nativo.com"
+                "googletagservices.com", "2mdn.net", "amazon-adsystem.com", "aaxads.com",
+                "adnxs.com", "adnxs-simple.com", "ib.adnxs.com", "criteo.com", "criteo.net",
+                "taboola.com", "outbrain.com", "popads.net", "propellerads.com", "revcontent.com",
+                "mgid.com", "adsterra.com", "popcash.net", "exoclick.com", "nativo.com",
+                "rubiconproject.com", "pubmatic.com", "openx.net", "smartadserver.com",
+                "media.net", "sovrn.com", "bidswitch.net", "casalemedia.com", "indexexchange.com",
+                "teads.tv", "triplelift.com", "yieldmo.com", "sharethrough.com", "inmobi.com",
+                "moatads.com", "adform.net", "flashtalking.com", "serving-sys.com", "contextweb.com",
+                "lijit.com", "adroll.com", "yandexadexchange.net", "an.yandex.ru", "invitemedia.com",
+                "admeld.com", "applovin.com", "ironsrc.com", "vungle.com", "unity3d.com",
+                "chartboost.com", "zergnet.com", "adblade.com", "undertone.com", "exponential.com",
+                "hilltopads.net", "clickadu.com", "adcash.com", "juicyads.com", "trafficjunky.com",
+                "dianomi.com", "content.ad", "adcolony.com", "smaato.net", "gumgum.com", "onetag.com"
             ),
             trackerDomains = setOf(
-                "google-analytics.com", "hotjar.com", "scorecardresearch.com", "quantserve.com",
-                "mixpanel.com", "segment.io", "clarity.ms", "connect.facebook.net", "analytics.tiktok.com",
-                "amplitude.com", "fingerprintjs.com"
+                "google-analytics.com", "googletagmanager.com", "hotjar.com", "scorecardresearch.com",
+                "quantserve.com", "mixpanel.com", "segment.io", "clarity.ms", "connect.facebook.net",
+                "analytics.tiktok.com", "amplitude.com", "fingerprintjs.com", "chartbeat.com",
+                "crazyegg.com", "mouseflow.com", "fullstory.com", "inspectlet.com", "branch.io",
+                "appsflyer.com", "adjust.com", "kochava.com", "singular.net", "optimizely.com"
             ),
             maliciousDomains = setOf(
                 "coinhive.com", "coin-hive.com", "cryptoloot.pro", "malware-test.com", "webminepool.com"
@@ -232,8 +271,9 @@ object HazeFilterListManager {
                 "onesignal.com", "pushassist.com", "fingerprintjs.com"
             ),
             pathPatterns = listOf(
-                "/pagead/", "/ads.js", "/adserver/", "/tr/", "/pixel/", "/analytics.js",
-                "/vast/", "/vpaid/", "ima3.js"
+                "/pagead/", "/ads.js", "/adserver/", "/tr?", "/pixel/", "/analytics.js",
+                "/vast/", "/vpaid/", "ima3.js", "/gpt.js", "pubads", "prebid", "adsbygoogle",
+                "show_ads", "/adunit", "/ad-frame", "/ad_status", "/banner_ad", "/sponsored"
             )
         )
     }

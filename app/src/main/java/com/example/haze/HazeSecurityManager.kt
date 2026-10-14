@@ -100,11 +100,7 @@ object HazeSecurityManager {
     // 2. Session Security: Chromium Cookie Store
     fun configureSessionSecurity(webView: WebView) {
         try {
-            val cm = CookieManager.getInstance()
-            cm.setAcceptCookie(true)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                cm.setAcceptThirdPartyCookies(webView, true)
-            }
+            HazeAntiTrackingEngine.configureWebViewCookies(webView, webView.context, false)
         } catch (_: Throwable) {}
     }
 

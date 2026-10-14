@@ -38,6 +38,8 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
