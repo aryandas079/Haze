@@ -1,6 +1,0 @@
-{
-  "name": "Haze",
-  "description": "Fast, private browser with native C++ content blocking and anti-tracking shield.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

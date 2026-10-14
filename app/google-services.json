@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1062570508044",
+    "project_id": "haze-f1f15",
+    "storage_bucket": "haze-f1f15.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1062570508044:android:3831879e86569531cbd329",
+        "android_client_info": {
+          "package_name": "com.example.haze"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1062570508044-29ic5p0bqhtl2ebf4l1131btpdufqjv7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.haze",
+            "certificate_hash": "af1c4a0ed72ef5fe77525b75c1f9c537a2d57e1b"
+          }
+        },
+        {
+          "client_id": "1062570508044-gjjqql7b8qshahah65jv459t5aj78kpn.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzNCVT9vI4LNxf5bsmlBQihXjFVpAPC_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1062570508044-gjjqql7b8qshahah65jv459t5aj78kpn.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
