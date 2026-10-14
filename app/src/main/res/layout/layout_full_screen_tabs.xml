@@ -1,149 +1,165 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/tabsRootContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FAFAFA">
+    android:background="#F8FAFD">
 
-    <!-- Header -->
+    <!-- Top Navigation Bar (Chrome Style from Image 4) -->
     <RelativeLayout
+        android:id="@+id/topTabsNavBar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="56dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
-        android:background="#FFFFFF">
+        android:gravity="center_vertical">
 
-        <TextView
-            android:id="@+id/tvTabsManagerHeader"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Tabs Manager"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#202124"
+        <!-- Left: Blue Curved Squircle New Tab Button (+) -->
+        <FrameLayout
+            android:id="@+id/btnNewTabSquircle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_alignParentStart="true"
-            android:layout_centerVertical="true"/>
+            android:layout_centerVertical="true"
+            android:background="@drawable/bg_new_tab_squircle"
+            android:clickable="true"
+            android:focusable="true">
 
+            <ImageView
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_add"
+                app:tint="#FFFFFF"
+                android:contentDescription="New Tab" />
+        </FrameLayout>
+
+        <!-- Center: Connected Chrome Pill Segment [ 1 ] [ 🕶 ] [ ⊞ ] -->
+        <LinearLayout
+            android:id="@+id/chromeSegmentedPill"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:layout_centerInParent="true"
+            android:background="@drawable/bg_chrome_tab_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <!-- Personal Tab Switcher Box [ 1 ] -->
+            <FrameLayout
+                android:id="@+id/btnTogglePersonal"
+                android:layout_width="34dp"
+                android:layout_height="30dp"
+                android:background="@drawable/bg_tab_box"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvTabCountPill"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="1"
+                    android:textColor="#202124"
+                    android:textSize="11.5sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+
+            <!-- Private / Incognito Switcher Box [ 🕶 ] -->
+            <FrameLayout
+                android:id="@+id/btnTogglePrivate"
+                android:layout_width="34dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="4dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/ivPrivatePillIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_incognito_chrome"
+                    app:tint="#5F6368"
+                    android:contentDescription="Private Tabs" />
+            </FrameLayout>
+
+            <!-- Grid / View Mode Toggle Icon [ ⊞ ] -->
+            <ImageButton
+                android:id="@+id/btnToggleViewMode"
+                android:layout_width="32dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Toggle View Mode"
+                android:src="@drawable/ic_grid"
+                app:tint="#5F6368" />
+        </LinearLayout>
+
+        <!-- Right Side: Three-Dots Menu and Close Button -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
             android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true">
+            android:layout_centerVertical="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-            <!-- Recently Closed Tabs button -->
             <ImageButton
                 android:id="@+id/btnRecentlyClosedTabs"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Recently Closed"
                 android:src="@drawable/ic_restore"
-                android:layout_marginEnd="6dp"
-                app:tint="#5F6368"
-                android:contentDescription="Recently Closed Tabs" />
+                android:layout_marginEnd="2dp"
+                app:tint="#5F6368" />
 
-            <!-- Toggle View Mode (Cards / Grid / List) -->
-            <ImageButton
-                android:id="@+id/btnToggleViewMode"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_grid"
-                android:layout_marginEnd="6dp"
-                app:tint="#5F6368"
-                android:contentDescription="Toggle Grid / Cards / List View" />
-
-            <!-- Tab Switcher Menu (Sort, Group, Close All, Inactive, Share, Gestures) -->
             <ImageButton
                 android:id="@+id/btnTabsMoreOptions"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Tab Options"
                 android:src="@drawable/ic_more_vert"
-                android:layout_marginEnd="6dp"
-                app:tint="#5F6368"
-                android:contentDescription="Tab Manager Options" />
+                android:layout_marginEnd="2dp"
+                app:tint="#202124" />
 
             <ImageButton
                 android:id="@+id/btnCloseTabs"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Close"
                 android:src="@drawable/ic_close"
-                app:tint="#202124"
-                android:contentDescription="Close" />
+                app:tint="#202124" />
         </LinearLayout>
     </RelativeLayout>
 
-    <!-- Clean Tab Selector (Personal vs Private) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:background="#FFFFFF">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:orientation="horizontal"
-            android:gravity="center">
-
-            <TextView
-                android:id="@+id/btnTogglePersonal"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:paddingStart="22dp"
-                android:paddingEnd="22dp"
-                android:text="Personal"
-                android:textColor="#0A56D0"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:clickable="true"
-                android:focusable="true"/>
-
-            <TextView
-                android:id="@+id/btnTogglePrivate"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center"
-                android:paddingStart="22dp"
-                android:paddingEnd="22dp"
-                android:text="Private"
-                android:textColor="#5F6368"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:clickable="true"
-                android:focusable="true"/>
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Tab Search Box -->
+    <!-- Chrome Full-Width Curved Search Bar: "Search your tabs" (Image 4) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="4dp">
+        android:paddingTop="6dp"
+        android:paddingBottom="8dp">
 
         <LinearLayout
+            android:id="@+id/searchPillContainer"
             android:layout_width="match_parent"
-            android:layout_height="38dp"
-            android:background="@drawable/bg_address_bar"
+            android:layout_height="46dp"
+            android:background="@drawable/bg_chrome_search_pill"
             android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+            android:paddingStart="16dp"
+            android:paddingEnd="14dp">
 
             <ImageView
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
                 android:src="@drawable/ic_search"
                 app:tint="#5F6368"
                 android:contentDescription="Search" />
@@ -153,10 +169,11 @@
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="12dp"
                 android:background="@null"
-                android:hint="Search open tabs..."
-                android:textSize="13sp"
+                android:hint="Search your tabs"
+                android:textColorHint="#74777F"
+                android:textSize="14.5sp"
                 android:textColor="#202124"
                 android:singleLine="true"
                 android:imeOptions="actionDone"/>
@@ -173,46 +190,32 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Dynamic Action Bar (+ New Tab) -->
-    <RelativeLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingStart="18dp"
-        android:paddingEnd="18dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="6dp">
+    <!-- Hidden compatibility text views for existing references -->
+    <TextView
+        android:id="@+id/tvTabsManagerHeader"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/tvCurrentModeLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Personal Tabs"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="#202124"
-            android:layout_centerVertical="true"/>
+    <TextView
+        android:id="@+id/tvCurrentModeLabel"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/btnNewTabAction"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:text="+ New Tab"
-            android:textColor="#0A56D0"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:padding="6dp"
-            android:background="?attr/selectableItemBackground"/>
-    </RelativeLayout>
+    <TextView
+        android:id="@+id/btnNewTabAction"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone" />
 
-    <!-- RecyclerView -->
+    <!-- RecyclerView for Tabs Grid (Curved Chrome Cards) -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvActiveTabs"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
         android:paddingBottom="16dp"
         android:clipToPadding="false"/>
 </LinearLayout>

@@ -2269,6 +2269,14 @@ class MainActivity : AppCompatActivity() {
         ).toInt()
     }
 
+    private fun dpToPx(dp: Float): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp,
+            resources.displayMetrics
+        ).toInt()
+    }
+
     private val bgPhotoCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private fun getBgPhotoBase64(theme: String): String? {
@@ -2980,7 +2988,7 @@ class MainActivity : AppCompatActivity() {
                                 if (window.__hazeCosmeticInjected) return;
                                 window.__hazeCosmeticInjected = true;
                                 var style = document.createElement('style');
-                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-module { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                                style.innerHTML = '.adsbygoogle, ins.adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, .ytp-ad-overlay-container, .ytp-ad-message-container { display: none !important; opacity: 0 !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }\nvideo, video.video-stream, video.html5-main-video, .html5-main-video, .html5-video-player, .html5-video-container, #movie_player, #player, [class*="video-stream"], [class*="player-container"] video, [class*="player-container"] { display: block !important; opacity: 1 !important; visibility: visible !important; max-height: none !important; max-width: none !important; pointer-events: auto !important; }';
                                 if (document.head) document.head.appendChild(style);
                                 else document.documentElement.appendChild(style);
                             })();
@@ -2994,13 +3002,33 @@ class MainActivity : AppCompatActivity() {
                                     window.__hazeSafeYtSkipper = true;
                                     var adWasActive = false;
                                     var normalPlaybackRate = 1;
-                                    var adSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-ad-overlay-close-button', '.videoAdUiSkipButton'];
+                                    var adSelectors = [
+                                        '.ytp-ad-skip-button',
+                                        '.ytp-ad-skip-button-modern',
+                                        '.ytp-ad-overlay-close-button',
+                                        '.videoAdUiSkipButton',
+                                        'button[class*="skip-button"]',
+                                        '.ytp-skip-ad-button',
+                                        '.ytm-ad-overlay-close-button'
+                                    ];
+
+                                    function restoreNormalVideo(v) {
+                                        if (!v) v = document.querySelector('video');
+                                        if (v) {
+                                            if (v.playbackRate > 1) v.playbackRate = normalPlaybackRate;
+                                            v.muted = false;
+                                            v.style.setProperty('display', 'block', 'important');
+                                            v.style.setProperty('visibility', 'visible', 'important');
+                                            v.style.setProperty('opacity', '1', 'important');
+                                        }
+                                    }
+
                                     function skipYouTubeAd() {
-                                        var adPlayer = document.querySelector('.ad-showing');
+                                        var adPlayer = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
+                                        var video = document.querySelector('video');
                                         if (!adPlayer) {
                                             if (adWasActive) {
-                                                var normalVideo = document.querySelector('video');
-                                                if (normalVideo && normalVideo.playbackRate > 1) normalVideo.playbackRate = normalPlaybackRate;
+                                                restoreNormalVideo(video);
                                             }
                                             adWasActive = false;
                                             return;
@@ -3010,20 +3038,23 @@ class MainActivity : AppCompatActivity() {
                                             var button = document.querySelector(adSelectors[i]);
                                             if (button) { button.click(); return; }
                                         }
-                                        var video = document.querySelector('video');
                                         if (video) {
-                                            if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
-                                            if (isFinite(video.duration) && video.duration > 0) video.currentTime = video.duration;
-                                            else video.currentTime = 2147483647;
-                                            video.play().catch(function() {});
-                                            video.playbackRate = 16;
+                                            var dur = video.duration;
+                                            if (isFinite(dur) && dur > 0 && dur <= 90) {
+                                                if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
+                                                video.muted = true;
+                                                if (dur > 0.5) video.currentTime = dur - 0.1;
+                                                video.playbackRate = 16;
+                                                video.play().catch(function() {});
+                                            } else if (dur > 90) {
+                                                restoreNormalVideo(video);
+                                            }
                                         }
-                                        var overlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay');
+                                        var overlays = document.querySelectorAll(
+                                            '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
+                                        );
                                         for (var j = 0; j < overlays.length; j++) overlays[j].style.setProperty('display', 'none', 'important');
                                     }
-                                    // A 25ms polling loop competes with video rendering at
-                                    // roughly 40 wakeups/second.  Mutation events handle the
-                                    // fast path; this is only a conservative fallback.
                                     setInterval(skipYouTubeAd, 300);
                                     document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
                                     var observer = new MutationObserver(skipYouTubeAd);
@@ -3561,18 +3592,28 @@ class MainActivity : AppCompatActivity() {
                                     '.ytp-ad-skip-button-modern',
                                     '.ytp-ad-overlay-close-button',
                                     '.videoAdUiSkipButton',
-                                    'button[class*="skip-button"]'
+                                    'button[class*="skip-button"]',
+                                    '.ytp-skip-ad-button',
+                                    '.ytm-ad-overlay-close-button'
                                 ];
 
+                                function restoreNormalVideo(v) {
+                                    if (!v) v = document.querySelector('video');
+                                    if (v) {
+                                        if (v.playbackRate > 1) v.playbackRate = normalPlaybackRate;
+                                        v.muted = false;
+                                        v.style.setProperty('display', 'block', 'important');
+                                        v.style.setProperty('visibility', 'visible', 'important');
+                                        v.style.setProperty('opacity', '1', 'important');
+                                    }
+                                }
+
                                 function skipYouTubeAd() {
-                                    var adPlayer = document.querySelector('.ad-showing, .video-ads.ad-showing');
+                                    var adPlayer = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
+                                    var video = document.querySelector('video');
                                     if (!adPlayer) {
                                         if (adWasActive) {
-                                            var normalVideo = document.querySelector('video');
-                                            if (normalVideo) {
-                                                if (normalVideo.playbackRate > 1) normalVideo.playbackRate = normalPlaybackRate;
-                                                normalVideo.muted = false; // Restore audio after ad finishes
-                                            }
+                                            restoreNormalVideo(video);
                                         }
                                         adWasActive = false;
                                         return;
@@ -3587,21 +3628,21 @@ class MainActivity : AppCompatActivity() {
                                         }
                                     }
 
-                                    var video = document.querySelector('video');
                                     if (video) {
-                                        if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
-                                        video.muted = true; // Auto-mute during ads
-                                        if (isFinite(video.duration) && video.duration > 0) {
-                                            video.currentTime = video.duration;
-                                        } else {
-                                            video.currentTime = 2147483647;
+                                        var dur = video.duration;
+                                        if (isFinite(dur) && dur > 0 && dur <= 90) {
+                                            if (video.playbackRate <= 1) normalPlaybackRate = video.playbackRate || 1;
+                                            video.muted = true;
+                                            if (dur > 0.5) video.currentTime = dur - 0.1;
+                                            video.playbackRate = 16;
+                                            video.play().catch(function() {});
+                                        } else if (dur > 90) {
+                                            restoreNormalVideo(video);
                                         }
-                                        video.play().catch(function() {});
-                                        video.playbackRate = 16;
                                     }
 
                                     var overlays = document.querySelectorAll(
-                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-player-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
+                                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer'
                                     );
                                     for (var j = 0; j < overlays.length; j++) {
                                         overlays[j].style.setProperty('display', 'none', 'important');
@@ -4056,12 +4097,19 @@ class MainActivity : AppCompatActivity() {
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.setContentView(R.layout.layout_full_screen_tabs)
 
+        val tabsRootContainer = dialog.findViewById<LinearLayout>(R.id.tabsRootContainer)
+        val btnNewTabSquircle = dialog.findViewById<FrameLayout>(R.id.btnNewTabSquircle)
+        val chromeSegmentedPill = dialog.findViewById<LinearLayout>(R.id.chromeSegmentedPill)
+        val btnTogglePersonal = dialog.findViewById<FrameLayout>(R.id.btnTogglePersonal)
+        val tvTabCountPill = dialog.findViewById<TextView>(R.id.tvTabCountPill)
+        val btnTogglePrivate = dialog.findViewById<FrameLayout>(R.id.btnTogglePrivate)
+        val ivPrivatePillIcon = dialog.findViewById<ImageView>(R.id.ivPrivatePillIcon)
+        val searchPillContainer = dialog.findViewById<LinearLayout>(R.id.searchPillContainer)
+
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
         val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
         val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
         val btnTabsMoreOptions = dialog.findViewById<ImageButton>(R.id.btnTabsMoreOptions)
-        val btnTogglePersonal = dialog.findViewById<TextView>(R.id.btnTogglePersonal)
-        val btnTogglePrivate = dialog.findViewById<TextView>(R.id.btnTogglePrivate)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
         val btnNewTabAction = dialog.findViewById<TextView>(R.id.btnNewTabAction)
         val etTabSearch = dialog.findViewById<EditText>(R.id.etTabSearch)
@@ -4074,6 +4122,13 @@ class MainActivity : AppCompatActivity() {
 
         var viewingPrivate = isPrivateMode
         var currentMode = prefs.getInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, HazeTabSystemManager.TAB_MODE_GRID)
+
+        btnNewTabSquircle?.setOnClickListener {
+            triggerStrongHaptic(it)
+            dialog.dismiss()
+            isPrivateMode = viewingPrivate
+            addNewTab(HAZE_HOME_URL)
+        }
 
         fun updateViewModeIcon() {
             val iconRes = when (currentMode) {
@@ -4139,6 +4194,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             tabCountBtn.text = currentTabsList.size.toString()
+            val currentCount = if (viewingPrivate) privateTabs.size else normalTabs.size
+            tvTabCountPill?.text = currentCount.toString()
             val adapter = if (isPriv) privateAdapter else personalAdapter
             adapter.notifyItemRemoved(closedIndex)
             if (list.isEmpty()) {
@@ -4242,14 +4299,40 @@ class MainActivity : AppCompatActivity() {
         }
 
         var currentTouchHelper: ItemTouchHelper? = null
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
 
         fun updateUI(animate: Boolean = false) {
+            val isDarkTheme = prefs.getBoolean("is_dark", false) || viewingPrivate
+            val count = if (viewingPrivate) privateTabs.size else normalTabs.size
+            tvTabCountPill?.text = count.toString()
+
             if (viewingPrivate) {
-                btnTogglePersonal.background = null
-                btnTogglePersonal.setTextColor(Color.parseColor("#5F6368"))
-                btnTogglePrivate.background = getDrawable(R.drawable.bg_popup_rounded)
-                btnTogglePrivate.setTextColor(Color.parseColor("#202124"))
+                tabsRootContainer?.setBackgroundColor(Color.parseColor("#141518"))
+                chromeSegmentedPill?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(20f).toFloat()
+                    setColor(Color.parseColor("#25272B"))
+                }
+                searchPillContainer?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(24f).toFloat()
+                    setColor(Color.parseColor("#25272B"))
+                }
+                etTabSearch.setTextColor(Color.WHITE)
+                etTabSearch.setHintTextColor(Color.parseColor("#9AA0A6"))
+                btnClose.setColorFilter(Color.WHITE)
+                btnRecentlyClosed.setColorFilter(Color.parseColor("#9AA0A6"))
+                btnToggleViewMode.setColorFilter(Color.WHITE)
+                btnTabsMoreOptions.setColorFilter(Color.WHITE)
+
+                // Personal icon inactive
+                btnTogglePersonal?.background = null
+                tvTabCountPill?.setTextColor(Color.parseColor("#9AA0A6"))
+
+                // Private icon active (highlighted rounded pill)
+                btnTogglePrivate?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(12f).toFloat()
+                    setColor(Color.parseColor("#383B40"))
+                }
+                ivPrivatePillIcon?.setColorFilter(Color.WHITE)
 
                 tvCurrentModeLabel.text = "Private Tabs"
                 btnNewTabAction.text = "+ New Private"
@@ -4265,10 +4348,40 @@ class MainActivity : AppCompatActivity() {
                 }
                 currentTouchHelper?.attachToRecyclerView(null)
             } else {
-                btnTogglePersonal.background = getDrawable(R.drawable.bg_popup_rounded)
-                btnTogglePersonal.setTextColor(Color.parseColor("#202124"))
-                btnTogglePrivate.background = null
-                btnTogglePrivate.setTextColor(Color.parseColor("#5F6368"))
+                val lightBg = if (isDarkTheme) Color.parseColor("#1A1C1E") else Color.parseColor("#F8FAFD")
+                val pillBg = if (isDarkTheme) Color.parseColor("#282A2E") else Color.parseColor("#E9EEF6")
+                val textColor = if (isDarkTheme) Color.WHITE else Color.parseColor("#202124")
+                val subColor = if (isDarkTheme) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
+                tabsRootContainer?.setBackgroundColor(lightBg)
+                chromeSegmentedPill?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(20f).toFloat()
+                    setColor(pillBg)
+                }
+                searchPillContainer?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(24f).toFloat()
+                    setColor(pillBg)
+                }
+                etTabSearch.setTextColor(textColor)
+                etTabSearch.setHintTextColor(subColor)
+                btnClose.setColorFilter(textColor)
+                btnRecentlyClosed.setColorFilter(subColor)
+                btnToggleViewMode.setColorFilter(textColor)
+                btnTabsMoreOptions.setColorFilter(textColor)
+
+                // Personal active (white rounded card inside pill)
+                btnTogglePersonal?.background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(12f).toFloat()
+                    setColor(if (isDarkTheme) Color.parseColor("#383B40") else Color.WHITE)
+                    if (!isDarkTheme) {
+                        setStroke(dpToPx(1f), Color.parseColor("#D8DEE8"))
+                    }
+                }
+                tvTabCountPill?.setTextColor(if (isDarkTheme) Color.WHITE else Color.parseColor("#202124"))
+
+                // Private inactive
+                btnTogglePrivate?.background = null
+                ivPrivatePillIcon?.setColorFilter(subColor)
 
                 tvCurrentModeLabel.text = "Personal Tabs"
                 btnNewTabAction.text = "+ New Tab"
@@ -4396,7 +4509,7 @@ class MainActivity : AppCompatActivity() {
             val tabClose: ImageButton? = view.findViewById(R.id.tabClose)
 
             // Grid views
-            val cardTabGrid: androidx.cardview.widget.CardView? = view.findViewById(R.id.cardTabGrid)
+            val cardTabGrid: com.google.android.material.card.MaterialCardView? = view.findViewById(R.id.cardTabGrid)
             val gridTabIcon: ImageView? = view.findViewById(R.id.gridTabIcon)
             val gridTabTitle: TextView? = view.findViewById(R.id.gridTabTitle)
             val gridTabPinIcon: ImageView? = view.findViewById(R.id.gridTabPinIcon)
@@ -4419,12 +4532,12 @@ class MainActivity : AppCompatActivity() {
             val currentItems = displayedList
             if (position >= currentItems.size) return
             val tab = currentItems[position]
-            val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
+            val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
             val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
 
             if (holder.isGrid) {
-                // Adjust card height for Cards mode (280dp) vs Grid mode (210dp)
-                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(280) else dpToPx(210)
+                // Adjust card height for Cards mode (280dp) vs Grid mode (216dp)
+                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(280f) else dpToPx(216f)
                 holder.cardTabGrid?.layoutParams?.height = cardHeight
 
                 holder.gridTabTitle?.text = tab.title
@@ -4438,23 +4551,62 @@ class MainActivity : AppCompatActivity() {
                     holder.gridGroupIndicator?.visibility = View.GONE
                 }
 
-                if (isHomeTab(tab)) {
-                    holder.gridTabIcon?.setImageResource(R.drawable.ic_haze_logo)
-                } else if (tab.favicon != null) {
-                    holder.gridTabIcon?.setImageBitmap(tab.favicon)
-                } else {
-                    holder.gridTabIcon?.setImageResource(R.drawable.ic_globe)
-                }
-
                 tab.browserTab.captureThumbnail { bmp ->
                     if (bmp != null) holder.gridTabThumbnail?.setImageBitmap(bmp)
                     else holder.gridTabThumbnail?.setImageResource(R.drawable.haze_logo)
                 }
 
+                val mCard = holder.cardTabGrid
+                val isDark = prefs.getBoolean("is_dark", false) || isPrivateList
+                val headerLayout = holder.view.findViewById<LinearLayout>(R.id.gridHeaderLayout)
+
                 if (isActive) {
-                    holder.cardTabGrid?.setCardBackgroundColor(Color.argb(25, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor)))
+                    // Active Chrome Card Styling (Image 4)
+                    mCard?.strokeColor = Color.TRANSPARENT
+                    mCard?.strokeWidth = 0
+                    mCard?.cardElevation = dpToPx(4f).toFloat()
+                    mCard?.setCardBackgroundColor(accentColor)
+                    headerLayout?.background = null
+
+                    holder.gridTabTitle?.setTextColor(Color.WHITE)
+                    holder.gridTabClose?.setColorFilter(Color.WHITE)
+                    holder.gridTabPinIcon?.setColorFilter(Color.WHITE)
+                    if (isHomeTab(tab)) {
+                        holder.gridTabIcon?.setImageResource(R.drawable.ic_haze_logo)
+                        holder.gridTabIcon?.setColorFilter(Color.WHITE)
+                    } else if (tab.favicon != null) {
+                        holder.gridTabIcon?.setImageBitmap(tab.favicon)
+                        holder.gridTabIcon?.clearColorFilter()
+                    } else {
+                        holder.gridTabIcon?.setImageResource(R.drawable.ic_globe)
+                        holder.gridTabIcon?.setColorFilter(Color.WHITE)
+                    }
                 } else {
-                    holder.cardTabGrid?.setCardBackgroundColor(Color.WHITE)
+                    // Inactive Chrome Card Styling (Image 4)
+                    val inactiveCardBg = if (isDark) Color.parseColor("#26282B") else Color.parseColor("#EDF2F7")
+                    val inactiveStroke = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#D4DBE4")
+                    val inactiveTitleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+                    val inactiveCloseColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
+                    mCard?.strokeColor = inactiveStroke
+                    mCard?.strokeWidth = dpToPx(1.2f)
+                    mCard?.cardElevation = dpToPx(1.5f).toFloat()
+                    mCard?.setCardBackgroundColor(inactiveCardBg)
+                    headerLayout?.background = null
+
+                    holder.gridTabTitle?.setTextColor(inactiveTitleColor)
+                    holder.gridTabClose?.setColorFilter(inactiveCloseColor)
+                    holder.gridTabPinIcon?.setColorFilter(inactiveCloseColor)
+                    if (isHomeTab(tab)) {
+                        holder.gridTabIcon?.setImageResource(R.drawable.ic_haze_logo)
+                        holder.gridTabIcon?.setColorFilter(accentColor)
+                    } else if (tab.favicon != null) {
+                        holder.gridTabIcon?.setImageBitmap(tab.favicon)
+                        holder.gridTabIcon?.clearColorFilter()
+                    } else {
+                        holder.gridTabIcon?.setImageResource(R.drawable.ic_globe)
+                        holder.gridTabIcon?.setColorFilter(inactiveCloseColor)
+                    }
                 }
 
                 val tabLongClickListener = View.OnLongClickListener { v ->
@@ -4633,100 +4785,170 @@ class MainActivity : AppCompatActivity() {
         }
 
         private fun showTabOptionsMenu(tab: Tab) {
-            val options = mutableListOf<String>()
-            options.add(if (tab.isPinned) "Unpin Tab" else "Pin Tab")
-            options.add("Duplicate Tab")
+            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+            val bgColor = if (isDark) Color.parseColor("#282A2E") else Color.WHITE
+            val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
+            val iconColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#444746")
+            val borderColor = if (isDark) Color.parseColor("#383B40") else Color.parseColor("#E0E3E7")
+
+            val dialog = Dialog(this@MainActivity)
+            dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            dialog.window?.setDimAmount(0.35f)
+
+            val root = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(26f).toFloat()
+                    setColor(bgColor)
+                    setStroke(dpToPx(1f), borderColor)
+                }
+                setPadding(dpToPx(6), dpToPx(10), dpToPx(6), dpToPx(10))
+                layoutParams = ViewGroup.LayoutParams(dpToPx(270), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+
+            data class TabActionItem(val title: String, val iconRes: Int, val isDestructive: Boolean = false, val action: () -> Unit)
+            val actionItems = mutableListOf<TabActionItem>()
+
+            // 1. Group (Image 3: "Add tab to new group")
             if (tab.group != null) {
-                options.add("Remove from '${tab.group!!.name}'")
+                actionItems.add(TabActionItem("Remove from '${tab.group!!.name}'", R.drawable.ic_grid) {
+                    tab.group = null
+                    notifyDataSetChanged()
+                    Toast.makeText(this@MainActivity, "Removed from group", Toast.LENGTH_SHORT).show()
+                })
             } else {
-                options.add("Create New Group")
+                actionItems.add(TabActionItem("Add tab to new group", R.drawable.ic_grid) {
+                    val input = EditText(this@MainActivity).apply { hint = "Group Name (e.g. Work, Shopping)" }
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("New Tab Group")
+                        .setView(input)
+                        .setPositiveButton("Create") { _, _ ->
+                            val name = input.text.toString().trim().ifEmpty { "Group" }
+                            val newGroup = TabGroup(
+                                id = System.currentTimeMillis().toString(),
+                                name = name,
+                                color = groupColors.random()
+                            )
+                            tab.group = newGroup
+                            notifyDataSetChanged()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                })
                 val otherGroups = originalList.mapNotNull { it.group }.distinctBy { it.id }
                 if (otherGroups.isNotEmpty()) {
-                    options.add("Add to Existing Group...")
+                    actionItems.add(TabActionItem("Add to existing group...", R.drawable.ic_grid) {
+                        val groupNames = otherGroups.map { it.name }.toTypedArray()
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Select Group")
+                            .setItems(groupNames) { _, gIdx ->
+                                tab.group = otherGroups[gIdx]
+                                notifyDataSetChanged()
+                                Toast.makeText(this@MainActivity, "Added to ${otherGroups[gIdx].name}", Toast.LENGTH_SHORT).show()
+                            }
+                            .show()
+                    })
                 }
             }
-            options.add("Tab History (Back/Forward)")
-            options.add("Send Tab to Another Device...")
-            if (tab.group != null) {
-                options.add("Save Tab Group to Bookmarks")
-            }
-            options.add("Share Tab URL")
-            options.add("Close Tab")
 
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(tab.title)
-                .setItems(options.toTypedArray()) { _, which ->
-                    triggerStrongHaptic(addressBar)
-                    val action = options[which]
-                    when {
-                        action.contains("Pin Tab") -> {
-                            tab.isPinned = !tab.isPinned
-                            notifyDataSetChanged()
-                            Toast.makeText(this@MainActivity, if (tab.isPinned) "Tab pinned" else "Tab unpinned", Toast.LENGTH_SHORT).show()
-                        }
-                        action == "Duplicate Tab" -> {
-                            duplicateTab(tab)
-                            notifyDataSetChanged()
-                        }
-                        action.startsWith("Remove from") -> {
-                            tab.group = null
-                            notifyDataSetChanged()
-                            Toast.makeText(this@MainActivity, "Removed from group", Toast.LENGTH_SHORT).show()
-                        }
-                        action == "Create New Group" -> {
-                            val input = EditText(this@MainActivity).apply { hint = "Group Name (e.g. Work, Shopping)" }
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("New Tab Group")
-                                .setView(input)
-                                .setPositiveButton("Create") { _, _ ->
-                                    val name = input.text.toString().trim().ifEmpty { "Group" }
-                                    val newGroup = TabGroup(
-                                        id = System.currentTimeMillis().toString(),
-                                        name = name,
-                                        color = groupColors.random()
-                                    )
-                                    tab.group = newGroup
-                                    notifyDataSetChanged()
-                                }
-                                .setNegativeButton("Cancel", null)
-                                .show()
-                        }
-                        action == "Add to Existing Group..." -> {
-                            val groups = originalList.mapNotNull { it.group }.distinctBy { it.id }
-                            val groupNames = groups.map { it.name }.toTypedArray()
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("Select Group")
-                                .setItems(groupNames) { _, gIdx ->
-                                    tab.group = groups[gIdx]
-                                    notifyDataSetChanged()
-                                    Toast.makeText(this@MainActivity, "Added to ${groups[gIdx].name}", Toast.LENGTH_SHORT).show()
-                                }
-                                .show()
-                        }
-                        action == "Tab History (Back/Forward)" -> {
-                            HazeTabSystemManager.showTabHistoryDialog(this@MainActivity, tab) {
-                                val idx = originalList.indexOf(tab)
-                                if (idx != -1) switchTab(idx)
-                            }
-                        }
-                        action == "Send Tab to Another Device..." -> {
-                            HazeTabSystemManager.showSendToDeviceDialog(this@MainActivity, listOf(tab))
-                        }
-                        action == "Save Tab Group to Bookmarks" -> {
-                            HazeTabSystemManager.saveTabGroup(this@MainActivity, tab.group, originalList)
-                        }
-                        action == "Share Tab URL" -> {
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, tab.title)
-                                putExtra(Intent.EXTRA_TEXT, tab.url)
-                            }
-                            startActivity(Intent.createChooser(intent, "Share Tab"))
-                        }
-                        action == "Close Tab" -> onCloseClick(tab)
+            // 2. Bookmarks (Image 3: "Add to bookmarks")
+            actionItems.add(TabActionItem("Add to bookmarks", R.drawable.ic_star) {
+                HazeBookmarksManager.showBookmarkThisPageDialog(this@MainActivity, tab.title, tab.url)
+            })
+
+            // 3. Pin Tab (Image 3: "Pin tab")
+            actionItems.add(TabActionItem(if (tab.isPinned) "Unpin tab" else "Pin tab", R.drawable.ic_pin) {
+                tab.isPinned = !tab.isPinned
+                notifyDataSetChanged()
+                Toast.makeText(this@MainActivity, if (tab.isPinned) "Tab pinned" else "Tab unpinned", Toast.LENGTH_SHORT).show()
+            })
+
+            // 4. Mute site (Image 3: "Mute site")
+            val isMuted = prefs.getBoolean("site_muted_${tab.url.hashCode()}", false)
+            actionItems.add(TabActionItem(if (isMuted) "Unmute site" else "Mute site", if (isMuted) R.drawable.ic_volume_up else R.drawable.ic_volume_off) {
+                prefs.edit().putBoolean("site_muted_${tab.url.hashCode()}", !isMuted).apply()
+                tab.browserTab.evaluateJavascript("document.querySelectorAll('video, audio').forEach(el => el.muted = ${!isMuted});", null)
+                Toast.makeText(this@MainActivity, if (!isMuted) "Site audio muted" else "Site audio unmuted", Toast.LENGTH_SHORT).show()
+            })
+
+            // 5. Select tab / Duplicate tab (Image 3: pencil icon)
+            actionItems.add(TabActionItem("Duplicate tab", R.drawable.ic_edit) {
+                duplicateTab(tab)
+                notifyDataSetChanged()
+            })
+
+            // 6. Tab History
+            actionItems.add(TabActionItem("Tab history", R.drawable.ic_history) {
+                HazeTabSystemManager.showTabHistoryDialog(this@MainActivity, tab) {
+                    val idx = originalList.indexOf(tab)
+                    if (idx != -1) switchTab(idx)
+                }
+            })
+
+            // 7. Send tab to another device
+            actionItems.add(TabActionItem("Send tab to another device...", R.drawable.ic_desktop) {
+                HazeTabSystemManager.showSendToDeviceDialog(this@MainActivity, listOf(tab))
+            })
+
+            // 8. Share Tab URL
+            actionItems.add(TabActionItem("Share tab URL", R.drawable.ic_share) {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, tab.title)
+                    putExtra(Intent.EXTRA_TEXT, tab.url)
+                }
+                startActivity(Intent.createChooser(intent, "Share Tab"))
+            })
+
+            // 9. Close Tab (Image 3: "Close tab" with close icon)
+            actionItems.add(TabActionItem("Close tab", R.drawable.ic_close, isDestructive = true) {
+                onCloseClick(tab)
+            })
+
+            for (item in actionItems) {
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(46f))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dpToPx(14f).toFloat()
+                        setColor(Color.TRANSPARENT)
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        triggerStrongHaptic(it)
+                        dialog.dismiss()
+                        item.action()
                     }
                 }
-                .show()
+
+                val iv = ImageView(this@MainActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(20f), dpToPx(20f)).apply {
+                        marginStart = dpToPx(16f)
+                        marginEnd = dpToPx(16f)
+                    }
+                    setImageResource(item.iconRes)
+                    setColorFilter(if (item.isDestructive) Color.parseColor("#E53935") else iconColor)
+                }
+
+                val tv = TextView(this@MainActivity).apply {
+                    text = item.title
+                    textSize = 14.5f
+                    setTextColor(if (item.isDestructive) Color.parseColor("#E53935") else textColor)
+                    typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                row.addView(iv)
+                row.addView(tv)
+                root.addView(row)
+            }
+
+            dialog.setContentView(root)
+            dialog.show()
         }
     }
 

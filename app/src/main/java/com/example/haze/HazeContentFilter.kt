@@ -30,18 +30,20 @@ object HazeContentFilter {
     // Built-in high-impact cosmetic rules covering requested ad/tracker/overlay categories
     private val BUILTIN_COSMETIC_SELECTORS = listOf(
         // Banner & display ads
-        "div[class*=\"ad-\"]", "div[id*=\"ad-\"]", ".adsbygoogle", "iframe[src*=\"doubleclick\"]",
-        ".banner-ad", ".ad-banner", ".ad-container", ".ad_wrapper", "[data-ad-unit]", "ins.adsbygoogle",
-        ".ad-slot", ".ad-card", ".advertisement", "[id*=\"google_ads\"]",
+        ".adsbygoogle", "ins.adsbygoogle", "iframe[src*=\"doubleclick\"]",
+        ".banner-ad", ".ad-banner", ".ad-slot", ".ad-card", ".advertisement",
+        "[data-ad-unit]", "[data-ad-slot]", "[id*=\"google_ads\"]",
         // Sponsored widgets (Taboola, Outbrain, Revcontent, MGID, Nativo)
         ".tbl-feed-container", ".trc_rbox_div", "div[id*=\"taboola\"]", "[data-taboola-placeholder]",
         ".outbrain_widget", ".OB-widget", "#outbrain_widget_0", "[data-widget-id*=\"outbrain\"]",
         ".rc-item", "div[id*=\"rc-widget\"]", "[data-revcontent]",
         "div[id*=\"MarketGid\"]", ".mgbox", ".mgid-widget", "[data-mgid]",
         ".ntv-ad", "div[id*=\"nativo\"]",
-        // Video ads overlays
-        ".ytp-ad-module", ".ytp-ad-overlay-container", ".ytp-ad-player-overlay", ".video-ads",
+        // Video ads overlays (Target overlays and promos specifically without touching video element or player container)
+        ".ytp-ad-overlay-container", ".ytp-ad-text", ".ytp-ad-message-container",
+        ".ytp-ad-image-overlay", ".ytp-ad-overlay-image",
         "ytd-ad-slot-renderer", "ytd-promoted-video-renderer", "ytd-banner-promo-renderer",
+        "ytd-in-feed-ad-layout-renderer", "ytd-player-legacy-desktop-watch-ads-renderer",
         // Annoying overlays (Cookie consent & anti-adblock modals)
         "#onetrust-consent-sdk", ".cc-window", "#didomi-host", ".cookie-banner",
         "[id*=\"cookie-notice\"]", ".qc-cmp2-container", "#CybotCookiebotDialog",
@@ -98,10 +100,42 @@ object HazeContentFilter {
                 }
             }
 
+            // Never allow cosmetic rules to hide video elements or video players
+            activeSelectors.removeAll { sel ->
+                val s = sel.lowercase().trim()
+                s == "video" || s.startsWith("video[") || s.startsWith("video.") ||
+                    s.contains("html5-video") || s.contains("html5-main") ||
+                    s.contains("movie_player") || s.contains("video-stream") ||
+                    s == ".video-ads" || s.contains("player-container") ||
+                    s == ".ytp-ad-module" || s.contains("ad-showing")
+            }
+
             if (activeSelectors.isEmpty()) return ""
 
             val joined = activeSelectors.joinToString(", ")
-            return "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; width: 0 !important; }"
+            val hideRules = "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; width: 0 !important; }"
+            val videoProtectionRule = """
+                video,
+                video.video-stream,
+                video.html5-main-video,
+                .html5-main-video,
+                .html5-video-player,
+                .html5-video-container,
+                #movie_player,
+                #player,
+                video.video-stream,
+                [class*="video-stream"],
+                [class*="player-container"] video,
+                [class*="player-container"] {
+                    display: block !important;
+                    opacity: 1 !important;
+                    visibility: visible !important;
+                    max-height: none !important;
+                    max-width: none !important;
+                    pointer-events: auto !important;
+                }
+            """.trimIndent()
+            return "$hideRules\n$videoProtectionRule"
         }
     }
 

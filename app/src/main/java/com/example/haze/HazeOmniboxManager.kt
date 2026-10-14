@@ -233,36 +233,57 @@ class HazeOmniboxManager(
         val btnClipSearch = view.findViewById<TextView>(R.id.btnClipSearch)
 
         val isDark = prefs.getBoolean("is_dark", false)
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
-
-        // Apply theme styling
-        tvBadge.setTextColor(accentColor)
-        ivBadgeIcon.setColorFilter(accentColor)
-        ivArrow.setColorFilter(accentColor)
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val coralColor = Color.parseColor("#E53935")
 
         if (isDark) {
             val bgCard = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#1F2530"))
-                setStroke(1, Color.parseColor("#2F3B4E"))
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics)
+                setColor(Color.parseColor("#1E222A"))
+                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.5f, activity.resources.displayMetrics).toInt(), Color.parseColor("#2E3644"))
             }
             card.background = bgCard
             tvAction.setTextColor(Color.WHITE)
             tvContent.setTextColor(Color.parseColor("#9AA0A6"))
+
+            val pillBgDark = GradientDrawable().apply {
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
+                setColor(Color.parseColor("#282D37"))
+                setStroke(1, Color.parseColor("#3E4654"))
+            }
+            btnClipCall.background = pillBgDark
+            btnClipSearch.background = pillBgDark.constantState?.newDrawable()?.mutate()
+            btnClipCall.setTextColor(accentColor)
+            btnClipSearch.setTextColor(Color.WHITE)
         }
 
         val rowContent = view.findViewById<View>(R.id.rowClipboardContent)
 
         when (clipItem) {
             is ClipboardItem.UrlItem -> {
-                tvBadge.text = "COPIED TO CLIPBOARD"
+                tvBadge.text = "COPIED LINK"
+                tvBadge.setTextColor(accentColor)
                 ivBadgeIcon.setImageResource(R.drawable.ic_link)
-                ivType.setImageResource(R.drawable.ic_link)
+                ivBadgeIcon.setColorFilter(accentColor)
+                ivType.setImageResource(R.drawable.ic_globe)
                 ivType.setColorFilter(accentColor)
-                tvAction.text = "Open copied link"
-                tvContent.text = clipItem.url
-                layoutNumberActions.visibility = View.GONE
+                ivArrow.setColorFilter(accentColor)
+                tvAction.text = "Go to: ${clipItem.url}"
+                tvContent.text = "Copied web address"
+                layoutNumberActions.visibility = View.VISIBLE
+                btnClipCall.text = "🌐 Open Link"
+                btnClipSearch.text = "🔍 Search Web"
+
+                btnClipCall.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    activity.loadUrlFromInput(clipItem.url)
+                }
+                btnClipSearch.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    activity.loadUrlFromInput(clipItem.url)
+                }
+
                 val openUrl = View.OnClickListener {
                     activity.triggerStrongHaptic(it)
                     activity.loadUrlFromInput(clipItem.url)
@@ -272,12 +293,21 @@ class HazeOmniboxManager(
             }
             is ClipboardItem.PhoneItem -> {
                 tvBadge.text = "COPIED NUMBER"
+                tvBadge.setTextColor(coralColor)
                 ivBadgeIcon.setImageResource(R.drawable.ic_call)
+                ivBadgeIcon.setColorFilter(coralColor)
                 ivType.setImageResource(R.drawable.ic_call)
-                ivType.setColorFilter(accentColor)
+                ivType.setColorFilter(coralColor)
+                ivArrow.setColorFilter(coralColor)
                 tvAction.text = "Call or Search: ${clipItem.number}"
                 tvContent.text = "Copied phone number"
                 layoutNumberActions.visibility = View.VISIBLE
+                btnClipCall.text = "📞 Call Number"
+                btnClipSearch.text = "🔍 Search Web"
+                if (!isDark) {
+                    btnClipCall.setTextColor(accentColor)
+                    btnClipSearch.setTextColor(Color.parseColor("#1F1F1F"))
+                }
 
                 btnClipCall.setOnClickListener {
                     activity.triggerStrongHaptic(it)
@@ -302,13 +332,28 @@ class HazeOmniboxManager(
                 rowContent?.setOnClickListener(openPhone)
             }
             is ClipboardItem.QueryItem -> {
-                tvBadge.text = "SEARCH COPIED TEXT"
+                tvBadge.text = "COPIED TEXT"
+                tvBadge.setTextColor(accentColor)
                 ivBadgeIcon.setImageResource(R.drawable.ic_search)
+                ivBadgeIcon.setColorFilter(accentColor)
                 ivType.setImageResource(R.drawable.ic_search)
                 ivType.setColorFilter(accentColor)
-                tvAction.text = "Search copied text"
-                tvContent.text = "\"${clipItem.query}\""
-                layoutNumberActions.visibility = View.GONE
+                ivArrow.setColorFilter(accentColor)
+                tvAction.text = "Search: \"${clipItem.query}\""
+                tvContent.text = "Copied text snippet"
+                layoutNumberActions.visibility = View.VISIBLE
+                btnClipCall.text = "🔍 Search Web"
+                btnClipSearch.text = "📋 Paste in Bar"
+
+                btnClipCall.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    activity.loadUrlFromInput(clipItem.query)
+                }
+                btnClipSearch.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    activity.loadUrlFromInput(clipItem.query)
+                }
+
                 val openQuery = View.OnClickListener {
                     activity.triggerStrongHaptic(it)
                     activity.loadUrlFromInput(clipItem.query)

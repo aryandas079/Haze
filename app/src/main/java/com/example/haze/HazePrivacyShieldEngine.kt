@@ -253,13 +253,17 @@ object HazePrivacyShieldEngine {
             return BlockDecision.ALLOW
         }
 
-        val isYouTubePage = isYouTubeHost(pageHost)
-        if (isYouTubePage) {
+        // 2b. CRITICAL: Never block video and audio media streams!
+        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
+        // Blocking media chunks causes video to fail/freeze while only audio plays, or broken video playback.
+        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+            return BlockDecision.ALLOW
+        }
+
+        val isYouTube = isYouTubeHost(pageHost) || isYouTubeHost(reqHost)
+        if (isYouTube) {
             val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
             val blockVideoAds = prefs.getBoolean(PREF_BLOCK_VIDEO_ADS, true)
-            // YouTube delivers the actual player through googlevideo.com. Never
-            // send those media segments through generic ad/path filters.
-            if (isYouTubeMediaRequest(requestUrl)) return BlockDecision.ALLOW
 
             if (blockVideoAds && isYouTubeAdRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
                 val decision = BlockDecision(
@@ -427,7 +431,7 @@ object HazePrivacyShieldEngine {
 
         // 8. Path Patterns Check (e.g. /pagead/js/adsbygoogle.js, /pixel/, /beacon/, /analytics.js)
         val path = requestUri.path ?: ""
-        if (path.isNotEmpty()) {
+        if (path.isNotEmpty() && !isMediaStreamRequest(reqHost, path, requestUrl)) {
             for (pattern in rules.pathPatterns) {
                 if (requestUrl.contains(pattern, ignoreCase = true)) {
                     val cat = if (pattern.contains("ad", ignoreCase = true)) CATEGORY_ADS else CATEGORY_TRACKERS
@@ -475,6 +479,31 @@ object HazePrivacyShieldEngine {
             host == "youtube-nocookie.com" || host?.endsWith(".youtube-nocookie.com") == true
     }
 
+    internal fun isMediaStreamRequest(host: String, path: String, url: String): Boolean {
+        if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
+            return true
+        }
+        val lowerPath = path.lowercase()
+        if (lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".ts") ||
+            lowerPath.endsWith(".mpd") || lowerPath.endsWith(".m4s") ||
+            lowerPath.endsWith(".mp4") || lowerPath.endsWith(".webm") ||
+            lowerPath.endsWith(".aac") || lowerPath.endsWith(".m4a") ||
+            lowerPath.endsWith(".flv") || lowerPath.endsWith(".f4m") ||
+            lowerPath.endsWith(".mp3") || lowerPath.endsWith(".ogg") ||
+            lowerPath.endsWith(".opus")) {
+            return true
+        }
+        val lowerUrl = url.lowercase()
+        if (lowerUrl.contains("videoplayback") ||
+            lowerUrl.contains("mime=video/") ||
+            lowerUrl.contains("mime=audio/") ||
+            lowerUrl.contains("/manifest/hls_variant/") ||
+            lowerUrl.contains("/manifest/hls_playlist/")) {
+            return true
+        }
+        return false
+    }
+
     internal fun isYouTubeMediaRequest(requestUrl: String): Boolean {
         val uri = try { Uri.parse(requestUrl) } catch (_: Exception) { return false }
         val host = uri.host?.lowercase()?.removePrefix("www.") ?: return false
@@ -485,19 +514,18 @@ object HazePrivacyShieldEngine {
     }
 
     private fun isYouTubeAdRequest(host: String, path: String, url: String): Boolean {
+        if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) return false
+
         val adHosts = host == "doubleclick.net" || host.endsWith(".doubleclick.net") ||
             host == "googleadservices.com" || host.endsWith(".googleadservices.com") ||
             host == "googlesyndication.com" || host.endsWith(".googlesyndication.com") ||
             host == "ads.youtube.com" || host.endsWith(".ads.youtube.com")
         if (adHosts) return true
 
-        val lowerUrl = url.lowercase()
         val lowerPath = path.lowercase()
         return (host == "youtube.com" || host.endsWith(".youtube.com")) &&
             (lowerPath.contains("/api/stats/ads") ||
-                lowerPath.contains("/pagead/") ||
-                lowerUrl.contains("ad_break") ||
-                lowerUrl.contains("adformat="))
+                lowerPath.contains("/pagead/"))
     }
 
     private fun matchesDomainOrSuffix(host: String, domainSet: Set<String>): Boolean {

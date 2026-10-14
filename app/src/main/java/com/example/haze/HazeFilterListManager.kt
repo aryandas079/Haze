@@ -233,7 +233,7 @@ object HazeFilterListManager {
             ),
             pathPatterns = listOf(
                 "/pagead/", "/ads.js", "/adserver/", "/tr/", "/pixel/", "/analytics.js",
-                "ad_break", "adformat=", "/vast/", "/vpaid/", "ima3.js"
+                "/vast/", "/vpaid/", "ima3.js"
             )
         )
     }
