@@ -678,13 +678,8 @@ object HazePrivacyShieldEngine {
         if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
             return true
         }
-        if (host.contains("spotifycdn.com") || host.contains("scdn.co") ||
-            host.contains("akamaized.net") || host.contains("spotify.com")) {
-            val lowerP = path.lowercase()
-            if (lowerP.contains("/ad-logic/") || lowerP.contains("/melody/v1/ad") ||
-                lowerP.contains("commercial-break") || lowerP.contains("/audio-ad/") || lowerP.contains("/ad-slot/")) {
-                return false
-            }
+        if (host.contains("audio-ak-spotify-com") || host.contains("audio-sp-") ||
+            (host.contains("scdn.co") && path.lowercase().contains("/mp3-preview/"))) {
             return true
         }
         val lowerPath = path.lowercase()
@@ -723,13 +718,19 @@ object HazePrivacyShieldEngine {
         val adHosts = host == "doubleclick.net" || host.endsWith(".doubleclick.net") ||
             host == "googleadservices.com" || host.endsWith(".googleadservices.com") ||
             host == "googlesyndication.com" || host.endsWith(".googlesyndication.com") ||
-            host == "ads.youtube.com" || host.endsWith(".ads.youtube.com")
+            host == "ads.youtube.com" || host.endsWith(".ads.youtube.com") ||
+            host == "adservice.google.com" || host.endsWith(".adservice.google.com")
         if (adHosts) return true
 
         val lowerPath = path.lowercase()
+        val lowerUrl = url.lowercase()
         return (host == "youtube.com" || host.endsWith(".youtube.com")) &&
             (lowerPath.contains("/api/stats/ads") ||
-                lowerPath.contains("/pagead/"))
+                lowerPath.contains("/pagead/") ||
+                lowerPath.contains("/youtubei/v1/player/ad_break") ||
+                lowerPath.contains("/ad_break") ||
+                lowerUrl.contains("adformat=") ||
+                lowerUrl.contains("ad_type="))
     }
 
     private fun matchesDomainOrSuffix(host: String, domainSet: Set<String>): Boolean {

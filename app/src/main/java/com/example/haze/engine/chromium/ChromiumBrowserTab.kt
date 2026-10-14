@@ -145,6 +145,10 @@ class ChromiumBrowserTab(
                 url = nonNullUrl
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
                     val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
+                    val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
+                    if (isYouTube) {
+                        view?.evaluateJavascript(YOUTUBE_ENGINE_SCRIPT, null)
+                    }
                     if (isSpotify) {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
@@ -194,6 +198,10 @@ class ChromiumBrowserTab(
                 url = nonNullUrl
                 title = view?.title ?: title
                 val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
+                val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
+                if (isYouTube) {
+                    view?.evaluateJavascript(YOUTUBE_ENGINE_SCRIPT, null)
+                }
                 if (isSpotify) {
                     view?.evaluateJavascript(SPOTIFY_ENGINE_SCRIPT, null)
                 } else if (isDesktop) {
@@ -687,6 +695,7 @@ class ChromiumBrowserTab(
                 }
 
                 function createOrUpdateFloatingPlayer() {
+                    if (!document.body) return null;
                     var playerDiv = document.getElementById('__haze_floating_player');
                     if (!playerDiv) {
                         playerDiv = document.createElement('div');
@@ -729,6 +738,7 @@ class ChromiumBrowserTab(
 
                 function updateHazePlayerUI() {
                     var playerDiv = createOrUpdateFloatingPlayer();
+                    if (!playerDiv) return;
                     playerDiv.style.display = 'flex';
                     var imgEl = document.getElementById('__haze_fp_img');
                     if (imgEl) {
@@ -744,7 +754,6 @@ class ChromiumBrowserTab(
                     var artistEl = document.getElementById('__haze_fp_artist');
                     if (artistEl) artistEl.textContent = window.__hazeCurrentTrackArtist || 'Spotify';
 
-                    // Synchronize Spotify's native player if present in DOM
                     var npTitle = document.querySelector('[data-testid="context-item-info-title"]');
                     if (npTitle) npTitle.textContent = window.__hazeCurrentTrackTitle;
                     var npArtist = document.querySelector('[data-testid="context-item-info-subtitles"]');
@@ -787,12 +796,12 @@ class ChromiumBrowserTab(
                 };
 
                 function playNextTrack() {
-                    var rows = Array.from(document.querySelectorAll('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [role="row"], .track-item'));
+                    var rows = Array.from(document.querySelectorAll('[data-testid*="track"], [data-testid*="row"], [role="row"], .track-item, li'));
                     if (!rows.length) return;
                     var currentIndex = -1;
                     for (var i = 0; i < rows.length; i++) {
                         var r = rows[i];
-                        var link = r.querySelector('a[href*="/track/"]');
+                        var link = r.querySelector ? r.querySelector('a[href*="/track/"]') : null;
                         if (link && link.href.indexOf(window.__hazeCurrentTrackId) !== -1) {
                             currentIndex = i;
                             break;
@@ -800,12 +809,8 @@ class ChromiumBrowserTab(
                     }
                     var nextRow = rows[currentIndex + 1] || rows[0];
                     if (nextRow) {
-                        var link = nextRow.querySelector('a[href*="/track/"]');
-                        var trackId = link ? (link.href.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
-                        var title = nextRow.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"]')?.textContent?.trim() || '';
-                        var artist = nextRow.querySelector('a[href*="/artist/"]')?.textContent?.trim() || '';
-                        var img = nextRow.querySelector('img')?.src || '';
-                        if (trackId) hazePlayTrack(trackId, title, artist, img);
+                        var info = findTrackTarget(nextRow);
+                        if (info && info.trackId) hazePlayTrack(info.trackId, info.title, info.artist, info.img);
                     }
                 }
 
@@ -828,12 +833,13 @@ class ChromiumBrowserTab(
                     window.__hazeCurrentTrackArtist = artist || '';
                     window.__hazeCurrentTrackImg = img || '';
 
-                    // Mute and stop all other audio tags
+                    // Stop and mute all other native audio elements
                     var otherAudios = document.querySelectorAll('audio');
                     for (var a = 0; a < otherAudios.length; a++) {
                         if (otherAudios[a] !== window.__hazeAudioPlayer) {
                             otherAudios[a].pause();
                             otherAudios[a].muted = true;
+                            otherAudios[a].src = '';
                         }
                     }
 
@@ -841,7 +847,7 @@ class ChromiumBrowserTab(
                     updateHazePlayerUI();
                     updateHazePlayerState(true);
 
-                    // Fetch Spotify embed stream
+                    // Fetch Spotify embed track preview stream
                     var embedUrl = 'https://open.spotify.com/embed/track/' + trackId;
                     fetch(embedUrl)
                         .then(function(res) { return res.text(); })
@@ -886,66 +892,103 @@ class ChromiumBrowserTab(
                         .catch(function(_) {});
                 }
 
-                // 4. Exact Song Click Interceptor
-                document.addEventListener('click', function(e) {
+                // 4. Robust Track Extraction
+                function findTrackTarget(target) {
+                    if (!target) return null;
+                    if (target.closest && target.closest('#__haze_floating_player')) return null;
+                    if (target.closest && target.closest('button[data-testid="more-button"], button[aria-haspopup="menu"], button[data-testid="add-button"], button[aria-label*="Save" i], button[aria-label*="heart" i], button[aria-label*="More" i]')) return null;
+
+                    var isTrackPage = window.location.pathname.indexOf('/track/') !== -1;
+                    var playBtn = target.closest ? target.closest('button[data-testid="play-button"], button[data-testid="action-bar-play-button"], [data-testid="action-bar-row"] button') : null;
+                    if (playBtn && isTrackPage) {
+                        var m = window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/);
+                        if (m) {
+                            var title = document.querySelector('h1')?.textContent?.trim() || '';
+                            var artist = document.querySelector('a[href*="/artist/"], [data-testid="creator-link"]')?.textContent?.trim() || '';
+                            var img = document.querySelector('img[data-testid="entity-image"], img')?.src || '';
+                            return { trackId: m[1], title: title, artist: artist, img: img };
+                        }
+                    }
+
+                    var trackLink = target.closest ? target.closest('a[href*="/track/"]') : null;
+                    var row = target.closest ? target.closest('[data-testid*="track"], [data-testid*="row"], [role="row"], tr.tracklist-row, .track-item, [data-uri*="spotify:track:"], li[role="listitem"], [data-testid="top-result-card"], [data-testid="heropod"]') : null;
+
+                    var el = trackLink || row;
+                    if (!el && target) {
+                        if (target.querySelector && target.querySelector('a[href*="/track/"]')) {
+                            el = target;
+                        } else {
+                            var parentWithLink = target.parentElement;
+                            for (var p = 0; p < 4 && parentWithLink; p++) {
+                                if (parentWithLink.querySelector && parentWithLink.querySelector('a[href*="/track/"]')) {
+                                    el = parentWithLink;
+                                    break;
+                                }
+                                parentWithLink = parentWithLink.parentElement;
+                            }
+                        }
+                    }
+
+                    if (!el) return null;
+
+                    var link = el.querySelector ? el.querySelector('a[href*="/track/"]') : null;
+                    if (!link && trackLink) link = trackLink;
+                    var trackId = null;
+                    if (link && link.href) {
+                        var m = link.href.match(/\/track\/([a-zA-Z0-9]+)/);
+                        if (m) trackId = m[1];
+                    }
+                    if (!trackId && el.getAttribute) {
+                        var uri = el.getAttribute('data-uri') || '';
+                        var m = uri.match(/spotify:track:([a-zA-Z0-9]+)/);
+                        if (m) trackId = m[1];
+                    }
+                    if (!trackId && isTrackPage) {
+                        var m = window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/);
+                        if (m) trackId = m[1];
+                    }
+
+                    if (!trackId) return null;
+
+                    var title = (el.querySelector && el.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"], a[href*="/track/"]')?.textContent?.trim()) || (trackLink ? trackLink.textContent?.trim() : '') || 'Playing Track';
+                    var artist = (el.querySelector && el.querySelector('a[href*="/artist/"], span[class*="Artist"]')?.textContent?.trim()) || '';
+                    var img = (el.querySelector && el.querySelector('img')?.src) || '';
+
+                    return { trackId: trackId, title: title, artist: artist, img: img };
+                }
+
+                // Capture-phase Touch & Click Interceptor (Prevents Spotify from launching Shuffle mode)
+                var lastHandledTime = 0;
+                var lastHandledTrackId = null;
+
+                function handleTrackInteraction(e) {
                     try {
                         var target = e.target;
                         if (!target) return;
+                        var info = findTrackTarget(target);
+                        if (info && info.trackId) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.stopImmediatePropagation();
 
-                        if (target.closest('button[data-testid="more-button"], button[aria-haspopup="menu"], button[data-testid="add-button"], button[aria-label*="Save" i], button[aria-label*="heart" i], button[aria-label*="More" i]')) {
-                            return;
-                        }
-                        if (target.closest('#__haze_floating_player')) {
-                            return;
-                        }
-
-                        var isTrackPage = window.location.pathname.indexOf('/track/') !== -1;
-                        var playBtn = target.closest('button[data-testid="play-button"], button[data-testid="action-bar-play-button"], [data-testid="action-bar-row"] button');
-                        if (playBtn) {
-                            var trackId = isTrackPage ? (window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
-                            if (trackId) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.stopImmediatePropagation();
-                                var title = document.querySelector('h1')?.textContent?.trim() || '';
-                                var artist = document.querySelector('a[href*="/artist/"], [data-testid="creator-link"]')?.textContent?.trim() || '';
-                                var img = document.querySelector('img[data-testid="entity-image"], img')?.src || '';
-                                hazePlayTrack(trackId, title, artist, img);
+                            var now = Date.now();
+                            if (now - lastHandledTime < 500 && lastHandledTrackId === info.trackId) {
                                 return;
                             }
-                        }
+                            lastHandledTime = now;
+                            lastHandledTrackId = info.trackId;
 
-                        var row = target.closest('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [data-testid="track-row"], [data-testid="playlist-track-row"], [data-testid="search-result-row"], [data-testid="top-result-card"], [data-testid="heropod"], [role="row"], tr.tracklist-row, .track-item, [data-uri*="spotify:track:"], li[role="listitem"]');
-                        var trackLink = target.closest('a[href*="/track/"]');
-                        if (row || trackLink) {
-                            var el = row || trackLink;
-                            var link = el.querySelector ? el.querySelector('a[href*="/track/"]') : null;
-                            if (!link && trackLink) link = trackLink;
-                            var trackId = link ? (link.href.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
-                            if (!trackId && el.getAttribute) {
-                                var uri = el.getAttribute('data-uri') || '';
-                                var m = uri.match(/spotify:track:([a-zA-Z0-9]+)/);
-                                if (m) trackId = m[1];
-                            }
-                            if (!trackId && isTrackPage) {
-                                trackId = (window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1];
-                            }
-
-                            if (trackId) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.stopImmediatePropagation();
-
-                                var title = (el.querySelector && el.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"], a[href*="/track/"]')?.textContent?.trim()) || (trackLink ? trackLink.textContent?.trim() : '') || 'Playing Track';
-                                var artist = (el.querySelector && el.querySelector('a[href*="/artist/"], span[class*="Artist"]')?.textContent?.trim()) || '';
-                                var img = (el.querySelector && el.querySelector('img')?.src) || '';
-
-                                hazePlayTrack(trackId, title, artist, img);
-                                return;
-                            }
+                            hazePlayTrack(info.trackId, info.title, info.artist, info.img);
                         }
                     } catch(_) {}
-                }, true);
+                }
+
+                window.addEventListener('pointerdown', handleTrackInteraction, true);
+                document.addEventListener('pointerdown', handleTrackInteraction, true);
+                window.addEventListener('touchstart', handleTrackInteraction, { capture: true, passive: false });
+                document.addEventListener('touchstart', handleTrackInteraction, { capture: true, passive: false });
+                window.addEventListener('click', handleTrackInteraction, true);
+                document.addEventListener('click', handleTrackInteraction, true);
 
                 // 5. Continuous Supervisor: Mute ads, dismiss modals, video playsinline
                 function superviseSpotify() {
@@ -956,14 +999,8 @@ class ChromiumBrowserTab(
                         for (var i = 0; i < audios.length; i++) {
                             var a = audios[i];
                             if (a === window.__hazeAudioPlayer) continue;
-                            var src = (a.src || '').toLowerCase();
-                            var isPreview = src.indexOf('mp3-preview') !== -1 || src.indexOf('p.scdn.co') !== -1;
-                            if (!isPreview) {
-                                a.muted = true;
-                                if (a.duration && isFinite(a.duration) && a.duration > 0 && !a.paused) {
-                                    a.currentTime = a.duration - 0.01;
-                                }
-                            }
+                            a.pause();
+                            a.muted = true;
                         }
 
                         var videos = document.querySelectorAll('video');
@@ -999,6 +1036,175 @@ class ChromiumBrowserTab(
                         (document.head || document.documentElement).appendChild(s);
                     }
                 } catch(_) {}
+            })();
+        """.trimIndent()
+
+        val YOUTUBE_ENGINE_SCRIPT = """
+            (function() {
+                if (window.__hazeYouTubeEngineInjected) return;
+                window.__hazeYouTubeEngineInjected = true;
+
+                // 1. JSON Player Response Interceptor: Strip all ad placements and ad breaks from YouTube API
+                function cleanPlayerJson(data) {
+                    if (!data || typeof data !== 'object') return data;
+                    try {
+                        if (data.adPlacements) delete data.adPlacements;
+                        if (data.playerAds) delete data.playerAds;
+                        if (data.adSlots) delete data.adSlots;
+                        if (data.adBreakHeartbeatParams) delete data.adBreakHeartbeatParams;
+                        if (data.playerResponse) cleanPlayerJson(data.playerResponse);
+                    } catch(_) {}
+                    return data;
+                }
+
+                try {
+                    var origFetch = window.fetch;
+                    window.fetch = function(input, init) {
+                        var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
+                        var isPlayerReq = url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1 || url.indexOf('/youtubei/v1/next') !== -1);
+                        if (isPlayerReq) {
+                            return origFetch.apply(this, arguments).then(function(res) {
+                                var clone = res.clone();
+                                return clone.json().then(function(json) {
+                                    cleanPlayerJson(json);
+                                    var modifiedStr = JSON.stringify(json);
+                                    return new Response(modifiedStr, {
+                                        status: res.status,
+                                        statusText: res.statusText,
+                                        headers: res.headers
+                                    });
+                                }).catch(function() {
+                                    return res;
+                                });
+                            });
+                        }
+                        return origFetch.apply(this, arguments);
+                    };
+                } catch(_) {}
+
+                try {
+                    var origXhrOpen = XMLHttpRequest.prototype.open;
+                    var origXhrSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__hazeYtUrl = url || '';
+                        return origXhrOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function() {
+                        var url = this.__hazeYtUrl;
+                        if (url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1 || url.indexOf('/youtubei/v1/next') !== -1)) {
+                            var self = this;
+                            var origOnLoad = self.onload;
+                            self.onload = function() {
+                                try {
+                                    if (self.responseText && self.responseText.indexOf('adPlacements') !== -1) {
+                                        var json = JSON.parse(self.responseText);
+                                        cleanPlayerJson(json);
+                                        Object.defineProperty(self, 'responseText', { get: function() { return JSON.stringify(json); }, configurable: true });
+                                        Object.defineProperty(self, 'response', { get: function() { return JSON.stringify(json); }, configurable: true });
+                                    }
+                                } catch(_) {}
+                                if (origOnLoad) return origOnLoad.apply(this, arguments);
+                            };
+                        }
+                        return origXhrSend.apply(this, arguments);
+                    };
+                } catch(_) {}
+
+                // 2. High-performance Video Ad Skipper & Auto-Fast-Forwarder
+                var adSelectors = [
+                    '.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-modern',
+                    '.ytp-ad-overlay-close-button',
+                    '.ytp-skip-ad-button',
+                    '.ytm-skip-ad-button',
+                    'button.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-slot button',
+                    '[id*="ad-skip"]',
+                    'button[class*="skip-button"]',
+                    '.videoAdUiSkipButton',
+                    '.ytm-ad-overlay-close-button',
+                    'button.ytm-ad-skip-button'
+                ];
+
+                function handleYtPlayerVisibility() {
+                    try {
+                        var isWatch = window.location.pathname.indexOf('/watch') !== -1 ||
+                                      window.location.pathname.indexOf('/shorts') !== -1 ||
+                                      window.location.search.indexOf('v=') !== -1;
+                        var containers = document.querySelectorAll('#player-container-id, .player-container');
+                        for (var k = 0; k < containers.length; k++) {
+                            var c = containers[k];
+                            var activeVideo = c.querySelector('video[src], video:not([src=""])');
+                            if (!isWatch && (!activeVideo || activeVideo.paused)) {
+                                c.style.setProperty('display', 'none', 'important');
+                            } else if (isWatch) {
+                                c.style.removeProperty('display');
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                function skipYouTubeAd() {
+                    handleYtPlayerVisibility();
+                    var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing, [class*="ad-showing"], [class*="ad-interrupting"]');
+                    var video = document.querySelector('video');
+
+                    if (adShowing) {
+                        for (var i = 0; i < adSelectors.length; i++) {
+                            var btn = document.querySelector(adSelectors[i]);
+                            if (btn) {
+                                btn.click();
+                                break;
+                            }
+                        }
+                        if (video) {
+                            video.muted = true;
+                            if (isFinite(video.duration) && video.duration > 0) {
+                                video.currentTime = video.duration;
+                            } else {
+                                video.currentTime = 99999;
+                            }
+                            video.playbackRate = 16;
+                            video.play().catch(function() {});
+                        }
+                    } else if (video && video.playbackRate > 1) {
+                        video.playbackRate = 1;
+                        video.muted = false;
+                    }
+
+                    var dismissButtons = document.querySelectorAll('yt-button-renderer[aria-label="No thanks"], .yt-spec-button-shape-next[aria-label="No thanks"], ytm-mealbar-promo-renderer button, .ytp-ad-overlay-close-button');
+                    for (var d = 0; d < dismissButtons.length; d++) {
+                        try { dismissButtons[d].click(); } catch(_) {}
+                    }
+
+                    var overlays = document.querySelectorAll(
+                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer, #player-ads'
+                    );
+                    for (var j = 0; j < overlays.length; j++) {
+                        overlays[j].style.setProperty('display', 'none', 'important');
+                    }
+                }
+
+                handleYtPlayerVisibility();
+                setInterval(skipYouTubeAd, 250);
+                window.addEventListener('popstate', handleYtPlayerVisibility);
+                document.addEventListener('yt-navigate-finish', function() { handleYtPlayerVisibility(); setTimeout(skipYouTubeAd, 50); });
+                document.addEventListener('yt-page-data-updated', function() { handleYtPlayerVisibility(); setTimeout(skipYouTubeAd, 50); });
+                document.addEventListener('click', function() {
+                    setTimeout(skipYouTubeAd, 0);
+                    setTimeout(handleYtPlayerVisibility, 150);
+                }, true);
+
+                var observer = new MutationObserver(function() {
+                    skipYouTubeAd();
+                });
+                observer.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['class']
+                });
+                skipYouTubeAd();
             })();
         """.trimIndent()
 

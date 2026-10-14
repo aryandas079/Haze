@@ -75,11 +75,10 @@ object HazeContentFilter {
         val totalCosmeticRules: Int get() = genericCosmetic.size + domainCosmetic.values.sumOf { it.size }
 
         fun match(request: Request): Match? {
-            val uri = runCatching { android.net.Uri.parse(request.url) }.getOrNull() ?: return null
-            val host = uri.host?.lowercase() ?: return null
-            val topHost = request.documentUrl?.let { runCatching { android.net.Uri.parse(it).host?.lowercase() }.getOrNull() }
+            val host = extractHost(request.url) ?: return null
+            val topHost = request.documentUrl?.let { extractHost(it) }
             fun applies(rule: Rule): Boolean {
-                if (rule.anchorDomain != null && !host.contains(rule.anchorDomain)) return false
+                if (rule.anchorDomain != null && !(host == rule.anchorDomain || host.endsWith(".${rule.anchorDomain}") || host.contains(rule.anchorDomain))) return false
                 val thirdParty = topHost != null && !sameSite(host, topHost)
                 if (rule.thirdParty != null && rule.thirdParty != thirdParty) return false
                 if (rule.includeDomains.isNotEmpty() && !rule.includeDomains.any { domainMatches(topHost, it) }) return false
@@ -231,6 +230,21 @@ object HazeContentFilter {
         return runCatching {
             Rule(raw, Regex(regex, RegexOption.IGNORE_CASE), domainAnchor, thirdParty, includeDomains, excludeDomains, exception, anchorDomain)
         }.getOrNull()
+    }
+
+    private fun extractHost(url: String): String? {
+        val schemeIndex = url.indexOf("://")
+        val start = if (schemeIndex != -1) schemeIndex + 3 else 0
+        var end = url.length
+        for (i in start until url.length) {
+            val c = url[i]
+            if (c == '/' || c == '?' || c == '#' || c == ':') {
+                end = i
+                break
+            }
+        }
+        if (start >= end) return null
+        return url.substring(start, end).trim().lowercase().removePrefix("www.").ifEmpty { null }
     }
 
     private fun domainMatches(host: String?, domain: String) = host != null && (host == domain || host.endsWith(".$domain"))
