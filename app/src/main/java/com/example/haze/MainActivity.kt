@@ -5743,6 +5743,7 @@ class MainActivity : AppCompatActivity() {
             Pair("Downloads", R.drawable.ic_download),
             Pair("Full Screen", R.drawable.ic_fullscreen),
             Pair("Orientation", R.drawable.ic_screen_rotation),
+            Pair("Accessibility", R.drawable.ic_accessibility),
             Pair(if (isDesktopActive) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop),
             Pair("Find on Page", R.drawable.ic_search),
             Pair("Share", R.drawable.ic_share),
@@ -5757,7 +5758,9 @@ class MainActivity : AppCompatActivity() {
             val iconView = itemView.findViewById<ImageView>(R.id.menuIcon)
             val textView = itemView.findViewById<TextView>(R.id.menuText)
             iconView.setImageResource(item.second)
+            iconView.contentDescription = item.first
             textView.text = item.first
+            itemView.contentDescription = item.first
             if (item.first == "Mobile Site" || (item.first == "Desktop Site" && isDesktopActive)) {
                 val activeTint = Color.parseColor("#4A90E2")
                 iconView.setColorFilter(activeTint)
@@ -5790,6 +5793,7 @@ class MainActivity : AppCompatActivity() {
                     "Downloads" -> HazeDownloadsManager.showDownloadsDialog(this)
                     "Full Screen" -> toggleFullScreenMode()
                     "Orientation" -> toggleScreenOrientation()
+                    "Accessibility" -> showAccessibilityDialog()
                     "Desktop Site", "Mobile Site" -> currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
                     "Find on Page" -> showFindBar()
                     "Share" -> shareCurrentPage()
