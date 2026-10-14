@@ -9,12 +9,12 @@ plugins {
 
 android {
     namespace = "com.example.haze"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.haze"
         minSdk = 24
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -27,8 +27,7 @@ android {
             }
         }
         ndk {
-            // Keep ONLY real phone architectures (drops x86 & x86_64 emulator bloat)
-            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86"))
         }
     }
 
@@ -52,10 +51,7 @@ android {
     }
     splits {
         abi {
-            isEnable = true
-            reset()
-            include("armeabi-v7a", "arm64-v8a")
-            isUniversalApk = true
+            isEnable = false
         }
     }
     packaging {
@@ -91,35 +87,4 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-}
-
-val prepareNativeChromiumLibs by tasks.registering {
-    description = "Reassembles and decompresses Chromium native libraries from GitHub-safe chunks in app/native_blobs"
-    doLast {
-        val abis = listOf("arm64-v8a", "armeabi-v7a")
-        for (abi in abis) {
-            val outSo = file("src/main/jniLibs/$abi/libcontent_shell_content_view.so")
-            if (outSo.exists() && outSo.length() > 10_000_000L) continue
-
-            val blobDir = file("native_blobs/$abi")
-            val parts = blobDir.listFiles { _, name ->
-                name.startsWith("libcontent_shell_content_view.so.gz.part")
-            }?.sortedBy { it.name } ?: emptyList()
-
-            if (parts.isNotEmpty()) {
-                outSo.parentFile.mkdirs()
-                val partStreams = Collections.enumeration(parts.map { it.inputStream() })
-                GZIPInputStream(SequenceInputStream(partStreams)).use { gis ->
-                    outSo.outputStream().use { fos ->
-                        gis.copyTo(fos, bufferSize = 64 * 1024)
-                    }
-                }
-                println("Unpacked ${outSo.relativeTo(projectDir)} (${outSo.length() / (1024 * 1024)} MB)")
-            }
-        }
-    }
-}
-
-tasks.named("preBuild") {
-    dependsOn(prepareNativeChromiumLibs)
 }
