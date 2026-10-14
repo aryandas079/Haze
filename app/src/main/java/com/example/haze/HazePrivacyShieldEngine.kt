@@ -262,6 +262,7 @@ object HazePrivacyShieldEngine {
         } else {
             whitelistedDomainsCache.remove(clean)
         }
+        invalidateCache()
     }
 
     /** Records an Android WebView Safe Browsing verdict; this is an engine verdict, not a UI-only alert. */
@@ -378,7 +379,14 @@ object HazePrivacyShieldEngine {
     fun setShieldEnabled(context: Context, enabled: Boolean) {
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean(PREF_SHIELD_GLOBAL_ENABLED, enabled).apply()
+        invalidateCache()
         notifyListeners("CONFIG_CHANGE", getTotalBlocked(context))
+    }
+
+    fun invalidateCache() {
+        synchronized(decisionCache) {
+            decisionCache.clear()
+        }
     }
 
     fun evaluateRequest(
@@ -394,6 +402,26 @@ object HazePrivacyShieldEngine {
             return BlockDecision.ALLOW
         }
 
+        val cacheKey = "$requestUrl|$pageUrl|$isMainFrame"
+        synchronized(decisionCache) {
+            val cached = decisionCache[cacheKey]
+            if (cached != null) return cached
+        }
+
+        val decision = evaluateRequestInternal(context, requestUrl, pageUrl, isMainFrame, isPrivate)
+        synchronized(decisionCache) {
+            decisionCache[cacheKey] = decision
+        }
+        return decision
+    }
+
+    private fun evaluateRequestInternal(
+        context: Context,
+        requestUrl: String,
+        pageUrl: String?,
+        isMainFrame: Boolean,
+        isPrivate: Boolean
+    ): BlockDecision {
         val requestUri = try { Uri.parse(requestUrl) } catch (e: Exception) { return BlockDecision.ALLOW }
         val reqHost = requestUri.host?.lowercase()?.removePrefix("www.") ?: return BlockDecision.ALLOW
         val pageHost = pageUrl?.let {

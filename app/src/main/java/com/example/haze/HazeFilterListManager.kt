@@ -70,6 +70,7 @@ object HazeFilterListManager {
     fun invalidateCache() {
         cachedNetworkFilter = null
         cachedRules = null
+        HazePrivacyShieldEngine.invalidateCache()
     }
 
     fun getNetworkFilter(context: Context): HazeContentFilter.Compiled {
@@ -134,8 +135,14 @@ object HazeFilterListManager {
         // Popups and popunders networks
         "||popads.net^", "||popcash.net^", "||propellerads.com^", "||adsterra.com^",
         "||exoclick.com^", "||hilltopads.net^", "||clickadu.com^", "||adcash.com^",
+        "||popunder.net^", "||clickunder.ru^", "||poponclick.com^", "||zeroredirect1.com^", "||tsyndicate.com^",
+        "||ad-maven.com^", "||clicksor.com^", "||syndication.exoclick.com^",
+        // Video ads networks
+        "||innovid.com^", "||spotxchange.com^", "||springserve.com^", "||tremorhub.com^",
+        "||aniview.com^", "||vidazoo.com^", "||vi-serve.com^", "||jwpltx.com^", "||beachfrontmedia.com^",
         // Malvertising & Cryptomining
         "||coinhive.com^", "||coin-hive.com^", "||cryptoloot.pro^", "||webminepool.com^",
+        "||malware-test.com^", "||phishing-test.com^",
         // Primary Banner & Display Ads Cosmetic Rules
         "##.adsbygoogle", "##ins.adsbygoogle", "##div[id^='google_ads_']", "##div[id*='google_ads_']",
         "##iframe[id^='google_ads_']", "##iframe[id*='google_ads_']",
@@ -151,7 +158,14 @@ object HazeFilterListManager {
         "##.taboola", "##.outbrain", "##.mgid", "##.revcontent", "##div[id*='taboola']", "##div[id*='outbrain']",
         "##ytd-ad-slot-renderer", "##ytm-promoted-sparkles-web-renderer",
         "##ytm-promoted-video-renderer", "##ytm-ad-slot-renderer", "##ytm-companion-ad-renderer",
-        "##div[data-testid='ad-banner']", "##div[data-testid='companion-ad']"
+        "##div[data-testid='ad-banner']", "##div[data-testid='companion-ad']",
+        // Annoying Overlays & Cookie Consent Walls
+        "##.sp_message_container_root", "##div[id^='sp_message_container']", "##.fc-consent-root",
+        "##div[class*='cookie-banner']", "##div[id*='cookie-banner']", "##div[class*='cookie-consent']",
+        "##div[id*='cookie-consent']", "##div[class*='cookie-notice']", "##div[id*='cookie-notice']",
+        "###onetrust-consent-sdk", "##div[class*='newsletter-popup']", "##div[class*='subscribe-modal']",
+        "##div[class*='paywall-overlay']", "##div[id*='paywall-overlay']", "##.tp-modal", "##.tp-backdrop",
+        "##.interstitial-ad", "##div[class*='interstitial']", "##div[id*='interstitial']"
     ).toList()
 
     fun getRules(context: Context): FilterRules {

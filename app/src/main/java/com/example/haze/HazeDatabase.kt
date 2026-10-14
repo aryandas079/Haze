@@ -1261,21 +1261,27 @@ class HazeDatabase private constructor(context: Context) :
                     bouncesStopped = if (cursor.columnCount > 7) cursor.getLong(7) else 0L
                 )
                 cursor.close()
+                if (stats.ads == 1284L && stats.trackers == 392L) {
+                    try {
+                        val writeDb = writableDatabase
+                        writeDb.execSQL("UPDATE privacy_shield_daily_stats SET ads_blocked = 0, trackers_blocked = 0, popups_blocked = 0, malware_blocked = 0, data_saved_bytes = 0, time_saved_ms = 0 WHERE date_key = ?", arrayOf(todayKey))
+                    } catch (_: Exception) {}
+                    return BlockedTodayStats(ads = 0L, trackers = 0L, popups = 0L, malware = 0L, tokensCleaned = 0L, bouncesStopped = 0L, dataSavedBytes = 0L, timeSavedMs = 0L)
+                }
                 return stats
             }
             cursor.close()
 
-            // Initialize requested Brave baseline for the day:
-            // Ads: 1,284 | Trackers: 392 | Popups: 17 | Malware: 3
+            // Initialize clean baseline for the day: 0
             val writeDb = writableDatabase
-            val initialAds = 1284L
-            val initialTrackers = 392L
-            val initialPopups = 17L
-            val initialMalware = 3L
+            val initialAds = 0L
+            val initialTrackers = 0L
+            val initialPopups = 0L
+            val initialMalware = 0L
             val initialTokens = 0L
             val initialBounces = 0L
-            val initialData = 142 * 1024 * 1024L
-            val initialTime = 144_000L
+            val initialData = 0L
+            val initialTime = 0L
             val cv = ContentValues().apply {
                 put("date_key", todayKey)
                 put("ads_blocked", initialAds)
@@ -1300,7 +1306,7 @@ class HazeDatabase private constructor(context: Context) :
             )
         } catch (e: Exception) {
             e.printStackTrace()
-            return BlockedTodayStats(ads = 1284L, trackers = 392L, popups = 17L, malware = 3L)
+            return BlockedTodayStats(ads = 0L, trackers = 0L, popups = 0L, malware = 0L)
         }
     }
 

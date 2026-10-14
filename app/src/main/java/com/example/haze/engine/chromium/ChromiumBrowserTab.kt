@@ -79,6 +79,8 @@ class ChromiumBrowserTab(
             allowFileAccess = false
             allowContentAccess = false
             mediaPlaybackRequiresUserGesture = false
+            javaScriptCanOpenWindowsAutomatically = false
+            setSupportMultipleWindows(true)
             defaultTextEncodingName = config.defaultEncoding
 
             // Chromium & Google Password Manager integration
@@ -664,159 +666,306 @@ class ChromiumBrowserTab(
                     };
                 } catch(_) {}
 
-                // 3. Direct Song Click-To-Play:
-                // Tapping ANY song (in search results, album/playlist rows, or single-track action-bar)
-                // directly triggers playback for THAT specific song!
+                // 3. Dedicated Direct Audio Player Engine
+                window.__hazeAudioPlayer = window.__hazeAudioPlayer || new Audio();
+                window.__hazeCurrentTrackId = null;
+                window.__hazeCurrentTrackTitle = '';
+                window.__hazeCurrentTrackArtist = '';
+                window.__hazeCurrentTrackImg = '';
+
+                function dismissSpotifyModals() {
+                    try {
+                        var modals = document.querySelectorAll('[data-testid="login-modal"], [data-testid="upsell-modal"], div[role="dialog"], div.GenericModal__overlay');
+                        for (var i = 0; i < modals.length; i++) {
+                            var closeBtn = modals[i].querySelector('button[aria-label*="Close" i], [data-testid="close-button"], button[data-testid="dismiss-button"]');
+                            if (closeBtn) closeBtn.click();
+                            else modals[i].remove();
+                        }
+                        var cookieBtn = document.getElementById('onetrust-accept-btn-handler');
+                        if (cookieBtn) cookieBtn.click();
+                    } catch(_) {}
+                }
+
+                function createOrUpdateFloatingPlayer() {
+                    var playerDiv = document.getElementById('__haze_floating_player');
+                    if (!playerDiv) {
+                        playerDiv = document.createElement('div');
+                        playerDiv.id = '__haze_floating_player';
+                        playerDiv.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;background:#181818;border:1px solid #333;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.85);z-index:9999999;display:none;flex-direction:column;padding:8px 12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#fff;user-select:none;';
+                        playerDiv.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;width:100%;"><div style="display:flex;align-items:center;flex:1;overflow:hidden;margin-right:10px;"><img id="__haze_fp_img" style="width:40px;height:40px;border-radius:6px;object-fit:cover;margin-right:10px;background:#282828;display:none;" /><div style="display:flex;flex-direction:column;overflow:hidden;"><span id="__haze_fp_title" style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Spotify</span><span id="__haze_fp_artist" style="font-size:11px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Direct Play</span></div></div><div style="display:flex;align-items:center;gap:12px;"><button id="__haze_fp_prev" style="background:none;border:none;color:#b3b3b3;cursor:pointer;padding:4px;display:flex;align-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button><button id="__haze_fp_playpause" style="background:#1db954;border:none;border-radius:50%;width:36px;height:36px;color:#000;display:flex;align-items:center;justify-content:center;cursor:pointer;"><svg id="__haze_fp_icon_play" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M8 5v14l11-7z"/></svg><svg id="__haze_fp_icon_pause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></button><button id="__haze_fp_next" style="background:none;border:none;color:#b3b3b3;cursor:pointer;padding:4px;display:flex;align-items:center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button></div></div><div style="display:flex;align-items:center;gap:8px;margin-top:6px;width:100%;"><span id="__haze_fp_time" style="font-size:10px;color:#b3b3b3;min-width:28px;">0:00</span><div id="__haze_fp_prog_bar" style="flex:1;height:4px;background:#404040;border-radius:2px;cursor:pointer;position:relative;"><div id="__haze_fp_prog_fill" style="width:0%;height:100%;background:#1db954;border-radius:2px;"></div></div><span id="__haze_fp_dur" style="font-size:10px;color:#b3b3b3;min-width:28px;">0:30</span></div>';
+                        document.body.appendChild(playerDiv);
+
+                        document.getElementById('__haze_fp_playpause').onclick = function(ev) {
+                            ev.stopPropagation();
+                            if (window.__hazeAudioPlayer) {
+                                if (window.__hazeAudioPlayer.paused) {
+                                    window.__hazeAudioPlayer.play().catch(function(_) {});
+                                    updateHazePlayerState(true);
+                                } else {
+                                    window.__hazeAudioPlayer.pause();
+                                    updateHazePlayerState(false);
+                                }
+                            }
+                        };
+                        document.getElementById('__haze_fp_prev').onclick = function(ev) {
+                            ev.stopPropagation();
+                            if (window.__hazeAudioPlayer) window.__hazeAudioPlayer.currentTime = 0;
+                        };
+                        document.getElementById('__haze_fp_next').onclick = function(ev) {
+                            ev.stopPropagation();
+                            playNextTrack();
+                        };
+                        document.getElementById('__haze_fp_prog_bar').onclick = function(ev) {
+                            ev.stopPropagation();
+                            if (window.__hazeAudioPlayer && window.__hazeAudioPlayer.duration) {
+                                var rect = this.getBoundingClientRect();
+                                var pos = (ev.clientX - rect.left) / rect.width;
+                                window.__hazeAudioPlayer.currentTime = pos * window.__hazeAudioPlayer.duration;
+                            }
+                        };
+                    }
+                    return playerDiv;
+                }
+
+                function updateHazePlayerUI() {
+                    var playerDiv = createOrUpdateFloatingPlayer();
+                    playerDiv.style.display = 'flex';
+                    var imgEl = document.getElementById('__haze_fp_img');
+                    if (imgEl) {
+                        if (window.__hazeCurrentTrackImg) {
+                            imgEl.src = window.__hazeCurrentTrackImg;
+                            imgEl.style.display = 'block';
+                        } else {
+                            imgEl.style.display = 'none';
+                        }
+                    }
+                    var titleEl = document.getElementById('__haze_fp_title');
+                    if (titleEl) titleEl.textContent = window.__hazeCurrentTrackTitle || 'Playing Track';
+                    var artistEl = document.getElementById('__haze_fp_artist');
+                    if (artistEl) artistEl.textContent = window.__hazeCurrentTrackArtist || 'Spotify';
+
+                    // Synchronize Spotify's native player if present in DOM
+                    var npTitle = document.querySelector('[data-testid="context-item-info-title"]');
+                    if (npTitle) npTitle.textContent = window.__hazeCurrentTrackTitle;
+                    var npArtist = document.querySelector('[data-testid="context-item-info-subtitles"]');
+                    if (npArtist) npArtist.textContent = window.__hazeCurrentTrackArtist;
+                }
+
+                function updateHazePlayerState(isPlaying) {
+                    var iconPlay = document.getElementById('__haze_fp_icon_play');
+                    var iconPause = document.getElementById('__haze_fp_icon_pause');
+                    if (iconPlay && iconPause) {
+                        iconPlay.style.display = isPlaying ? 'none' : 'block';
+                        iconPause.style.display = isPlaying ? 'block' : 'none';
+                    }
+                }
+
+                window.__hazeAudioPlayer.ontimeupdate = function() {
+                    var cur = window.__hazeAudioPlayer.currentTime || 0;
+                    var dur = window.__hazeAudioPlayer.duration || 30;
+                    var pct = Math.min(100, Math.max(0, (cur / dur) * 100));
+                    var fill = document.getElementById('__haze_fp_prog_fill');
+                    if (fill) fill.style.width = pct + '%';
+
+                    var timeEl = document.getElementById('__haze_fp_time');
+                    if (timeEl) {
+                        var m = Math.floor(cur / 60);
+                        var s = Math.floor(cur % 60);
+                        timeEl.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+                    }
+                    var durEl = document.getElementById('__haze_fp_dur');
+                    if (durEl && dur > 0) {
+                        var dm = Math.floor(dur / 60);
+                        var ds = Math.floor(dur % 60);
+                        durEl.textContent = dm + ':' + (ds < 10 ? '0' : '') + ds;
+                    }
+                };
+
+                window.__hazeAudioPlayer.onended = function() {
+                    updateHazePlayerState(false);
+                    playNextTrack();
+                };
+
+                function playNextTrack() {
+                    var rows = Array.from(document.querySelectorAll('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [role="row"], .track-item'));
+                    if (!rows.length) return;
+                    var currentIndex = -1;
+                    for (var i = 0; i < rows.length; i++) {
+                        var r = rows[i];
+                        var link = r.querySelector('a[href*="/track/"]');
+                        if (link && link.href.indexOf(window.__hazeCurrentTrackId) !== -1) {
+                            currentIndex = i;
+                            break;
+                        }
+                    }
+                    var nextRow = rows[currentIndex + 1] || rows[0];
+                    if (nextRow) {
+                        var link = nextRow.querySelector('a[href*="/track/"]');
+                        var trackId = link ? (link.href.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
+                        var title = nextRow.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"]')?.textContent?.trim() || '';
+                        var artist = nextRow.querySelector('a[href*="/artist/"]')?.textContent?.trim() || '';
+                        var img = nextRow.querySelector('img')?.src || '';
+                        if (trackId) hazePlayTrack(trackId, title, artist, img);
+                    }
+                }
+
+                function hazePlayTrack(trackId, title, artist, img) {
+                    if (!trackId) return;
+
+                    if (window.__hazeCurrentTrackId === trackId && window.__hazeAudioPlayer.src) {
+                        if (window.__hazeAudioPlayer.paused) {
+                            window.__hazeAudioPlayer.play().catch(function(_) {});
+                            updateHazePlayerState(true);
+                        } else {
+                            window.__hazeAudioPlayer.pause();
+                            updateHazePlayerState(false);
+                        }
+                        return;
+                    }
+
+                    window.__hazeCurrentTrackId = trackId;
+                    window.__hazeCurrentTrackTitle = title || 'Playing Track';
+                    window.__hazeCurrentTrackArtist = artist || '';
+                    window.__hazeCurrentTrackImg = img || '';
+
+                    // Mute and stop all other audio tags
+                    var otherAudios = document.querySelectorAll('audio');
+                    for (var a = 0; a < otherAudios.length; a++) {
+                        if (otherAudios[a] !== window.__hazeAudioPlayer) {
+                            otherAudios[a].pause();
+                            otherAudios[a].muted = true;
+                        }
+                    }
+
+                    dismissSpotifyModals();
+                    updateHazePlayerUI();
+                    updateHazePlayerState(true);
+
+                    // Fetch Spotify embed stream
+                    var embedUrl = 'https://open.spotify.com/embed/track/' + trackId;
+                    fetch(embedUrl)
+                        .then(function(res) { return res.text(); })
+                        .then(function(html) {
+                            var audioUrl = null;
+                            var nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/);
+                            if (nextDataMatch && nextDataMatch[1]) {
+                                try {
+                                    var parsed = JSON.parse(nextDataMatch[1]);
+                                    var entity = parsed.props?.pageProps?.state?.data?.entity;
+                                    if (entity) {
+                                        audioUrl = entity.audioPreview?.url;
+                                        if ((!title || title === 'Playing Track') && entity.name) {
+                                            window.__hazeCurrentTrackTitle = entity.name;
+                                        }
+                                        if (!artist && entity.artists && entity.artists[0]) {
+                                            window.__hazeCurrentTrackArtist = entity.artists[0].name;
+                                        }
+                                        if (!img && entity.visualIdentity?.image && entity.visualIdentity.image[0]) {
+                                            window.__hazeCurrentTrackImg = entity.visualIdentity.image[0].url;
+                                        }
+                                    }
+                                } catch(_) {}
+                            }
+                            if (!audioUrl) {
+                                var m = html.match(/"audioPreview":\s*\{\s*"url":\s*"([^"]+)"/);
+                                if (m && m[1]) audioUrl = m[1].replace(/\\u002F/g, '/');
+                            }
+                            if (!audioUrl) {
+                                var m2 = html.match(/https:[^"'\\]+mp3-preview[^"'\\]+/);
+                                if (m2 && m2[0]) audioUrl = m2[0].replace(/\\u002F/g, '/');
+                            }
+
+                            if (audioUrl) {
+                                window.__hazeAudioPlayer.src = audioUrl;
+                                window.__hazeAudioPlayer.muted = false;
+                                window.__hazeAudioPlayer.play().catch(function(_) {});
+                                updateHazePlayerUI();
+                                updateHazePlayerState(true);
+                            }
+                        })
+                        .catch(function(_) {});
+                }
+
+                // 4. Exact Song Click Interceptor
                 document.addEventListener('click', function(e) {
                     try {
                         var target = e.target;
                         if (!target) return;
 
-                        // Allow menu (...) or save/heart buttons to function normally
                         if (target.closest('button[data-testid="more-button"], button[aria-haspopup="menu"], button[data-testid="add-button"], button[aria-label*="Save" i], button[aria-label*="heart" i], button[aria-label*="More" i]')) {
                             return;
                         }
+                        if (target.closest('#__haze_floating_player')) {
+                            return;
+                        }
 
-                        // Case A: Single track page action-bar play button (open.spotify.com/track/...)
                         var isTrackPage = window.location.pathname.indexOf('/track/') !== -1;
-                        var actionBarPlayBtn = target.closest('[data-testid="action-bar-row"] button[data-testid="play-button"], button[data-testid="play-button"], [data-testid="action-bar-play-button"]');
-                        if (isTrackPage && actionBarPlayBtn) {
-                            var rowInPage = document.querySelector('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [role="row"]');
-                            if (rowInPage) {
-                                var rowPlay = rowInPage.querySelector('button[data-testid="play-button"], button[aria-label*="Play" i]');
-                                if (rowPlay && rowPlay !== actionBarPlayBtn) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    e.stopImmediatePropagation();
-                                    rowPlay.click();
-                                    return;
-                                }
+                        var playBtn = target.closest('button[data-testid="play-button"], button[data-testid="action-bar-play-button"], [data-testid="action-bar-row"] button');
+                        if (playBtn) {
+                            var trackId = isTrackPage ? (window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
+                            if (trackId) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.stopImmediatePropagation();
+                                var title = document.querySelector('h1')?.textContent?.trim() || '';
+                                var artist = document.querySelector('a[href*="/artist/"], [data-testid="creator-link"]')?.textContent?.trim() || '';
+                                var img = document.querySelector('img[data-testid="entity-image"], img')?.src || '';
+                                hazePlayTrack(trackId, title, artist, img);
+                                return;
                             }
                         }
 
-                        // Case B: Any Tracklist row / search item
-                        var row = target.closest('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [data-testid="track-row"], [data-testid="playlist-track-row"], [data-testid="search-result-row"], [role="row"], tr.tracklist-row, .track-item, [data-uri*="spotify:track:"], li[role="listitem"]');
-                        if (row) {
-                            var trackLink = row.querySelector('a[href*="/track/"]');
-                            var trackId = trackLink ? (trackLink.href.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
-                            if (!trackId && window.location.pathname.indexOf('/track/') !== -1) {
+                        var row = target.closest('[data-testid="tracklist-row"], [data-testid="compact-track-row"], [data-testid="track-row"], [data-testid="playlist-track-row"], [data-testid="search-result-row"], [data-testid="top-result-card"], [data-testid="heropod"], [role="row"], tr.tracklist-row, .track-item, [data-uri*="spotify:track:"], li[role="listitem"]');
+                        var trackLink = target.closest('a[href*="/track/"]');
+                        if (row || trackLink) {
+                            var el = row || trackLink;
+                            var link = el.querySelector ? el.querySelector('a[href*="/track/"]') : null;
+                            if (!link && trackLink) link = trackLink;
+                            var trackId = link ? (link.href.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1] : null;
+                            if (!trackId && el.getAttribute) {
+                                var uri = el.getAttribute('data-uri') || '';
+                                var m = uri.match(/spotify:track:([a-zA-Z0-9]+)/);
+                                if (m) trackId = m[1];
+                            }
+                            if (!trackId && isTrackPage) {
                                 trackId = (window.location.pathname.match(/\/track\/([a-zA-Z0-9]+)/) || [])[1];
                             }
-                            var titleEl = row.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"], a[href*="/track/"]');
-                            var targetTitle = titleEl ? titleEl.textContent.trim() : (document.querySelector('h1')?.textContent?.trim() || '');
 
-                            window.__hazeTargetTrack = { id: trackId, title: targetTitle, time: Date.now() };
-
-                            var playBtn = row.querySelector('button[data-testid="play-button"], button[data-action-id="play-button"], button[aria-label*="Play" i], button[aria-label*="play" i], button[aria-label*="reproducir" i]');
-                            if (playBtn) {
-                                if (target !== playBtn && !playBtn.contains(target)) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    e.stopImmediatePropagation();
-
-                                    try {
-                                        playBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-                                        playBtn.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
-                                    } catch(_) {}
-
-                                    playBtn.click();
-                                    return;
-                                }
-                            } else {
+                            if (trackId) {
                                 e.preventDefault();
                                 e.stopPropagation();
                                 e.stopImmediatePropagation();
 
-                                var dbl = new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window });
-                                row.dispatchEvent(dbl);
-                                var clk = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-                                row.dispatchEvent(clk);
+                                var title = (el.querySelector && el.querySelector('[dir="auto"], [data-testid="internal-track-link"], div[class*="Title"], a[href*="/track/"]')?.textContent?.trim()) || (trackLink ? trackLink.textContent?.trim() : '') || 'Playing Track';
+                                var artist = (el.querySelector && el.querySelector('a[href*="/artist/"], span[class*="Artist"]')?.textContent?.trim()) || '';
+                                var img = (el.querySelector && el.querySelector('img')?.src) || '';
+
+                                hazePlayTrack(trackId, title, artist, img);
+                                return;
                             }
                         }
                     } catch(_) {}
                 }, true);
 
-                // 4. Continuous Session Supervisor: Auto-close popups, skip ads, and correct shuffle mismatches
+                // 5. Continuous Supervisor: Mute ads, dismiss modals, video playsinline
                 function superviseSpotify() {
                     try {
-                        // Dismiss upsell & login modal popups
-                        var popups = document.querySelectorAll('[data-testid="upsell-modal"], [data-testid="login-modal"], div[role="dialog"]');
-                        for (var p = 0; p < popups.length; p++) {
-                            var popup = popups[p];
-                            var closeBtn = popup.querySelector('button[aria-label*="Close" i], button[aria-label*="close" i], [data-testid="close-button"], button[data-testid="dismiss-button"]');
-                            if (closeBtn) closeBtn.click();
-                        }
-                        var cookieBtn = document.getElementById('onetrust-accept-btn-handler');
-                        if (cookieBtn) cookieBtn.click();
+                        dismissSpotifyModals();
 
-                        // Detect Ad in Now Playing Widget
-                        var nowPlaying = document.querySelector('[data-testid="now-playing-widget"]');
-                        var isAd = false;
-                        var currentSongTitle = '';
-                        if (nowPlaying) {
-                            if (nowPlaying.querySelector('[data-testid="ad-playback-indicator"]')) {
-                                isAd = true;
-                            }
-                            var titleEl = nowPlaying.querySelector('[data-testid="context-item-info-title"]');
-                            currentSongTitle = titleEl ? (titleEl.textContent || '').trim().toLowerCase() : '';
-                            if (currentSongTitle === 'advertisement' || currentSongTitle === 'anuncio' || currentSongTitle === 'spotify' || currentSongTitle === 'ad') {
-                                isAd = true;
-                            }
-                        }
-
-                        // Auto-skip ad
-                        if (isAd) {
-                            var skipBtn = document.querySelector('[data-testid="control-button-skip-forward"]');
-                            if (skipBtn && !skipBtn.disabled) {
-                                skipBtn.click();
-                            }
-                        }
-
-                        // Mute and fast-forward ad audio
                         var audios = document.querySelectorAll('audio');
                         for (var i = 0; i < audios.length; i++) {
                             var a = audios[i];
-                            var src = a.src || '';
+                            if (a === window.__hazeAudioPlayer) continue;
+                            var src = (a.src || '').toLowerCase();
                             var isPreview = src.indexOf('mp3-preview') !== -1 || src.indexOf('p.scdn.co') !== -1;
-                            if (isPreview) {
-                                if (a.muted) a.muted = false;
-                                continue;
-                            }
-                            if (isAd) {
+                            if (!isPreview) {
                                 a.muted = true;
                                 if (a.duration && isFinite(a.duration) && a.duration > 0 && !a.paused) {
                                     a.currentTime = a.duration - 0.01;
                                 }
-                            } else {
-                                if (a.muted) a.muted = false;
                             }
                         }
 
-                        // 5. Shuffle Mismatch Corrector: If Spotify starts playing the WRONG shuffle song instead of the user's clicked track!
-                        if (window.__hazeTargetTrack && (Date.now() - window.__hazeTargetTrack.time) < 10000 && window.__hazeTargetTrack.id) {
-                            var tgt = window.__hazeTargetTrack.title.toLowerCase();
-                            if (currentSongTitle && tgt && currentSongTitle !== tgt && currentSongTitle.indexOf(tgt) === -1 && tgt.indexOf(currentSongTitle) === -1 && !isAd) {
-                                // Mismatch detected! Fetch target song preview directly and play it!
-                                if (!window.__hazeCorrectingTrack || window.__hazeCorrectingTrack !== window.__hazeTargetTrack.id) {
-                                    window.__hazeCorrectingTrack = window.__hazeTargetTrack.id;
-                                    var embedUrl = 'https://open.spotify.com/embed/track/' + window.__hazeTargetTrack.id;
-                                    fetch(embedUrl).then(function(res) { return res.text(); }).then(function(html) {
-                                        var m = html.match(/"audioPreview":\s*\{\s*"url":\s*"([^"]+)"/);
-                                        if (m && m[1]) {
-                                            var previewAudioUrl = m[1].replace(/\\u002F/g, '/');
-                                            var mainAudio = document.querySelector('audio') || new Audio();
-                                            mainAudio.src = previewAudioUrl;
-                                            mainAudio.muted = false;
-                                            mainAudio.play().catch(function(_) {});
-                                            // Update now-playing UI
-                                            if (titleEl) titleEl.textContent = window.__hazeTargetTrack.title;
-                                        }
-                                    }).catch(function(_) {});
-                                }
-                            }
-                        }
-
-                        // Canvas Video Streaming
                         var videos = document.querySelectorAll('video');
                         for (var j = 0; j < videos.length; j++) {
                             var v = videos[j];
@@ -844,7 +993,7 @@ class ChromiumBrowserTab(
                             '[data-testid="tracklist-row"] button[data-testid="play-button"], [data-testid="compact-track-row"] button[data-testid="play-button"], [data-testid="tracklist-row"] [aria-label*="Play" i] { opacity: 1 !important; visibility: visible !important; display: inline-flex !important; pointer-events: auto !important; }',
                             '[data-testid="tracklist-row"], [data-testid="compact-track-row"] { cursor: pointer !important; min-height: 52px !important; }',
                             '.now-playing-bar-container, footer[data-testid="now-playing-bar"] { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; z-index: 99999 !important; }',
-                            '[data-testid="upsell-modal"] { display: none !important; pointer-events: none !important; }',
+                            '[data-testid="upsell-modal"], [data-testid="login-modal"] { display: none !important; pointer-events: none !important; }',
                             'div.GenericModal__overlay { pointer-events: none !important; background: transparent !important; }'
                         ].join('\n');
                         (document.head || document.documentElement).appendChild(s);
@@ -912,9 +1061,62 @@ class ChromiumBrowserTab(
                     }
                 } catch(_) {}
 
-                // 2. DOM Section Collapser: Finds "Advertisement", "Sponsored", "Anuncio", or "Ad" badges and collapses wrapper sections!
+                // 2. Unsolicited Popup & Popunder Interceptor
+                try {
+                    var origWindowOpen = window.open;
+                    window.open = function(url, target, features) {
+                        var strUrl = (url || '').toString().toLowerCase();
+                        if (strUrl && (
+                            strUrl.indexOf('popads') !== -1 || strUrl.indexOf('popcash') !== -1 ||
+                            strUrl.indexOf('propeller') !== -1 || strUrl.indexOf('adsterra') !== -1 ||
+                            strUrl.indexOf('exoclick') !== -1 || strUrl.indexOf('hilltopads') !== -1 ||
+                            strUrl.indexOf('clickadu') !== -1 || strUrl.indexOf('adcash') !== -1 ||
+                            strUrl.indexOf('popunder') !== -1 || strUrl.indexOf('clickunder') !== -1 ||
+                            strUrl.indexOf('zeroredirect') !== -1 || strUrl.indexOf('tsyndicate') !== -1 ||
+                            strUrl.indexOf('ad-maven') !== -1 || strUrl.indexOf('clicksor') !== -1
+                        )) {
+                            return null;
+                        }
+                        return origWindowOpen.apply(this, arguments);
+                    };
+                } catch(_) {}
+
+                // 3. Annoying Overlays & Cookie Consent Wall Dismissal
+                function dismissAnnoyingOverlays() {
+                    try {
+                        var overlaySelectors = [
+                            '.sp_message_container_root', '[id^="sp_message_container"]', '.fc-consent-root',
+                            'div[class*="cookie-banner"]', 'div[id*="cookie-banner"]',
+                            'div[class*="cookie-consent"]', 'div[id*="cookie-consent"]',
+                            'div[class*="cookie-notice"]', 'div[id*="cookie-notice"]',
+                            '#onetrust-consent-sdk', 'div[class*="newsletter-popup"]',
+                            'div[class*="subscribe-modal"]', 'div[class*="paywall-overlay"]',
+                            'div[id*="paywall-overlay"]', '.tp-modal', '.tp-backdrop',
+                            '.interstitial-ad', 'div[class*="interstitial"]', 'div[id*="interstitial"]'
+                        ];
+                        var found = document.querySelectorAll(overlaySelectors.join(','));
+                        for (var k = 0; k < found.length; k++) {
+                            found[k].style.setProperty('display', 'none', 'important');
+                            found[k].style.setProperty('pointer-events', 'none', 'important');
+                        }
+
+                        // Unlock page scroll if locked by an overlay
+                        var docEl = document.documentElement;
+                        var body = document.body;
+                        if (docEl && getComputedStyle(docEl).overflow === 'hidden') {
+                            docEl.style.setProperty('overflow', 'auto', 'important');
+                        }
+                        if (body && getComputedStyle(body).overflow === 'hidden') {
+                            body.style.setProperty('overflow', 'auto', 'important');
+                        }
+                    } catch(_) {}
+                }
+
+                // 4. DOM Section Collapser: Finds "Advertisement", "Sponsored", "Anuncio", or "Ad" badges and collapses wrapper sections!
                 function collapseAdPlaceholdersAndSections() {
                     try {
+                        dismissAnnoyingOverlays();
+
                         var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, null, false);
                         var node;
                         var labelNodes = [];
