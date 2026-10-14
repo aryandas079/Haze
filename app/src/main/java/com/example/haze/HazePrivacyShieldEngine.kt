@@ -222,6 +222,12 @@ object HazePrivacyShieldEngine {
             try {
                 val rules = HazeFilterListManager.getRules(context)
                 val db = HazeDatabase.getInstance(context)
+                val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+                val isZeroBaselineInitialized = prefs.getBoolean("zero_baseline_initialized_v3", false)
+                if (!isZeroBaselineInitialized) {
+                    db.resetPrivacyStats()
+                    prefs.edit().putBoolean("zero_baseline_initialized_v3", true).apply()
+                }
                 val domains = db.getWhitelistedDomains()
                 whitelistedDomainsCache.clear()
                 for (d in domains) {

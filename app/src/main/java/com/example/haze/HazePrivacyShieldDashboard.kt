@@ -104,7 +104,7 @@ object HazePrivacyShieldDashboard {
             val fillPath = Path()
 
             fun getY(index: Int): Float {
-                val normY = dataPoints.getOrElse(index) { 0.05f }
+                val normY = dataPoints.getOrElse(index) { 0.0f }
                 return graphBottom - (normY * usableHeight)
             }
 

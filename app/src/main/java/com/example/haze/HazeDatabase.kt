@@ -1726,11 +1726,11 @@ class HazeDatabase private constructor(context: Context) :
         val points = FloatArray(numBuckets)
         if (maxVal == 0L) {
             for (i in 0 until numBuckets) {
-                points[i] = 0.05f
+                points[i] = 0.0f
             }
         } else {
             for (i in 0 until numBuckets) {
-                points[i] = (counts[i].toFloat() / maxVal.toFloat()).coerceIn(0.08f, 0.95f)
+                points[i] = if (counts[i] == 0L) 0.0f else (counts[i].toFloat() / maxVal.toFloat()).coerceIn(0.08f, 0.95f)
             }
         }
 
