@@ -3,11 +3,11 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/cardTabGrid"
     android:layout_width="match_parent"
-    android:layout_height="216dp"
-    android:layout_margin="7dp"
-    app:cardCornerRadius="24dp"
+    android:layout_height="220dp"
+    android:layout_margin="6dp"
+    app:cardCornerRadius="26dp"
     app:cardElevation="2dp"
-    app:strokeWidth="1.5dp"
+    app:strokeWidth="2dp"
     app:strokeColor="#E2E7ED"
     app:cardBackgroundColor="#FFFFFF">
 
@@ -27,12 +27,20 @@
             android:paddingEnd="8dp"
             android:background="@android:color/transparent">
 
-            <ImageView
-                android:id="@+id/gridTabIcon"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
-                android:src="@drawable/ic_globe"
-                android:contentDescription="Favicon" />
+            <FrameLayout
+                android:id="@+id/gridTabIconContainer"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:background="@drawable/bg_circle_icon_container">
+
+                <ImageView
+                    android:id="@+id/gridTabIcon"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_globe"
+                    android:contentDescription="Favicon" />
+            </FrameLayout>
 
             <TextView
                 android:id="@+id/gridTabTitle"
@@ -44,8 +52,8 @@
                 android:ellipsize="end"
                 android:maxLines="1"
                 android:text="Tab Title"
-                android:textSize="12.5sp"
-                android:textStyle="bold"
+                android:textSize="13sp"
+                android:fontFamily="sans-serif-medium"
                 android:textColor="#202124" />
 
             <ImageView
@@ -72,10 +80,10 @@
         <androidx.cardview.widget.CardView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
-            android:layout_marginBottom="4dp"
-            app:cardCornerRadius="18dp"
+            android:layout_marginStart="4.5dp"
+            android:layout_marginEnd="4.5dp"
+            android:layout_marginBottom="4.5dp"
+            app:cardCornerRadius="20dp"
             app:cardElevation="0dp"
             app:cardBackgroundColor="#F8FAFD">
 
@@ -104,7 +112,8 @@
                     android:maxLines="1"
                     android:textColor="#FFFFFF"
                     android:textSize="10.5sp"
-                    android:text="haze://home" />
+                    android:text="haze://home"
+                    android:visibility="gone" />
 
                 <View
                     android:id="@+id/gridGroupIndicator"

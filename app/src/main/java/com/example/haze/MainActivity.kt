@@ -4560,14 +4560,17 @@ class MainActivity : AppCompatActivity() {
                 val isDark = prefs.getBoolean("is_dark", false) || isPrivateList
                 val headerLayout = holder.view.findViewById<LinearLayout>(R.id.gridHeaderLayout)
 
+                val iconContainer = holder.view.findViewById<View>(R.id.gridTabIconContainer)
+
                 if (isActive) {
-                    // Active Chrome Card Styling (Image 4)
+                    // Active Chrome Card Styling (Image 4: Deep vibrant blue container with white elements)
                     mCard?.strokeColor = Color.TRANSPARENT
                     mCard?.strokeWidth = 0
                     mCard?.cardElevation = dpToPx(4f).toFloat()
                     mCard?.setCardBackgroundColor(accentColor)
                     headerLayout?.background = null
 
+                    iconContainer?.setBackgroundResource(R.drawable.bg_circle_icon_container)
                     holder.gridTabTitle?.setTextColor(Color.WHITE)
                     holder.gridTabClose?.setColorFilter(Color.WHITE)
                     holder.gridTabPinIcon?.setColorFilter(Color.WHITE)
@@ -4582,18 +4585,19 @@ class MainActivity : AppCompatActivity() {
                         holder.gridTabIcon?.setColorFilter(Color.WHITE)
                     }
                 } else {
-                    // Inactive Chrome Card Styling (Image 4)
-                    val inactiveCardBg = if (isDark) Color.parseColor("#26282B") else Color.parseColor("#EDF2F7")
-                    val inactiveStroke = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#D4DBE4")
-                    val inactiveTitleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+                    // Inactive Chrome Card Styling (Image 4: Crisp white/surface card with soft outline)
+                    val inactiveCardBg = if (isDark) Color.parseColor("#1E2024") else Color.WHITE
+                    val inactiveStroke = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#E0E5EC")
+                    val inactiveTitleColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
                     val inactiveCloseColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
                     mCard?.strokeColor = inactiveStroke
-                    mCard?.strokeWidth = dpToPx(1.2f)
-                    mCard?.cardElevation = dpToPx(1.5f).toFloat()
+                    mCard?.strokeWidth = dpToPx(1.5f)
+                    mCard?.cardElevation = dpToPx(1f).toFloat()
                     mCard?.setCardBackgroundColor(inactiveCardBg)
                     headerLayout?.background = null
 
+                    iconContainer?.background = null
                     holder.gridTabTitle?.setTextColor(inactiveTitleColor)
                     holder.gridTabClose?.setColorFilter(inactiveCloseColor)
                     holder.gridTabPinIcon?.setColorFilter(inactiveCloseColor)
@@ -4787,31 +4791,32 @@ class MainActivity : AppCompatActivity() {
         private fun showTabOptionsMenu(tab: Tab) {
             val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
             val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
-            val bgColor = if (isDark) Color.parseColor("#282A2E") else Color.WHITE
+            val bgColor = if (isDark) Color.parseColor("#202124") else Color.WHITE
             val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
             val iconColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#444746")
-            val borderColor = if (isDark) Color.parseColor("#383B40") else Color.parseColor("#E0E3E7")
+            val borderColor = if (isDark) Color.parseColor("#33353A") else Color.parseColor("#E0E3E7")
 
             val dialog = Dialog(this@MainActivity)
             dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
             dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            dialog.window?.setDimAmount(0.35f)
+            dialog.window?.setDimAmount(0.30f)
 
             val root = LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 background = GradientDrawable().apply {
-                    cornerRadius = dpToPx(26f).toFloat()
+                    cornerRadius = dpToPx(32f).toFloat()
                     setColor(bgColor)
                     setStroke(dpToPx(1f), borderColor)
                 }
-                setPadding(dpToPx(6), dpToPx(10), dpToPx(6), dpToPx(10))
-                layoutParams = ViewGroup.LayoutParams(dpToPx(270), ViewGroup.LayoutParams.WRAP_CONTENT)
+                setPadding(dpToPx(8), dpToPx(14), dpToPx(8), dpToPx(14))
+                layoutParams = ViewGroup.LayoutParams(dpToPx(275), ViewGroup.LayoutParams.WRAP_CONTENT)
             }
 
             data class TabActionItem(val title: String, val iconRes: Int, val isDestructive: Boolean = false, val action: () -> Unit)
             val actionItems = mutableListOf<TabActionItem>()
 
-            // 1. Group (Image 3: "Add tab to new group")
+            // Exact 6 items from Chrome (Image 3)
+            // 1. Add tab to new group
             if (tab.group != null) {
                 actionItems.add(TabActionItem("Remove from '${tab.group!!.name}'", R.drawable.ic_grid) {
                     tab.group = null
@@ -4837,35 +4842,21 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton("Cancel", null)
                         .show()
                 })
-                val otherGroups = originalList.mapNotNull { it.group }.distinctBy { it.id }
-                if (otherGroups.isNotEmpty()) {
-                    actionItems.add(TabActionItem("Add to existing group...", R.drawable.ic_grid) {
-                        val groupNames = otherGroups.map { it.name }.toTypedArray()
-                        AlertDialog.Builder(this@MainActivity)
-                            .setTitle("Select Group")
-                            .setItems(groupNames) { _, gIdx ->
-                                tab.group = otherGroups[gIdx]
-                                notifyDataSetChanged()
-                                Toast.makeText(this@MainActivity, "Added to ${otherGroups[gIdx].name}", Toast.LENGTH_SHORT).show()
-                            }
-                            .show()
-                    })
-                }
             }
 
-            // 2. Bookmarks (Image 3: "Add to bookmarks")
+            // 2. Add to bookmarks
             actionItems.add(TabActionItem("Add to bookmarks", R.drawable.ic_star) {
                 HazeBookmarksManager.showBookmarkThisPageDialog(this@MainActivity, tab.title, tab.url)
             })
 
-            // 3. Pin Tab (Image 3: "Pin tab")
+            // 3. Pin tab
             actionItems.add(TabActionItem(if (tab.isPinned) "Unpin tab" else "Pin tab", R.drawable.ic_pin) {
                 tab.isPinned = !tab.isPinned
                 notifyDataSetChanged()
                 Toast.makeText(this@MainActivity, if (tab.isPinned) "Tab pinned" else "Tab unpinned", Toast.LENGTH_SHORT).show()
             })
 
-            // 4. Mute site (Image 3: "Mute site")
+            // 4. Mute site
             val isMuted = prefs.getBoolean("site_muted_${tab.url.hashCode()}", false)
             actionItems.add(TabActionItem(if (isMuted) "Unmute site" else "Mute site", if (isMuted) R.drawable.ic_volume_up else R.drawable.ic_volume_off) {
                 prefs.edit().putBoolean("site_muted_${tab.url.hashCode()}", !isMuted).apply()
@@ -4873,37 +4864,13 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this@MainActivity, if (!isMuted) "Site audio muted" else "Site audio unmuted", Toast.LENGTH_SHORT).show()
             })
 
-            // 5. Select tab / Duplicate tab (Image 3: pencil icon)
-            actionItems.add(TabActionItem("Duplicate tab", R.drawable.ic_edit) {
-                duplicateTab(tab)
-                notifyDataSetChanged()
+            // 5. Select tab (switches directly to tab or focuses it)
+            actionItems.add(TabActionItem("Select tab", R.drawable.ic_edit) {
+                onItemClick(tab)
             })
 
-            // 6. Tab History
-            actionItems.add(TabActionItem("Tab history", R.drawable.ic_history) {
-                HazeTabSystemManager.showTabHistoryDialog(this@MainActivity, tab) {
-                    val idx = originalList.indexOf(tab)
-                    if (idx != -1) switchTab(idx)
-                }
-            })
-
-            // 7. Send tab to another device
-            actionItems.add(TabActionItem("Send tab to another device...", R.drawable.ic_desktop) {
-                HazeTabSystemManager.showSendToDeviceDialog(this@MainActivity, listOf(tab))
-            })
-
-            // 8. Share Tab URL
-            actionItems.add(TabActionItem("Share tab URL", R.drawable.ic_share) {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, tab.title)
-                    putExtra(Intent.EXTRA_TEXT, tab.url)
-                }
-                startActivity(Intent.createChooser(intent, "Share Tab"))
-            })
-
-            // 9. Close Tab (Image 3: "Close tab" with close icon)
-            actionItems.add(TabActionItem("Close tab", R.drawable.ic_close, isDestructive = true) {
+            // 6. Close tab
+            actionItems.add(TabActionItem("Close tab", R.drawable.ic_close, isDestructive = false) {
                 onCloseClick(tab)
             })
 
@@ -4911,11 +4878,19 @@ class MainActivity : AppCompatActivity() {
                 val row = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(46f))
-                    background = GradientDrawable().apply {
-                        cornerRadius = dpToPx(14f).toFloat()
-                        setColor(Color.TRANSPARENT)
-                    }
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(48f))
+                    val rippleColor = if (isDark) Color.parseColor("#26FFFFFF") else Color.parseColor("#14000000")
+                    background = android.graphics.drawable.RippleDrawable(
+                        ColorStateList.valueOf(rippleColor),
+                        GradientDrawable().apply {
+                            cornerRadius = dpToPx(20f).toFloat()
+                            setColor(Color.TRANSPARENT)
+                        },
+                        GradientDrawable().apply {
+                            cornerRadius = dpToPx(20f).toFloat()
+                            setColor(Color.WHITE)
+                        }
+                    )
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
@@ -4926,8 +4901,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val iv = ImageView(this@MainActivity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dpToPx(20f), dpToPx(20f)).apply {
-                        marginStart = dpToPx(16f)
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(22f), dpToPx(22f)).apply {
+                        marginStart = dpToPx(18f)
                         marginEnd = dpToPx(16f)
                     }
                     setImageResource(item.iconRes)
@@ -4936,7 +4911,7 @@ class MainActivity : AppCompatActivity() {
 
                 val tv = TextView(this@MainActivity).apply {
                     text = item.title
-                    textSize = 14.5f
+                    textSize = 15f
                     setTextColor(if (item.isDestructive) Color.parseColor("#E53935") else textColor)
                     typeface = Typeface.create("sans-serif", Typeface.NORMAL)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
