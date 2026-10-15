@@ -86,41 +86,49 @@ object HazeFasterReloadingEngine {
      */
     fun getRankedCandidates(context: Context): List<PreloadCandidate> {
         val history = HazeDatabase.getInstance(context).getAllHistory()
-        if (history.isEmpty()) return emptyList()
-
         val now = System.currentTimeMillis()
         val domainMap = mutableMapOf<String, PreloadCandidate>()
 
-        for (item in history) {
-            val rawUrl = item.url.trim()
-            if (rawUrl.startsWith("haze://") || rawUrl.startsWith("about:") || rawUrl.startsWith("file:")) continue
-            if (!URLUtil.isNetworkUrl(rawUrl)) continue
+        if (history.isNotEmpty()) {
+            for (item in history) {
+                val rawUrl = item.url.trim()
+                if (rawUrl.startsWith("haze://") || rawUrl.startsWith("about:") || rawUrl.startsWith("file:")) continue
+                if (!URLUtil.isNetworkUrl(rawUrl)) continue
 
-            val host = try {
-                Uri.parse(rawUrl).host.orEmpty().lowercase()
-            } catch (_: Throwable) {
-                ""
-            }
-            if (host.isEmpty()) continue
+                val host = try {
+                    Uri.parse(rawUrl).host.orEmpty().lowercase()
+                } catch (_: Throwable) {
+                    ""
+                }
+                if (host.isEmpty()) continue
 
-            // Score formula: visitCount * (1.0 / (1.0 + daysAgo))
-            val daysAgo = (now - item.timestamp).toDouble() / (1000.0 * 60.0 * 60.0 * 24.0)
-            val recencyFactor = 1.0 / (1.0 + daysAgo.coerceAtLeast(0.0))
-            val score = item.visitCount * recencyFactor
+                // Score formula: visitCount * (1.0 / (1.0 + daysAgo))
+                val daysAgo = (now - item.timestamp).toDouble() / (1000.0 * 60.0 * 60.0 * 24.0)
+                val recencyFactor = 1.0 / (1.0 + daysAgo.coerceAtLeast(0.0))
+                val score = item.visitCount * recencyFactor
 
-            val existing = domainMap[host]
-            if (existing == null || score > existing.score) {
-                domainMap[host] = PreloadCandidate(
-                    url = rawUrl,
-                    host = host,
-                    score = score,
-                    visitCount = item.visitCount,
-                    lastVisited = item.timestamp
-                )
+                val existing = domainMap[host]
+                if (existing == null || score > existing.score) {
+                    domainMap[host] = PreloadCandidate(
+                        url = rawUrl,
+                        host = host,
+                        score = score,
+                        visitCount = item.visitCount,
+                        lastVisited = item.timestamp
+                    )
+                }
             }
         }
 
-        return domainMap.values.sortedByDescending { it.score }.take(MAX_CANDIDATES)
+        val ranked = domainMap.values.sortedByDescending { it.score }.take(MAX_CANDIDATES)
+        if (ranked.isNotEmpty()) return ranked
+
+        // Default Fallbacks for fresh installs or empty history
+        return listOf(
+            PreloadCandidate("https://www.google.com", "www.google.com", 10.0, 5, now),
+            PreloadCandidate("https://www.wikipedia.org", "www.wikipedia.org", 8.0, 4, now),
+            PreloadCandidate("https://www.youtube.com", "www.youtube.com", 6.0, 3, now)
+        )
     }
 
     /**
@@ -189,21 +197,38 @@ object HazeFasterReloadingEngine {
                 // Tier 1: DNS Prefetch / Socket Warmup
                 InetAddress.getByName(candidate.host)
 
-                // Tier 2: Resource Warming
-                val urlObj = URL(candidate.url)
-                val conn = (urlObj.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 4000
-                    readTimeout = 4000
-                    requestMethod = "GET"
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile) HazeBrowser/2.2")
-                    setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    setRequestProperty("Accept-Encoding", "gzip, deflate")
-                    setRequestProperty("Cache-Control", "max-age=0")
+                // Tier 2: Resource Warming with Redirect Follower
+                var targetUrl = candidate.url
+                var conn: HttpURLConnection? = null
+                var redirectCount = 0
+
+                while (redirectCount < 4) {
+                    val urlObj = URL(targetUrl)
+                    conn = (urlObj.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 4000
+                        readTimeout = 4000
+                        requestMethod = "GET"
+                        instanceFollowRedirects = true
+                        setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile) HazeBrowser/2.2")
+                        setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        setRequestProperty("Accept-Encoding", "gzip, deflate")
+                        setRequestProperty("Cache-Control", "max-age=0")
+                    }
+
+                    val code = conn.responseCode
+                    if (code in 300..399) {
+                        val loc = conn.getHeaderField("Location")
+                        if (!loc.isNullOrEmpty()) {
+                            conn.disconnect()
+                            targetUrl = if (loc.startsWith("http")) loc else URL(URL(targetUrl), loc).toString()
+                            redirectCount++
+                            continue
+                        }
+                    }
+                    break
                 }
 
-                conn.connect()
-                val code = conn.responseCode
-                if (code in 200..399) {
+                if (conn != null && conn.responseCode in 200..399) {
                     val stream = conn.inputStream
                     val buffer = ByteArray(4096)
                     var read: Int
@@ -215,10 +240,13 @@ object HazeFasterReloadingEngine {
 
                     warmedUrls.add(candidate.url)
                     warmedUrls.add(candidate.host)
+                    val hostClean = try { Uri.parse(targetUrl).host.orEmpty().lowercase() } catch (_: Throwable) { "" }
+                    if (hostClean.isNotEmpty()) warmedUrls.add(hostClean)
+
                     totalWarmedCount++
                     totalBytesWarmed += bytesRead
                 }
-                conn.disconnect()
+                conn?.disconnect()
             } catch (_: Throwable) {}
         }
 
