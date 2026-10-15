@@ -6691,18 +6691,7 @@ class MainActivity : AppCompatActivity() {
         val targetDesktop = !(tab.isDesktop || tab.browserTab.isDesktop)
         tab.isDesktop = targetDesktop
         tab.browserTab.isDesktop = targetDesktop
-        val webView = tab.browserTab.renderView as? WebView
-        val isSpotify = (tab.url ?: "").contains("spotify.com", ignoreCase = true)
-        if (targetDesktop) {
-            webView?.settings?.userAgentString = if (isSpotify) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
-            webView?.settings?.useWideViewPort = true
-            webView?.settings?.loadWithOverviewMode = true
-        } else {
-            webView?.settings?.userAgentString = WebSettings.getDefaultUserAgent(this)
-            webView?.settings?.useWideViewPort = false
-            webView?.settings?.loadWithOverviewMode = false
-        }
-        tab.browserTab.reload()
+        // The reload is handled internally by ChromiumBrowserTab's property setter
         Toast.makeText(this, if (targetDesktop) "Desktop site enabled" else "Mobile site enabled", Toast.LENGTH_SHORT).show()
     }
 

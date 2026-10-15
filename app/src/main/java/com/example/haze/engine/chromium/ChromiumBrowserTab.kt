@@ -138,16 +138,42 @@ class ChromiumBrowserTab(
     private fun applyDesktopMode(desktop: Boolean) {
         val currentUrl = webView.url ?: url
         val isSpotify = currentUrl.contains("spotify.com", ignoreCase = true)
+        
+        // Temporarily pause timers to prevent jank during reload
+        webView.pauseTimers()
+        
         if (desktop) {
             webView.settings.userAgentString = if (isSpotify) SPOTIFY_DESKTOP_UA else DESKTOP_USER_AGENT
             webView.settings.useWideViewPort = true
             webView.settings.loadWithOverviewMode = true
+            // Setting minimum layout width helps trigger desktop layouts
+            webView.settings.minimumLogicalFontSize = 14
         } else {
             webView.settings.userAgentString = defaultMobileUserAgent
             webView.settings.useWideViewPort = false
             webView.settings.loadWithOverviewMode = false
+            webView.settings.minimumLogicalFontSize = 8
         }
-        navigationController.reload()
+        
+        webView.evaluateJavascript(
+            """
+            (function() {
+                var meta = document.querySelector('meta[name="viewport"]');
+                if (meta) {
+                    meta.setAttribute('content', '${if (desktop) "width=1280, initial-scale=0.35, minimum-scale=0.25, maximum-scale=5.0, user-scalable=1" else "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=1"}');
+                } else {
+                    meta = document.createElement('meta');
+                    meta.name = 'viewport';
+                    meta.content = '${if (desktop) "width=1280, initial-scale=0.35, minimum-scale=0.25, maximum-scale=5.0, user-scalable=1" else "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=1"}';
+                    (document.head || document.documentElement).appendChild(meta);
+                }
+            })();
+            """.trimIndent()
+        ) {
+            navigationController.reload()
+            // Resume timers slightly after reload initiates
+            webView.postDelayed({ webView.resumeTimers() }, 100)
+        }
     }
 
     private fun setupClientHandlers() {
