@@ -217,19 +217,7 @@ object HazeDownloadsManager {
         root.addView(topContainer)
 
         // --- Category Tabs ---
-        val tabsScroll = HorizontalScrollView(activity).apply {
-            isHorizontalScrollBarEnabled = false
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(dpToPx(activity, 16), 0, dpToPx(activity, 16), dpToPx(activity, 12))
-            }
-        }
-
-        val tabsRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        val categories = listOf("ALL", "ACTIVE", "COMPLETED", "FAILED")
-        val tabButtons = mutableListOf<TextView>()
+        // Removed
 
         // --- Recycler & Empty View ---
         val contentFrame = FrameLayout(activity).apply {
@@ -303,8 +291,6 @@ object HazeDownloadsManager {
         }
         contentFrame.addView(recyclerView)
 
-        tabsScroll.addView(tabsRow)
-        root.addView(tabsScroll)
         root.addView(contentFrame)
 
         var adapter: DownloadsRecyclerAdapter? = null
@@ -373,55 +359,7 @@ object HazeDownloadsManager {
                 recyclerView.adapter = adapter
             }
 
-            // Update Tab Badges & Selection
-            for (i in categories.indices) {
-                val btn = tabButtons[i]
-                val cat = categories[i]
-                val count = db.getAllDownloads(cat).size
-                val label = when (cat) {
-                    "ALL" -> "All ($count)"
-                    "ACTIVE" -> "Active ($count)"
-                    "COMPLETED" -> "Completed ($count)"
-                    "FAILED" -> "Failed ($count)"
-                    else -> cat
-                }
-                btn.text = label
-
-                if (cat == activeFilter) {
-                    btn.background = GradientDrawable().apply {
-                        cornerRadius = dpToPx(activity, 20).toFloat()
-                        setColor(accentColor)
-                    }
-                    btn.setTextColor(Color.WHITE)
-                } else {
-                    btn.background = GradientDrawable().apply {
-                        cornerRadius = dpToPx(activity, 20).toFloat()
-                        setColor(surfaceColor)
-                        setStroke(dpToPx(activity, 1), strokeColor)
-                    }
-                    btn.setTextColor(subTextColor)
-                }
-            }
-        }
-
-        // Build Tabs
-        for (cat in categories) {
-            val tv = TextView(activity).apply {
-                text = cat
-                textSize = 12f
-                setTypeface(null, Typeface.BOLD)
-                setPadding(dpToPx(activity, 14), dpToPx(activity, 8), dpToPx(activity, 14), dpToPx(activity, 8))
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    marginEnd = dpToPx(activity, 8)
-                }
-                setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activeFilter = cat
-                    refreshList()
-                }
-            }
-            tabButtons.add(tv)
-            tabsRow.addView(tv)
+            // Removed old Category Tabs logic
         }
 
         refreshListProxy = { refreshList() }
