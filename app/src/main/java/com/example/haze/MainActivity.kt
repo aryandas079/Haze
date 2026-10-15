@@ -4307,7 +4307,10 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveSessionState()
-        if (!isMediaPlaying && !isInPictureInPictureMode) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
+            return
+        }
+        if (!isMediaPlaying && miniPlayerManager?.isActive != true) {
             try {
                 currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onPause()
             } catch (_: Exception) {}
@@ -8262,8 +8265,103 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun isolateVideoForPip(enable: Boolean) {
+        val currentTab = currentTabsList.getOrNull(activeTabIndex) ?: return
+        if (enable) {
+            val script = """
+                (function() {
+                    var v = window.hazeActiveVideo;
+                    if (!v) {
+                        var videos = document.querySelectorAll('video');
+                        for (var i = 0; i < videos.length; i++) {
+                            if (!videos[i].paused || videos[i].currentTime > 0) {
+                                v = videos[i];
+                                break;
+                            }
+                        }
+                        if (!v && videos.length > 0) v = videos[0];
+                    }
+                    if (!v) return;
+                    window.hazeActiveVideo = v;
+
+                    if (v.paused) {
+                        var p = v.play();
+                        if (p && p.catch) p.catch(function(){});
+                    }
+
+                    var style = document.getElementById('__haze_pip_isolate_css');
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = '__haze_pip_isolate_css';
+                        (document.head || document.documentElement).appendChild(style);
+                    }
+                    style.textContent = 'html, body { background: #000000 !important; background-color: #000000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100vw !important; height: 100vh !important; } video { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; z-index: 2147483647 !important; object-fit: contain !important; background: #000000 !important; }';
+
+                    var parent = v.parentElement;
+                    while (parent && parent !== document.body) {
+                        parent.style.transform = 'none';
+                        parent.style.filter = 'none';
+                        parent.style.perspective = 'none';
+                        parent.style.contain = 'none';
+                        parent.style.clipPath = 'none';
+                        parent.style.overflow = 'visible';
+                        parent = parent.parentElement;
+                    }
+
+                    var selectorsToHide = [
+                        'ytm-mobile-topbar-renderer',
+                        'ytm-pivot-bar-renderer',
+                        'ytm-app-header-renderer',
+                        'ytm-custom-control-renderer',
+                        '.header-content',
+                        '#header-bar',
+                        '.page-header',
+                        '.site-header',
+                        '.nav-bar',
+                        'header',
+                        'nav'
+                    ];
+                    selectorsToHide.forEach(function(sel) {
+                        var el = document.querySelector(sel);
+                        if (el) el.style.display = 'none';
+                    });
+                })();
+            """.trimIndent()
+            currentTab.browserTab.evaluateJavascript(script, null)
+        } else {
+            val restoreScript = """
+                (function() {
+                    var style = document.getElementById('__haze_pip_isolate_css');
+                    if (style && style.parentNode) {
+                        style.parentNode.removeChild(style);
+                    }
+                    var selectorsToRestore = [
+                        'ytm-mobile-topbar-renderer',
+                        'ytm-pivot-bar-renderer',
+                        'ytm-app-header-renderer',
+                        '.header-content',
+                        '#header-bar',
+                        '.page-header',
+                        '.site-header',
+                        '.nav-bar',
+                        'header',
+                        'nav'
+                    ];
+                    selectorsToRestore.forEach(function(sel) {
+                        var el = document.querySelector(sel);
+                        if (el) el.style.display = '';
+                    });
+                })();
+            """.trimIndent()
+            currentTab.browserTab.evaluateJavascript(restoreScript, null)
+        }
+    }
+
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        val webView = currentTab?.webView
+
         if (isInPictureInPictureMode) {
             addressBarContainer.visibility = View.GONE
             findBarContainer.visibility = View.GONE
@@ -8276,6 +8374,11 @@ class MainActivity : AppCompatActivity() {
             if (::floatingNavContainer.isInitialized) {
                 floatingNavContainer.visibility = View.GONE
             }
+
+            webView?.setBackgroundColor(Color.BLACK)
+            webView?.onResume()
+            isolateVideoForPip(true)
+
             if (customVideoView != null) {
                 fullscreenVideoContainer.visibility = View.VISIBLE
                 webContainer.visibility = View.GONE
@@ -8283,6 +8386,7 @@ class MainActivity : AppCompatActivity() {
                 webContainer.visibility = View.VISIBLE
             }
         } else {
+            isolateVideoForPip(false)
             if (customVideoView != null) {
                 fullscreenVideoContainer.visibility = View.VISIBLE
                 webContainer.visibility = View.GONE
@@ -8290,7 +8394,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 fullscreenVideoContainer.visibility = View.GONE
                 webContainer.visibility = View.VISIBLE
-                val currentTab = currentTabsList.getOrNull(activeTabIndex)
                 updateChromeVisibility(currentTab?.url)
             }
         }
