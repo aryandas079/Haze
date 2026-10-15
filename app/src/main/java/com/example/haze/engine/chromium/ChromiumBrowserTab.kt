@@ -59,6 +59,17 @@ class ChromiumBrowserTab(
     private var observer: IEngineObserver? = null
 
     init {
+        if (isPrivate) {
+            try {
+                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE)) {
+                    val store = androidx.webkit.ProfileStore.getInstance()
+                    store.getOrCreateProfile("incognito")
+                    androidx.webkit.WebViewCompat.setProfile(webView, "incognito")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
         configureWebSettings(config)
         setupClientHandlers()
     }
@@ -85,12 +96,12 @@ class ChromiumBrowserTab(
             defaultTextEncodingName = config.defaultEncoding
 
             // Chromium & Google Password Manager integration
-            saveFormData = true
-            savePassword = true
+            saveFormData = !isPrivate
+            savePassword = !isPrivate
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 safeBrowsingEnabled = true
-                webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+                webView.importantForAutofill = if (isPrivate) View.IMPORTANT_FOR_AUTOFILL_NO else View.IMPORTANT_FOR_AUTOFILL_YES
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

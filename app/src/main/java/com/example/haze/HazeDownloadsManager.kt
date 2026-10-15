@@ -30,14 +30,21 @@ object HazeDownloadsManager {
         userAgent: String,
         contentDisposition: String,
         mimeType: String,
-        contentLength: Long
+        contentLength: Long,
+        isPrivate: Boolean = false
     ) {
         val guessedFileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val sizeFormatted = formatFileSize(contentLength)
+        
+        val message = if (isPrivate) {
+            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}\n\nWARNING: Downloaded files will be saved to your device and may remain after closing Private Mode."
+        } else {
+            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}"
+        }
 
         AlertDialog.Builder(activity)
             .setTitle("Download File?")
-            .setMessage("File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}")
+            .setMessage(message)
             .setPositiveButton("Download") { _, _ ->
                 activity.triggerStrongHaptic()
                 HazeDownloadEngine.enqueueDownload(
@@ -47,7 +54,8 @@ object HazeDownloadsManager {
                     contentDisposition = contentDisposition,
                     mimeType = mimeType,
                     contentLength = contentLength,
-                    suggestedFileName = guessedFileName
+                    suggestedFileName = guessedFileName,
+                    isPrivate = isPrivate
                 )
                 Toast.makeText(activity, "Download added: $guessedFileName", Toast.LENGTH_SHORT).show()
             }
