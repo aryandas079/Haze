@@ -5493,7 +5493,8 @@ class MainActivity : AppCompatActivity() {
             "#34A853", // Green
             "#9C27B0", // Purple
             "#FF6D01", // Orange
-            "#00897B"  // Teal
+            "#00897B", // Teal
+            "#212121"  // Dark Storm Grey
         )
 
         var btnApply: TextView? = null

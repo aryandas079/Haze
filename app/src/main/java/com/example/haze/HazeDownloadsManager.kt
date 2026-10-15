@@ -66,7 +66,7 @@ object HazeDownloadsManager {
     fun showDownloadsDialog(activity: MainActivity) {
         val isDark = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false) || activity.isPrivateMode
         val accentColor = Color.parseColor(activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getString("accent_color", "#0A56D0"))
-        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
+        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#FFFFFF")
         val surfaceColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.parseColor("#E3E3E3") else Color.parseColor("#1F1F1F")
         val subTextColor = if (isDark) Color.parseColor("#9E9E9E") else Color.parseColor("#757575")
@@ -100,7 +100,7 @@ object HazeDownloadsManager {
             setColorFilter(textColor)
             setBackgroundResource(getSelectableRes(activity))
             layoutParams = RelativeLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40)).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_START)
+                addRule(RelativeLayout.ALIGN_PARENT_END)
                 addRule(RelativeLayout.CENTER_VERTICAL)
             }
             setOnClickListener {
@@ -108,21 +108,60 @@ object HazeDownloadsManager {
                 dialog.dismiss()
             }
         }
+        
+        val btnSettings = ImageButton(activity).apply {
+            id = View.generateViewId()
+            setImageResource(R.drawable.ic_settings)
+            setColorFilter(textColor)
+            setBackgroundResource(getSelectableRes(activity))
+            layoutParams = RelativeLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40)).apply {
+                addRule(RelativeLayout.LEFT_OF, btnBack.id)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+                marginEnd = dpToPx(activity, 4)
+            }
+            setOnClickListener {
+                activity.triggerStrongHaptic(it)
+                Toast.makeText(activity, "Download Settings (Coming soon)", Toast.LENGTH_SHORT).show()
+            }
+        }
         header.addView(btnBack)
+        header.addView(btnSettings)
 
         val tvTitle = TextView(activity).apply {
             text = "Downloads"
             textSize = 20f
-            setTypeface(null, Typeface.BOLD)
+            setTypeface(null, Typeface.NORMAL)
             setTextColor(textColor)
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
-                addRule(RelativeLayout.RIGHT_OF, btnBack.id)
+                addRule(RelativeLayout.ALIGN_PARENT_START)
                 addRule(RelativeLayout.CENTER_VERTICAL)
-                marginStart = dpToPx(activity, 16)
             }
         }
         header.addView(tvTitle)
-        root.addView(header)
+        
+        val headerDivider = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
+            setBackgroundColor(strokeColor)
+            alpha = 0.5f
+        }
+        
+        val totalStorageStr = "Using 0.00 KB of 64.00 GB" // Placeholder for actual calculation
+        val tvStorage = TextView(activity).apply {
+            text = totalStorageStr
+            textSize = 10f
+            setTextColor(subTextColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dpToPx(activity, 16), dpToPx(activity, 4), dpToPx(activity, 16), dpToPx(activity, 12))
+            }
+        }
+        
+        val topContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        topContainer.addView(header)
+        topContainer.addView(tvStorage)
+        topContainer.addView(headerDivider)
+        root.addView(topContainer)
 
         // --- Category Tabs ---
         val tabsScroll = HorizontalScrollView(activity).apply {
@@ -153,29 +192,45 @@ object HazeDownloadsManager {
             }
             setPadding(dpToPx(activity, 32), 0, dpToPx(activity, 32), dpToPx(activity, 60))
 
-            val emptyIcon = ImageView(activity).apply {
-                setImageResource(R.drawable.ic_download)
-                setColorFilter(subTextColor)
-                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 64), dpToPx(activity, 64)).apply {
+            val emptyIconContainer = FrameLayout(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 120), dpToPx(activity, 120)).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
+                    bottomMargin = dpToPx(activity, 24)
                 }
+                
+                val bgBlob = ImageView(activity).apply {
+                    setImageResource(R.drawable.bg_download_blob) // You will need to create this shape or use a generic one
+                    setColorFilter(if (isDark) Color.parseColor("#1B2943") else Color.parseColor("#D3E3FD"))
+                    layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                }
+                
+                val icon = ImageView(activity).apply {
+                    setImageResource(R.drawable.ic_download)
+                    setColorFilter(accentColor)
+                    layoutParams = FrameLayout.LayoutParams(dpToPx(activity, 48), dpToPx(activity, 48)).apply {
+                        gravity = Gravity.CENTER
+                    }
+                }
+                
+                addView(bgBlob)
+                addView(icon)
             }
+
             val emptyTitle = TextView(activity).apply {
-                text = "No downloads"
-                textSize = 18f
-                setTypeface(null, Typeface.BOLD)
+                text = "You'll find your downloads here"
+                textSize = 16f
+                setTypeface(null, Typeface.NORMAL)
                 setTextColor(textColor)
                 gravity = Gravity.CENTER
                 textAlignment = View.TEXT_ALIGNMENT_CENTER
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dpToPx(activity, 16)
-                    bottomMargin = dpToPx(activity, 6)
+                    bottomMargin = dpToPx(activity, 12)
                 }
             }
             val emptySub = TextView(activity).apply {
-                text = "Files downloaded from the web will appear here."
-                textSize = 14f
+                text = "You can save images and files to view offline or share in other apps"
+                textSize = 13f
                 setTextColor(subTextColor)
                 gravity = Gravity.CENTER
                 textAlignment = View.TEXT_ALIGNMENT_CENTER
@@ -183,7 +238,7 @@ object HazeDownloadsManager {
                     gravity = Gravity.CENTER_HORIZONTAL
                 }
             }
-            addView(emptyIcon)
+            addView(emptyIconContainer)
             addView(emptyTitle)
             addView(emptySub)
         }
