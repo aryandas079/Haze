@@ -169,6 +169,12 @@ object HazeDevToolsManager {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), context.resources.displayMetrics).toInt()
     }
 
+    fun focusElement(selector: String) {
+        activeElementFocuser?.invoke(selector)
+    }
+
+    private var activeElementFocuser: ((String) -> Unit)? = null
+
     fun showDevToolsDialog(activity: MainActivity, browserTab: IBrowserTab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
         val webView = (browserTab.renderView as? WebView)
         showDevToolsDialogInternal(activity, browserTab.id, webView, initialTab, initialSelector)
@@ -216,17 +222,26 @@ object HazeDevToolsManager {
         val syntaxAttrColor = if (isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8")
         val syntaxStrColor = if (isDark) Color.parseColor("#81C995") else Color.parseColor("#188038")
 
-        val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
+        val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
         activeDialog = dialog
         dialog.setOnDismissListener {
             activeTabUpdateListener = null
             activeDialog = null
         }
         
-        dialog.window?.let { window ->
-            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        var isFullScreen = false
+        fun updateWindowLayout() {
+            dialog.window?.let { window ->
+                window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+                window.setGravity(Gravity.BOTTOM)
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                window.setFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+                
+                val height = if (isFullScreen) ViewGroup.LayoutParams.MATCH_PARENT else (activity.resources.displayMetrics.heightPixels * 0.55).toInt()
+                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, height)
+            }
         }
+        updateWindowLayout()
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -249,7 +264,6 @@ object HazeDevToolsManager {
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 28), dpToPx(activity, 28))
             setOnClickListener {
                 activity.triggerStrongHaptic()
-                dialog.dismiss()
                 webView?.evaluateJavascript(
                     """
                     (function() {
@@ -357,6 +371,7 @@ object HazeDevToolsManager {
         topBar.addView(btnDeviceToolbar)
 
         var currentTab = initialTab
+        var currentSelectorToFocus = initialSelector
 
         fun createTabHeader(title: String): TextView {
             return TextView(activity).apply {
@@ -387,6 +402,20 @@ object HazeDevToolsManager {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        val btnFullscreen = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_devtools_arrow_down)
+            rotation = 180f
+            setColorFilter(subTextColor)
+            setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 28), dpToPx(activity, 28))
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                isFullScreen = !isFullScreen
+                rotation = if (isFullScreen) 0f else 180f
+                updateWindowLayout()
+            }
+        }
+
         val btnClose = ImageView(activity).apply {
             setImageResource(R.drawable.ic_close)
             setColorFilter(subTextColor)
@@ -398,6 +427,7 @@ object HazeDevToolsManager {
             }
         }
 
+        rightActions.addView(btnFullscreen)
         rightActions.addView(btnClose)
         topBar.addView(rightActions)
         root.addView(topBar)
@@ -811,6 +841,14 @@ object HazeDevToolsManager {
                     } else updateStylesDrawer(null)
                 }
             }
+            
+            activeElementFocuser = { sel -> 
+                currentSelectorToFocus = sel
+                currentTab = "ELEMENTS"
+                updateTabStyles()
+                contentContainer.removeAllViews()
+                contentContainer.addView(renderElementsPanel())
+            }
 
             fun loadDOM(filterSel: String = "") {
                 domTreeContainer.removeAllViews()
@@ -1027,8 +1065,9 @@ object HazeDevToolsManager {
                             domTreeContainer.addView(renderNode(rootNode, 0))
                         }
                         
-                        if (initialSelector != null) {
-                            focusElementBySelector(initialSelector)
+                        if (currentSelectorToFocus != null) {
+                            focusElementBySelector(currentSelectorToFocus!!)
+                            currentSelectorToFocus = null
                         } else {
                             updateStylesDrawer(null)
                         }

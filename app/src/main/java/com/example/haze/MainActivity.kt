@@ -642,8 +642,12 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun onElementInspected(selector: String) {
             runOnUiThread {
-                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
-                HazeDevToolsManager.showDevToolsDialog(this@MainActivity, tab, "ELEMENTS", selector)
+                if (HazeDevToolsManager.activeDialog?.isShowing == true) {
+                    HazeDevToolsManager.focusElement(selector)
+                } else {
+                    val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                    HazeDevToolsManager.showDevToolsDialog(this@MainActivity, tab, "ELEMENTS", selector)
+                }
             }
         }
         
