@@ -45,6 +45,7 @@ object HazeHistoryManager {
         var isSelectionMode = false
         val selectedIds = mutableSetOf<Long>()
         var currentQuery = ""
+        var currentFilter = "All Time"
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -181,10 +182,17 @@ object HazeHistoryManager {
         selectionHeader.addView(selectionActions)
         root.addView(selectionHeader)
 
-        // --- Search Bar ---
-        val searchContainer = FrameLayout(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 48)).apply {
+        // --- Search & Filter Bar ---
+        val searchAndFilterRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(dpToPx(activity, 16), 0, dpToPx(activity, 16), dpToPx(activity, 12))
+            }
+        }
+
+        val searchContainer = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(0, dpToPx(activity, 48), 1f).apply {
+                marginEnd = dpToPx(activity, 8)
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -195,7 +203,7 @@ object HazeHistoryManager {
         }
 
         val searchInput = EditText(activity).apply {
-            hint = "Search history by title or URL..."
+            hint = "Search history..."
             setHintTextColor(subTextColor)
             setTextColor(textColor)
             textSize = 14f
@@ -228,7 +236,39 @@ object HazeHistoryManager {
         searchContainer.addView(searchIcon)
         searchContainer.addView(searchInput)
         searchContainer.addView(btnClearSearch)
-        root.addView(searchContainer)
+        searchAndFilterRow.addView(searchContainer)
+
+        val btnFilter = LinearLayout(activity).apply {
+            id = View.generateViewId()
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(activity, 24).toFloat()
+                setColor(surfaceColor)
+                setStroke(dpToPx(activity, 1), strokeColor)
+            }
+            setPadding(dpToPx(activity, 12), 0, dpToPx(activity, 12), 0)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dpToPx(activity, 48))
+        }
+        val tvFilter = TextView(activity).apply {
+            text = "All Time"
+            textSize = 13f
+            setTextColor(textColor)
+            setTypeface(null, Typeface.BOLD)
+        }
+        val ivFilterArrow = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_chevron_down)
+            setColorFilter(textColor)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 16), dpToPx(activity, 16)).apply {
+                marginStart = dpToPx(activity, 4)
+            }
+        }
+        btnFilter.addView(tvFilter)
+        btnFilter.addView(ivFilterArrow)
+        searchAndFilterRow.addView(btnFilter)
+        
+        root.addView(searchAndFilterRow)
 
         // --- RecyclerView & Empty View ---
         val contentFrame = FrameLayout(activity).apply {
@@ -288,6 +328,21 @@ object HazeHistoryManager {
         root.addView(contentFrame)
 
         var refreshListFunc: (() -> Unit)? = null
+
+        btnFilter.setOnClickListener {
+            val popup = PopupMenu(activity, btnFilter)
+            val filters = listOf("All Time", "Today", "Yesterday", "Older")
+            filters.forEachIndexed { index, title ->
+                popup.menu.add(android.view.Menu.NONE, index, android.view.Menu.NONE, title)
+            }
+            popup.setOnMenuItemClickListener { item ->
+                currentFilter = filters[item.itemId]
+                tvFilter.text = currentFilter
+                refreshListFunc?.invoke()
+                true
+            }
+            popup.show()
+        }
 
         fun updateSelectionHeader() {
             tvSelectedCount.text = "${selectedIds.size} selected"
@@ -393,7 +448,14 @@ object HazeHistoryManager {
                     )
                 }
             } else {
-                val grouped = db.getHistoryGrouped()
+                val allGrouped = db.getHistoryGrouped()
+                val grouped = when (currentFilter) {
+                    "Today" -> allGrouped.filterKeys { it == "Today" }
+                    "Yesterday" -> allGrouped.filterKeys { it == "Yesterday" }
+                    "Older" -> allGrouped.filterKeys { it != "Today" && it != "Yesterday" }
+                    else -> allGrouped
+                }
+
                 if (grouped.isEmpty()) {
                     emptyView.visibility = View.VISIBLE
                     recyclerView.visibility = View.GONE
