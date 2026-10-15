@@ -6022,10 +6022,28 @@ class MainActivity : AppCompatActivity() {
                 var unwanted = copy.querySelectorAll('script, style, noscript, iframe, video, audio, canvas, nav, footer, form, aside');
                 for (var k = 0; k < unwanted.length; k++) unwanted[k].remove();
                 var plain = (copy.innerText || '').replace(/\s+/g, ' ').trim();
-                var paragraphs = copy.querySelectorAll('p').length;
+                var wordCount = plain.split(/\s+/).filter(Boolean).length;
+                var readTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
                 var title = document.title;
-                var readable = plain.length >= 500 && (paragraphs >= 3 || plain.length >= 1100);
-                return JSON.stringify({ title: title, html: copy.innerHTML, readable: readable, characters: plain.length });
+
+                var author = '';
+                var authorMeta = document.querySelector('meta[name="author"], meta[property="article:author"], meta[name="twitter:creator"]');
+                if (authorMeta) author = authorMeta.content || '';
+                if (!author) {
+                    var authorEl = document.querySelector('.author, .byline, [rel="author"], .by-line');
+                    if (authorEl) author = authorEl.innerText.trim();
+                }
+
+                var paragraphs = copy.querySelectorAll('p').length;
+                var readable = plain.length >= 400 && (paragraphs >= 2 || plain.length >= 800);
+                return JSON.stringify({
+                    title: title,
+                    author: author,
+                    readTime: readTimeMinutes + ' min read',
+                    html: copy.innerHTML,
+                    readable: readable,
+                    characters: plain.length
+                });
             })();
         """.trimIndent()
         
@@ -6041,9 +6059,11 @@ class MainActivity : AppCompatActivity() {
                     return@evaluateJavascript
                 }
                 val title = json.optString("title", "Reader Mode")
+                val author = json.optString("author", "")
+                val readTime = json.optString("readTime", "2 min read")
                 val contentHtml = json.optString("html", "")
                 
-                showReaderModeDialog(title, contentHtml)
+                showReaderModeDialog(title, author, readTime, contentHtml)
             } catch (e: Exception) {
                 Toast.makeText(this, "Could not format page for reading", Toast.LENGTH_SHORT).show()
             }
@@ -6054,17 +6074,18 @@ class MainActivity : AppCompatActivity() {
     private var isTtsSpeaking = false
     private var ttsSpeed = 1.0f
 
-    private fun showReaderModeDialog(title: String, contentHtml: String) {
+    private fun showReaderModeDialog(title: String, author: String, readTime: String, contentHtml: String) {
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         val isDark = prefs.getBoolean("is_dark", false)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
 
         // Start with a readable surface that follows the browser theme.
-        var currentBg = if (isDark) "#121212" else "#FFF3E0"
-        var currentText = if (isDark) "#F1F3F4" else "#5D1A00"
+        var currentBg = if (isDark) "#121212" else "#FDFBF7"
+        var currentText = if (isDark) "#F1F3F4" else "#202124"
         var currentFont = "'Outfit', sans-serif"
         var currentFontSize = "18px"
+        var currentLineHeight = "1.85"
         var maxWidth = "680px"
 
         val root = LinearLayout(this).apply {
@@ -6095,7 +6116,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val headerTitle = TextView(this).apply {
-            text = "Reading Mode"
+            text = "Reader Mode"
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
@@ -6143,6 +6164,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun reloadReaderContent() {
+            val authorHtml = if (author.isNotEmpty()) "<span class=\"author\">By $author</span> • " else ""
             val readerHtml = """
                 <!DOCTYPE html>
                 <html>
@@ -6152,7 +6174,7 @@ class MainActivity : AppCompatActivity() {
                         @import url('https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Outfit:wght@300;400;500;600&family=Georgia&family=Sitka+Text&display=swap');
                         body {
                             font-family: $currentFont;
-                            line-height: 1.85;
+                            line-height: $currentLineHeight;
                             font-size: $currentFontSize;
                             padding: 28px 20px 80px 20px;
                             margin: 0 auto;
@@ -6160,7 +6182,30 @@ class MainActivity : AppCompatActivity() {
                             color: $currentText;
                             background: $currentBg;
                         }
-                        h1 { font-size: 28px; line-height: 1.35; margin-bottom: 24px; font-weight: 700; color: $currentText; }
+                        .article-badge {
+                            display: inline-block;
+                            font-size: 11px;
+                            font-weight: 700;
+                            letter-spacing: 1px;
+                            text-transform: uppercase;
+                            padding: 4px 8px;
+                            border-radius: 6px;
+                            background: rgba(26, 115, 232, 0.15);
+                            color: $accentColor;
+                            margin-bottom: 12px;
+                        }
+                        h1 { font-size: 28px; line-height: 1.3; margin-top: 0; margin-bottom: 12px; font-weight: 700; color: $currentText; }
+                        .article-meta {
+                            font-size: 13px;
+                            opacity: 0.75;
+                            margin-bottom: 20px;
+                        }
+                        .divider {
+                            border: none;
+                            height: 1px;
+                            background: rgba(128, 128, 128, 0.25);
+                            margin-bottom: 24px;
+                        }
                         h2, h3 { color: $currentText; margin-top: 28px; }
                         img { max-width: 100%; height: auto; border-radius: 12px; margin: 20px 0; }
                         p { margin-bottom: 20px; }
@@ -6168,7 +6213,10 @@ class MainActivity : AppCompatActivity() {
                     </style>
                 </head>
                 <body>
+                    <div class="article-badge">ARTICLE</div>
                     <h1>$title</h1>
+                    <div class="article-meta">$authorHtml<span>$readTime</span></div>
+                    <hr class="divider"/>
                     $contentHtml
                 </body>
                 </html>
@@ -6411,6 +6459,36 @@ class MainActivity : AppCompatActivity() {
             popView.addView(tvWidthLbl)
             popView.addView(widthSeek)
 
+            // Line Spacing
+            val tvLineSpacingLbl = TextView(this).apply {
+                text = "Line Spacing"
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(appearanceText)
+                setPadding(0, dpToPx(16), 0, 0)
+            }
+            val lineSpacingSeek = SeekBar(this).apply {
+                max = 4
+                progress = 2 // default 1.85
+                progressTintList = ColorStateList.valueOf(accentColor)
+                thumbTintList = ColorStateList.valueOf(accentColor)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        currentLineHeight = when (progress) {
+                            0 -> "1.3"
+                            1 -> "1.5"
+                            2 -> "1.85"
+                            3 -> "2.1"
+                            else -> "2.4"
+                        }
+                        reloadReaderContent()
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+            popView.addView(tvLineSpacingLbl)
+            popView.addView(lineSpacingSeek)
+
             // Color Themes
             val tvThemeLbl = TextView(this).apply {
                 text = "Reading Theme"
@@ -6422,12 +6500,13 @@ class MainActivity : AppCompatActivity() {
 
             val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val themes = listOf(
-                Pair("Paper Cream", Pair("#FDFBF7", "#202124")),
+                Pair("Cream", Pair("#FDFBF7", "#202124")),
+                Pair("Sepia", Pair("#FFF3E0", "#5D1A00")),
                 Pair("White", Pair("#FFFFFF", "#202124")),
                 Pair("Dark", Pair("#121212", "#E0E0E0")),
+                Pair("OLED", Pair("#000000", "#FFFFFF")),
                 Pair("Mint", Pair("#E6F4EA", "#137333")),
-                Pair("Blue", Pair("#E8F0FE", "#1967D2")),
-                Pair("Yellow", Pair("#FEF7E0", "#B06000"))
+                Pair("Blue", Pair("#E8F0FE", "#1967D2"))
             )
             for (th in themes) {
                 val btn = Button(this).apply {
