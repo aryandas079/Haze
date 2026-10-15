@@ -638,6 +638,15 @@ class MainActivity : AppCompatActivity() {
         }
         @JavascriptInterface
         fun startVoiceSearch() { runOnUiThread { this@MainActivity.startVoiceSearch() } }
+        
+        @JavascriptInterface
+        fun onElementInspected(selector: String) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                HazeDevToolsManager.showDevToolsDialog(this@MainActivity, tab, "ELEMENTS", selector)
+            }
+        }
+        
         @JavascriptInterface
         fun launchMiniPlayer() { 
             runOnUiThread { 
