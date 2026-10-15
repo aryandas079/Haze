@@ -327,6 +327,7 @@ object HazeFasterReloadingEngine {
         }
 
         val btnClose = ImageButton(activity).apply {
+            id = View.generateViewId()
             setImageResource(R.drawable.ic_close)
             setColorFilter(textColor)
             background = null
@@ -358,6 +359,10 @@ object HazeFasterReloadingEngine {
         val scroll = NestedScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             setPadding(dpToPx(activity, 16), dpToPx(activity, 8), dpToPx(activity, 16), dpToPx(activity, 24))
+        }
+
+        val contentLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
         }
 
         val card = LinearLayout(activity).apply {
@@ -422,7 +427,96 @@ object HazeFasterReloadingEngine {
         addStatRow("Estimated Time Saved:", timeSavedSec)
         addStatRow("Last Startup Preload:", lastPreloadStr)
 
-        scroll.addView(card)
+        contentLayout.addView(card)
+
+        // Section Title
+        val tvListTitle = TextView(activity).apply {
+            text = "Evaluated & Preloaded Websites"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            setPadding(0, dpToPx(activity, 20), 0, dpToPx(activity, 10))
+        }
+        contentLayout.addView(tvListTitle)
+
+        val candidates = getRankedCandidates(activity)
+        if (candidates.isEmpty()) {
+            val emptyTv = TextView(activity).apply {
+                text = "No websites evaluated yet. Browse to accumulate reloading data."
+                textSize = 13f
+                setTextColor(subTextColor)
+                setPadding(0, dpToPx(activity, 8), 0, dpToPx(activity, 8))
+            }
+            contentLayout.addView(emptyTv)
+        } else {
+            for (c in candidates) {
+                val itemCard = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dpToPx(activity, 14), dpToPx(activity, 12), dpToPx(activity, 14), dpToPx(activity, 12))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dpToPx(activity, 12).toFloat()
+                        setColor(cardBgColor)
+                        setStroke(1, borderColor)
+                    }
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dpToPx(activity, 10)
+                    }
+                }
+
+                val topRow = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
+                val tvHost = TextView(activity).apply {
+                    text = c.host
+                    textSize = 14f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(textColor)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
+
+                val isWarmed = warmedUrls.contains(c.url) || warmedUrls.contains(c.host)
+                val badgeTv = TextView(activity).apply {
+                    text = if (isWarmed) "WARMED" else "ELIGIBLE"
+                    textSize = 10f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(dpToPx(activity, 8), dpToPx(activity, 2), dpToPx(activity, 8), dpToPx(activity, 2))
+                    setTextColor(if (isWarmed) Color.parseColor("#188038") else accentColor)
+                    background = GradientDrawable().apply {
+                        cornerRadius = dpToPx(activity, 6).toFloat()
+                        setColor(if (isWarmed) (if (isDark) Color.parseColor("#133B1E") else Color.parseColor("#E6F4EA")) else (if (isDark) Color.parseColor("#1C2B46") else Color.parseColor("#E8F0FE")))
+                    }
+                }
+
+                topRow.addView(tvHost)
+                topRow.addView(badgeTv)
+                itemCard.addView(topRow)
+
+                val tvUrl = TextView(activity).apply {
+                    text = c.url
+                    textSize = 11.5f
+                    setTextColor(subTextColor)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(0, dpToPx(activity, 2), 0, dpToPx(activity, 6))
+                }
+                itemCard.addView(tvUrl)
+
+                val dateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(c.lastVisited))
+                val scoreStr = String.format(Locale.US, "%.1f", c.score)
+                val tvMetrics = TextView(activity).apply {
+                    text = "${c.visitCount} visits • Score: $scoreStr • Last: $dateStr"
+                    textSize = 11f
+                    setTextColor(subTextColor)
+                }
+                itemCard.addView(tvMetrics)
+
+                contentLayout.addView(itemCard)
+            }
+        }
+
+        scroll.addView(contentLayout)
         root.addView(scroll)
         dialog.setContentView(root)
         dialog.show()
