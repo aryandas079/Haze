@@ -638,6 +638,15 @@ class MainActivity : AppCompatActivity() {
         }
         @JavascriptInterface
         fun startVoiceSearch() { runOnUiThread { this@MainActivity.startVoiceSearch() } }
+        
+        @JavascriptInterface
+        fun onElementInspected(selector: String) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                HazeDevToolsManager.showDevToolsDialog(this@MainActivity, tab, "ELEMENTS", selector)
+            }
+        }
+        
         @JavascriptInterface
         fun launchMiniPlayer() { 
             runOnUiThread { 
@@ -1154,6 +1163,9 @@ class MainActivity : AppCompatActivity() {
         setupSwipeBetweenTabs()
         setupWebEdgeSwipeGestures()
         val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
+        // Clear any orphaned private sessions on startup to ensure strict isolation
+        ChromiumEngineManager.getEngine(this).clearPrivateSession(null)
+
         val shouldContinueSession = prefs.getBoolean("continue_where_left_off", true)
         val hasRestored = if (shouldContinueSession && initialUrl == HAZE_HOME_URL) {
             restoreSavedSessionOnStartup()
@@ -2473,10 +2485,10 @@ class MainActivity : AppCompatActivity() {
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2" // "off", "1", "2"
         val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         
-        val bgColor = if (isIncognito) "#181818" else (if (isDarkSetting) "#121212" else "#FAFAFA")
-        val cardColor = if (isIncognito) "#2A2A2A" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
-        val textColor = if (isDark) "#FFFFFF" else "#202124"
-        val labelColor = if (isDark) "#E0E0E0" else "#202124"
+        val bgColor = if (isIncognito) "#121212" else (if (isDarkSetting) "#121212" else "#FAFAFA")
+        val cardColor = if (isIncognito) "#1E1E1E" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
+        val textColor = if (isIncognito || isDark) "#FFFFFF" else "#202124"
+        val labelColor = if (isIncognito || isDark) "#E0E0E0" else "#202124"
         val cardBorder = "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
         
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
@@ -2518,6 +2530,104 @@ class MainActivity : AppCompatActivity() {
         val bgImageBase64 = if (!isIncognito) getBgPhotoBase64(bgTheme) else null
         val hasBgPhoto = bgImageBase64 != null
 
+        if (isIncognito) {
+            val incognitoHtml = """
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                    <style>
+                        body {
+                            margin: 0; padding: 0; font-family: 'Google Sans', 'Roboto', sans-serif;
+                            background-color: $bgColor; color: $textColor; display: flex; flex-direction: column;
+                            min-height: 100vh; overflow-x: hidden; user-select: none; -webkit-user-select: none;
+                        }
+                        .container {
+                            flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+                            padding: 64px 24px 24px; box-sizing: border-box; max-width: 600px; margin: 0 auto; width: 100%;
+                        }
+                        .logo-wrapper {
+                            margin-bottom: 32px; display: flex; justify-content: center;
+                            animation: float 4s ease-in-out infinite;
+                        }
+                        .logo {
+                            width: 80px; height: 80px; filter: drop-shadow(0 4px 14px rgba(0,0,0,0.3));
+                        }
+                        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-8px); } 100% { transform: translateY(0px); } }
+                        .title { font-size: 24px; font-weight: 600; margin-bottom: 24px; text-align: center; }
+                        .info-box {
+                            background-color: $cardColor; border-radius: 16px; padding: 20px;
+                            box-shadow: 0 4px 16px rgba(0,0,0,0.1); margin-bottom: 24px; width: 100%; box-sizing: border-box;
+                        }
+                        .info-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: $accentColor; }
+                        .info-list { list-style-type: none; padding: 0; margin: 0; }
+                        .info-list li {
+                            font-size: 13.5px; margin-bottom: 10px; line-height: 1.4; color: $textColor;
+                            display: flex; align-items: flex-start;
+                        }
+                        .info-list li:last-child { margin-bottom: 0; }
+                        .info-list li::before {
+                            content: "•"; color: $accentColor; font-weight: bold; display: inline-block; width: 16px; font-size: 16px;
+                        }
+                        .warning-text { font-size: 12.5px; color: #9AA0A6; line-height: 1.5; text-align: left; width: 100%; margin-bottom: 32px; }
+                        .actions-grid {
+                            display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; margin-bottom: 24px;
+                        }
+                        .action-btn {
+                            background-color: $cardColor; border: 1px solid #3C4043; border-radius: 12px;
+                            padding: 14px 12px; display: flex; flex-direction: column; align-items: center;
+                            justify-content: center; text-align: center; font-size: 12.5px; font-weight: 500;
+                            color: $textColor; cursor: pointer; transition: background-color 0.2s;
+                        }
+                        .action-btn:active { background-color: #3C4043; }
+                        .action-icon { width: 24px; height: 24px; margin-bottom: 8px; fill: $accentColor; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="logo-wrapper">
+                            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
+                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
+                <circle cx="32" cy="62" r="15" fill="$textColor"/>
+                <circle cx="32" cy="62" r="11" fill="$bgColor"/>
+                <circle cx="68" cy="62" r="15" fill="$textColor"/>
+                <circle cx="68" cy="62" r="11" fill="$bgColor"/>
+                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+        </div>
+        <div class="title">Private Browsing</div>
+                        
+                        <div class="info-box">
+                            <div class="info-title">Haze won't save the following:</div>
+                            <ul class="info-list">
+                                <li>Your browsing history</li>
+                                <li>Cookies and site data</li>
+                                <li>Information entered in forms</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="warning-text">
+                            Your activity might still be visible to websites you visit, your employer or school, or your internet service provider. Downloaded files and bookmarks will be saved.
+                        </div>
+
+                        <div class="actions-grid">
+                            <div class="action-btn" onclick="Android.triggerHaptic(false); Android.focusAddressBar()">
+                                <svg class="action-icon" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                                Search privately
+                            </div>
+                            <div class="action-btn" onclick="Android.triggerHaptic(false); Android.navigateTo('haze://shield')">
+                                <svg class="action-icon" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                                Privacy settings
+                            </div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            """.trimIndent()
+            return incognitoHtml
+        }
+
         val bgStyle = if (hasBgPhoto) {
             """
             background-color: #121212;
@@ -2549,12 +2659,12 @@ class MainActivity : AppCompatActivity() {
         val logoViewHtml = if (isIncognito) {
             """
             <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
-                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
-                <circle cx="32" cy="62" r="15" fill="$textColor"/>
+                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="#FFFFFF"/>
+                <circle cx="32" cy="62" r="15" fill="#FFFFFF"/>
                 <circle cx="32" cy="62" r="11" fill="$bgColor"/>
-                <circle cx="68" cy="62" r="15" fill="$textColor"/>
+                <circle cx="68" cy="62" r="15" fill="#FFFFFF"/>
                 <circle cx="68" cy="62" r="11" fill="$bgColor"/>
-                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
+                <path d="M47 62 L53 62" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
             </svg>
             """.trimIndent()
         } else {
@@ -2651,9 +2761,9 @@ class MainActivity : AppCompatActivity() {
     private fun applyTheme() {
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         
-        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-        val barBgColor = if (isPrivateMode) Color.parseColor("#2A2A2A") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
+        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
@@ -2962,13 +3072,18 @@ class MainActivity : AppCompatActivity() {
         addressBarContainer.visibility = View.VISIBLE
         val isHome = url == null || url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home") || url == "about:blank" || url.startsWith("about:") || url.isEmpty()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
+        
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         
         if (isHome) {
             addressBar.setText("")
         }
 
-        val barBgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
+        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
+        
+        addressBar.setTextColor(textColor)
+        
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
         val barShape = GradientDrawable().apply {
             this.shape = GradientDrawable.RECTANGLE
@@ -2982,7 +3097,7 @@ class MainActivity : AppCompatActivity() {
         addressBarInner.elevation = 0f
         addressBarInner.outlineProvider = null
         
-        addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
+        addressBarContainer.setBackgroundColor(if (isPrivateMode) bgColor else Color.TRANSPARENT)
         addressBarContainer.elevation = 0f
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val hasBgPhoto = bgTheme != "default" && !isPrivateMode
@@ -3486,13 +3601,15 @@ class MainActivity : AppCompatActivity() {
             WebView.startSafeBrowsing(this) { }
         }
 
-        if (HazeAccountManager.isSignedIn(this)) {
+        val isPriv = getTabFromWebView(webView)?.isPrivate ?: isPrivateMode
+        if (!isPriv && HazeAccountManager.isSignedIn(this)) {
             HazeAccountManager.syncGoogleAccountToCookieManager(this)
         }
 
         // Web download listener
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
-            HazeDownloadsManager.initDownload(this, url, userAgent, contentDisposition, mimeType, contentLength)
+            val isPriv = getTabFromWebView(webView)?.isPrivate ?: isPrivateMode
+            HazeDownloadsManager.initDownload(this, url, userAgent, contentDisposition, mimeType, contentLength, isPriv)
         }
 
         // Native Context Menu on Long Click
@@ -3813,7 +3930,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     // Record history asynchronously off UI thread
-                    if (!isPrivateMode && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    if (!tab.isPrivate && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
                         val pageTitle = tab.title.ifEmpty { view?.title ?: "Web Page" }
                         dbExecutor.execute {
                             try {
@@ -4134,7 +4251,7 @@ class MainActivity : AppCompatActivity() {
                         tab.title = "New Tab"
                     } else if (!tab.url.startsWith("haze://")) {
                         tab.title = title
-                        if (!isPrivateMode && tab.url != HAZE_HOME_URL && !tab.url.startsWith("about:")) {
+                        if (!tab.isPrivate && tab.url != HAZE_HOME_URL && !tab.url.startsWith("about:")) {
                             HazeDatabase.getInstance(this@MainActivity).addHistory(tab.url, title, isPrivate = false)
                         }
                     }
@@ -4145,7 +4262,7 @@ class MainActivity : AppCompatActivity() {
                 val tab = getTabFromWebView(webView)
                 if (tab != null && icon != null) {
                     tab.favicon = icon
-                    if (!isPrivateMode && tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://") && !tab.url.startsWith("about:")) {
+                    if (!tab.isPrivate && tab.url != HAZE_HOME_URL && !tab.url.startsWith("haze://") && !tab.url.startsWith("about:")) {
                         val path = HazeFaviconManager.saveFavicon(this@MainActivity, tab.url, icon)
                         if (path != null) {
                             HazeDatabase.getInstance(this@MainActivity).updateHistoryFavicon(tab.url, path)
@@ -4560,7 +4677,7 @@ class MainActivity : AppCompatActivity() {
 
         fun updateUI(animate: Boolean = false) {
             val isDarkTheme = prefs.getBoolean("is_dark", false) || viewingPrivate
-            val count = normalTabs.size
+            val count = if (viewingPrivate) privateTabs.size else normalTabs.size
             tvTabCountPill?.text = count.toString()
 
             if (viewingPrivate) {
@@ -5755,7 +5872,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#F8F9FA")
 

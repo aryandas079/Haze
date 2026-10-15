@@ -80,15 +80,25 @@ class ChromiumBrowserEngine private constructor() : IBrowserEngine {
     }
 
     override fun clearPrivateSession(onComplete: (() -> Unit)?) {
-        Thread {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        handler.post {
             try {
-                val cookieManager = CookieManager.getInstance()
-                cookieManager.removeSessionCookies {
-                    cookieManager.flush()
+                if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.MULTI_PROFILE)) {
+                    val store = androidx.webkit.ProfileStore.getInstance()
+                    store.deleteProfile("incognito")
                 }
             } catch (_: Exception) {}
-            onComplete?.invoke()
-        }.start()
+            
+            Thread {
+                try {
+                    val cookieManager = CookieManager.getInstance()
+                    cookieManager.removeSessionCookies {
+                        cookieManager.flush()
+                    }
+                } catch (_: Exception) {}
+                onComplete?.invoke()
+            }.start()
+        }
     }
 
     override fun clearFormData(context: Context) {

@@ -98,7 +98,8 @@ object HazeDownloadEngine {
         contentDisposition: String,
         mimeType: String,
         contentLength: Long,
-        suggestedFileName: String? = null
+        suggestedFileName: String? = null,
+        isPrivate: Boolean = false
     ): Long {
         val appCtx = context.applicationContext
         val fileName = resolveFileName(appCtx, suggestedFileName ?: URLUtil.guessFileName(url, contentDisposition, mimeType))
@@ -119,15 +120,17 @@ object HazeDownloadEngine {
         )
 
         // Save initial record to database
-        HazeDatabase.getInstance(appCtx).addDownload(
-            downloadId = downloadId,
-            fileName = fileName,
-            filePath = targetFile.absolutePath,
-            fileSize = contentLength,
-            url = url,
-            mimeType = mimeType,
-            status = STATUS_QUEUED
-        )
+        if (!isPrivate) {
+            HazeDatabase.getInstance(appCtx).addDownload(
+                downloadId = downloadId,
+                fileName = fileName,
+                filePath = targetFile.absolutePath,
+                fileSize = contentLength,
+                url = url,
+                mimeType = mimeType,
+                status = STATUS_QUEUED
+            )
+        }
 
         val initialInfo = DownloadProgressInfo(
             downloadId = downloadId,
