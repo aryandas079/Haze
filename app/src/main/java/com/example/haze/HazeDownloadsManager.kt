@@ -81,6 +81,7 @@ object HazeDownloadsManager {
         }
 
         var activeFilter = "ALL" // ALL, ACTIVE, COMPLETED, FAILED
+        var btnFilterUpdateCallback: ((String, Int) -> Unit)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -124,8 +125,74 @@ object HazeDownloadsManager {
                 showDownloadSettingsDialog(activity, surfaceColor, textColor, subTextColor, strokeColor)
             }
         }
+        
+        val btnFilter = LinearLayout(activity).apply {
+            id = View.generateViewId()
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundResource(getSelectableRes(activity))
+            setPadding(dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, dpToPx(activity, 40)).apply {
+                addRule(RelativeLayout.LEFT_OF, btnSettings.id)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+                marginEnd = dpToPx(activity, 4)
+            }
+        }
+        val tvFilter = TextView(activity).apply {
+            text = "All"
+            textSize = 14f
+            setTextColor(textColor)
+            setTypeface(null, Typeface.BOLD)
+        }
+        val ivFilterArrow = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_chevron_down)
+            setColorFilter(textColor)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 16), dpToPx(activity, 16)).apply {
+                marginStart = dpToPx(activity, 4)
+            }
+        }
+        btnFilter.addView(tvFilter)
+        btnFilter.addView(ivFilterArrow)
+        
+        var refreshListProxy: (() -> Unit)? = null
+        btnFilterUpdateCallback = { cat, count ->
+            val label = when (cat) {
+                "ALL" -> "All"
+                "ACTIVE" -> "Active"
+                "COMPLETED" -> "Completed"
+                "FAILED" -> "Failed"
+                else -> cat
+            }
+            tvFilter.text = if (count > 0) "$label ($count)" else label
+        }
+
+        btnFilter.setOnClickListener {
+            val popup = android.widget.PopupMenu(activity, btnFilter)
+            val categories = listOf("ALL", "ACTIVE", "COMPLETED", "FAILED")
+            for (cat in categories) {
+                val count = HazeDatabase.getInstance(activity).getAllDownloads(cat).size
+                val label = when (cat) {
+                    "ALL" -> "All"
+                    "ACTIVE" -> "Active"
+                    "COMPLETED" -> "Completed"
+                    "FAILED" -> "Failed"
+                    else -> cat
+                }
+                popup.menu.add(android.view.Menu.NONE, categories.indexOf(cat), android.view.Menu.NONE, if (count > 0) "$label ($count)" else label)
+            }
+            popup.setOnMenuItemClickListener { item ->
+                activeFilter = categories[item.itemId]
+                val currentCount = HazeDatabase.getInstance(activity).getAllDownloads(activeFilter).size
+                btnFilterUpdateCallback.invoke(activeFilter, currentCount)
+                refreshListProxy?.invoke()
+                true
+            }
+            popup.show()
+        }
+
         header.addView(btnBack)
         header.addView(btnSettings)
+        header.addView(btnFilter)
 
         val tvTitle = TextView(activity).apply {
             text = "Downloads"
@@ -384,6 +451,8 @@ object HazeDownloadsManager {
             tabButtons.add(tv)
             tabsRow.addView(tv)
         }
+
+        refreshListProxy = { refreshList() }
 
         // Register Real-Time Progress Listener
         val downloadListener = object : DownloadProgressListener {
