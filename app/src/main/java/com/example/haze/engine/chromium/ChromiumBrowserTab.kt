@@ -85,6 +85,8 @@ class ChromiumBrowserTab(
             databaseEnabled = config.enableDatabase
             useWideViewPort = isDesktop
             loadWithOverviewMode = isDesktop
+            // Start with a clean Android Chrome UA; avoids sites detecting raw WebView UA
+            userAgentString = if (isDesktop) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
@@ -131,61 +133,36 @@ class ChromiumBrowserTab(
         webView.isHorizontalScrollBarEnabled = false
     }
 
-    private val defaultMobileUserAgent: String by lazy {
-        WebSettings.getDefaultUserAgent(webView.context)
-    }
+    private val defaultMobileUserAgent: String
+        get() = MOBILE_USER_AGENT
 
     private fun applyDesktopMode(desktop: Boolean) {
         val currentUrl = webView.url ?: url
         val isSpotify = currentUrl.contains("spotify.com", ignoreCase = true)
-        
-        // Temporarily pause timers to prevent jank during reload
-        webView.pauseTimers()
-        
+
         if (desktop) {
             webView.settings.userAgentString = if (isSpotify) SPOTIFY_DESKTOP_UA else DESKTOP_USER_AGENT
             webView.settings.useWideViewPort = true
             webView.settings.loadWithOverviewMode = true
-            // Setting minimum layout width helps trigger desktop layouts
-            webView.settings.minimumLogicalFontSize = 14
         } else {
-            webView.settings.userAgentString = defaultMobileUserAgent
+            webView.settings.userAgentString = MOBILE_USER_AGENT
             webView.settings.useWideViewPort = false
             webView.settings.loadWithOverviewMode = false
-            webView.settings.minimumLogicalFontSize = 8
         }
-        
-        // Do not forcefully inject viewport sizes as a string. Instead, use a cleaner, non-intrusive approach. 
-        // Forcefully overriding the viewport tag causes YouTube and other complex web apps to shrink improperly on mobile devices in desktop mode.
-        val jsViewportFix = if (desktop) {
-            """
-            (function() {
-                var meta = document.querySelector('meta[name="viewport"]');
-                if (meta) {
-                    meta.setAttribute('content', 'width=1280');
-                } else {
-                    meta = document.createElement('meta');
-                    meta.name = 'viewport';
-                    meta.content = 'width=1280';
-                    (document.head || document.documentElement).appendChild(meta);
-                }
-            })();
-            """.trimIndent()
+
+        // When toggling, reload the page — but first correct the URL for YouTube desktop
+        var reloadUrl = currentUrl
+        if (desktop && (currentUrl.contains("m.youtube.com", ignoreCase = true))) {
+            reloadUrl = currentUrl.replace("m.youtube.com", "www.youtube.com", ignoreCase = true)
+        } else if (!desktop && currentUrl.contains("www.youtube.com", ignoreCase = true) && !currentUrl.contains("youtube.com/tv", ignoreCase = true)) {
+            // Keep www.youtube.com even in mobile mode — the mobile UA causes YouTube to serve responsive layout
+            reloadUrl = currentUrl
+        }
+
+        if (reloadUrl != currentUrl) {
+            webView.loadUrl(reloadUrl)
         } else {
-            """
-            (function() {
-                var meta = document.querySelector('meta[name="viewport"]');
-                if (meta) {
-                    meta.setAttribute('content', 'width=device-width, initial-scale=1.0');
-                }
-            })();
-            """.trimIndent()
-        }
-        
-        webView.evaluateJavascript(jsViewportFix) {
             navigationController.reload()
-            // Resume timers slightly after reload initiates
-            webView.postDelayed({ webView.resumeTimers() }, 100)
         }
     }
 
@@ -197,28 +174,38 @@ class ChromiumBrowserTab(
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
                     val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
                     val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
-                    if (isYouTube) {
-                        view?.evaluateJavascript(YOUTUBE_ENGINE_SCRIPT, null)
-                    }
+
+                    // Enforce correct UA on every page navigation (prevents UA reset after SPA routing)
                     if (isSpotify) {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
                         } catch (_: Throwable) {}
-                        view?.settings?.userAgentString = if (isDesktop) SPOTIFY_DESKTOP_UA else defaultMobileUserAgent
+                        view?.settings?.userAgentString = if (isDesktop) SPOTIFY_DESKTOP_UA else MOBILE_USER_AGENT
                         view?.settings?.useWideViewPort = isDesktop
                         view?.settings?.loadWithOverviewMode = isDesktop
-                        view?.evaluateJavascript(SPOTIFY_ENGINE_SCRIPT, null)
-                    } else if (isDesktop) {
-                        view?.settings?.userAgentString = DESKTOP_USER_AGENT
-                        view?.settings?.useWideViewPort = true
-                        view?.settings?.loadWithOverviewMode = true
-                        view?.evaluateJavascript(DESKTOP_VIEWPORT_SCRIPT, null)
                     } else {
-                        webView.settings.userAgentString = defaultMobileUserAgent
-                        view?.settings?.useWideViewPort = false
-                        view?.settings?.loadWithOverviewMode = false
+                        val ua = if (isDesktop) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                        view?.settings?.userAgentString = ua
+                        view?.settings?.useWideViewPort = isDesktop
+                        view?.settings?.loadWithOverviewMode = isDesktop
+                    }
+
+                    // Inject scripts after UA is applied
+                    if (isYouTube) {
+                        view?.evaluateJavascript(YOUTUBE_ENGINE_SCRIPT, null)
+                    }
+                    if (isSpotify) {
+                        view?.evaluateJavascript(SPOTIFY_ENGINE_SCRIPT, null)
+                    }
+
+                    // Inject viewport + client-hints override scripts
+                    if (isDesktop) {
+                        view?.evaluateJavascript(DESKTOP_VIEWPORT_SCRIPT, null)
+                        view?.evaluateJavascript(DESKTOP_CLIENT_HINTS_SCRIPT, null)
+                    } else {
                         view?.evaluateJavascript(MOBILE_VIEWPORT_SCRIPT, null)
                     }
+
                     val script = com.example.haze.HazeAntiTrackingEngine.generateAntiFingerprintScript(webView.context)
                     view?.evaluateJavascript(script, null)
 
@@ -250,16 +237,23 @@ class ChromiumBrowserTab(
                 title = view?.title ?: title
                 val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
                 val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
+
+                // Re-inject site-specific engine scripts after page load completes
                 if (isYouTube) {
                     view?.evaluateJavascript(YOUTUBE_ENGINE_SCRIPT, null)
                 }
                 if (isSpotify) {
                     view?.evaluateJavascript(SPOTIFY_ENGINE_SCRIPT, null)
-                } else if (isDesktop) {
+                }
+
+                // Re-apply viewport and client-hints after full load (SPAs may reset viewport meta)
+                if (isDesktop) {
                     view?.evaluateJavascript(DESKTOP_VIEWPORT_SCRIPT, null)
+                    view?.evaluateJavascript(DESKTOP_CLIENT_HINTS_SCRIPT, null)
                 } else {
                     view?.evaluateJavascript(MOBILE_VIEWPORT_SCRIPT, null)
                 }
+
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
                     val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
                     val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
@@ -666,8 +660,10 @@ class ChromiumBrowserTab(
     }
 
     companion object {
-        const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        const val SPOTIFY_DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        const val SPOTIFY_DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        // A clean mobile UA that looks like Android Chrome — avoids WebView fingerprinting
+        const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; Redmi Note 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         val SPOTIFY_ENGINE_SCRIPT = """
             (function() {
@@ -1302,6 +1298,42 @@ class ChromiumBrowserTab(
                     }
                     meta.setAttribute('content', 'width=1280');
                 } catch(e) {}
+            })();
+        """.trimIndent()
+
+        /**
+         * Overrides navigator.userAgentData so sites that check client hints (YouTube, Instagram,
+         * Discord, etc.) see a Windows desktop browser instead of Android mobile.
+         */
+        val DESKTOP_CLIENT_HINTS_SCRIPT = """
+            (function() {
+                if (window.__hazeDesktopClientHintsApplied) return;
+                window.__hazeDesktopClientHintsApplied = true;
+                try {
+                    // Override platform to Windows
+                    Object.defineProperty(navigator, 'platform', {
+                        get: function() { return 'Win32'; },
+                        configurable: true
+                    });
+                    // Override maxTouchPoints so sites don't detect touch-only device
+                    Object.defineProperty(navigator, 'maxTouchPoints', {
+                        get: function() { return 0; },
+                        configurable: true
+                    });
+                    // Override userAgentData if present (Client Hints API — Chrome 90+)
+                    if (navigator.userAgentData) {
+                        try {
+                            Object.defineProperty(navigator.userAgentData, 'mobile', {
+                                get: function() { return false; },
+                                configurable: true
+                            });
+                            Object.defineProperty(navigator.userAgentData, 'platform', {
+                                get: function() { return 'Windows'; },
+                                configurable: true
+                            });
+                        } catch(_) {}
+                    }
+                } catch(_) {}
             })();
         """.trimIndent()
 

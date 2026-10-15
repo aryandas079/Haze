@@ -99,13 +99,14 @@ object HazeDownloadEngine {
         mimeType: String,
         contentLength: Long,
         suggestedFileName: String? = null,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        customTargetDirUri: String? = null
     ): Long {
         val appCtx = context.applicationContext
-        val fileName = resolveFileName(appCtx, suggestedFileName ?: URLUtil.guessFileName(url, contentDisposition, mimeType))
+        val destDir = getDownloadDestinationDir(appCtx, customTargetDirUri)
+        val fileName = resolveFileName(appCtx, destDir, suggestedFileName ?: URLUtil.guessFileName(url, contentDisposition, mimeType))
         val downloadId = System.currentTimeMillis() + (0..999).random()
 
-        val destDir = getDownloadDestinationDir(appCtx)
         val targetFile = File(destDir, fileName)
 
         val task = DownloadTask(
@@ -312,18 +313,51 @@ object HazeDownloadEngine {
         }
     }
 
-    private fun getDownloadDestinationDir(context: Context): File {
+    fun getFileFromUri(context: Context, uri: android.net.Uri): File? {
+        try {
+            if ("content" == uri.scheme) {
+                val treeDocId = android.provider.DocumentsContract.getTreeDocumentId(uri)
+                val parts = treeDocId.split(":")
+                if (parts.size >= 2) {
+                    val type = parts[0]
+                    val relativePath = parts[1]
+                    if ("primary".equals(type, ignoreCase = true)) {
+                        val target = File(Environment.getExternalStorageDirectory(), relativePath)
+                        if (target.exists() || target.mkdirs()) return target
+                    } else {
+                        val storageDirs = context.getExternalFilesDirs(null)
+                        for (dir in storageDirs) {
+                            if (dir != null && dir.absolutePath.contains(type)) {
+                                val rootPath = dir.absolutePath.substringBefore("/Android")
+                                val target = File(rootPath, relativePath)
+                                if (target.exists() || target.mkdirs()) return target
+                            }
+                        }
+                    }
+                }
+            } else if ("file" == uri.scheme) {
+                val file = File(uri.path ?: "")
+                if (file.exists() || file.mkdirs()) return file
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun getDownloadDestinationDir(context: Context, customFolderUri: String? = null): File {
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val customUriStr = prefs.getString("custom_download_dir_uri", null)
-        
-        if (customUriStr != null) {
-            // Note: In Android 10+, directly creating `File` objects from DocumentTree URIs 
-            // does not work directly for write access. If a custom URI is used, 
-            // true SAF DocumentFile writing must be implemented.
-            // For now, we fall back if it fails.
+        val uriStr = customFolderUri ?: prefs.getString("custom_download_dir_uri", null)
+
+        if (!uriStr.isNullOrEmpty()) {
             try {
-                // Not standard, but sometimes absolute paths can be extracted
-            } catch (ignored: Exception) {}
+                val resolvedFile = getFileFromUri(context, android.net.Uri.parse(uriStr))
+                if (resolvedFile != null && (resolvedFile.exists() || resolvedFile.mkdirs())) {
+                    return resolvedFile
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         // Preferred: Public Downloads directory
@@ -340,12 +374,11 @@ object HazeDownloadEngine {
         return context.filesDir
     }
 
-    private fun resolveFileName(context: Context, rawFileName: String): String {
+    private fun resolveFileName(context: Context, destDir: File, rawFileName: String): String {
         var clean = rawFileName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         if (clean.isBlank()) clean = "download_${System.currentTimeMillis()}"
 
-        val dir = getDownloadDestinationDir(context)
-        var file = File(dir, clean)
+        var file = File(destDir, clean)
         if (!file.exists()) return clean
 
         // Check if there's an extension
@@ -356,7 +389,7 @@ object HazeDownloadEngine {
         var count = 1
         while (file.exists()) {
             val candidate = "$baseName ($count)$extension"
-            file = File(dir, candidate)
+            file = File(destDir, candidate)
             count++
         }
         return file.name

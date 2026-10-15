@@ -310,15 +310,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    var onCustomDirSelected: ((Uri) -> Unit)? = null
+
     val downloadDirPickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri != null) {
-            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            contentResolver.takePersistableUriPermission(uri, takeFlags)
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (_: Exception) {}
             prefs.edit().putString("custom_download_dir_uri", uri.toString()).apply()
-            // Optional: You can try to map this back to a nice name, but often OpenDocumentTree 
-            // paths are somewhat opaque. It is easiest to show a snippet.
+            onCustomDirSelected?.invoke(uri)
+            onCustomDirSelected = null
         }
     }
 
@@ -3563,7 +3567,7 @@ class MainActivity : AppCompatActivity() {
             userAgentString = if (isDesk) {
                 if (isSpotify) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
             } else {
-                WebSettings.getDefaultUserAgent(this@MainActivity)
+                com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
             }
             useWideViewPort = isDesk
             loadWithOverviewMode = isDesk
@@ -3776,7 +3780,7 @@ class MainActivity : AppCompatActivity() {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view ?: webView, true)
                         } catch (_: Throwable) {}
-                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
                         view?.settings?.useWideViewPort = isDesk
                         view?.settings?.loadWithOverviewMode = isDesk
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
@@ -3785,8 +3789,9 @@ class MainActivity : AppCompatActivity() {
                         view?.settings?.useWideViewPort = true
                         view?.settings?.loadWithOverviewMode = true
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
                     } else {
-                        view?.settings?.userAgentString = WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.userAgentString = com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
                         view?.settings?.useWideViewPort = false
                         view?.settings?.loadWithOverviewMode = false
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
@@ -3881,6 +3886,7 @@ class MainActivity : AppCompatActivity() {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
                     } else if (isDesk) {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
                     } else {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
                     }
