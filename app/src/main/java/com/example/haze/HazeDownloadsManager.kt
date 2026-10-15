@@ -125,33 +125,18 @@ object HazeDownloadsManager {
             }
         }
         
-        val btnFilter = LinearLayout(activity).apply {
+        val btnFilter = ImageView(activity).apply {
             id = View.generateViewId()
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            setImageResource(R.drawable.ic_chevron_down)
+            setColorFilter(textColor)
             setBackgroundResource(getSelectableRes(activity))
             setPadding(dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
-            layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, dpToPx(activity, 40)).apply {
+            layoutParams = RelativeLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40)).apply {
                 addRule(RelativeLayout.LEFT_OF, btnSettings.id)
                 addRule(RelativeLayout.CENTER_VERTICAL)
                 marginEnd = dpToPx(activity, 4)
             }
         }
-        val tvFilter = TextView(activity).apply {
-            text = "All"
-            textSize = 14f
-            setTextColor(textColor)
-            setTypeface(null, Typeface.BOLD)
-        }
-        val ivFilterArrow = ImageView(activity).apply {
-            setImageResource(R.drawable.ic_chevron_down)
-            setColorFilter(textColor)
-            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 16), dpToPx(activity, 16)).apply {
-                marginStart = dpToPx(activity, 4)
-            }
-        }
-        btnFilter.addView(tvFilter)
-        btnFilter.addView(ivFilterArrow)
         
         var refreshListProxy: (() -> Unit)? = null
 
@@ -171,15 +156,6 @@ object HazeDownloadsManager {
             }
             popup.setOnMenuItemClickListener { item ->
                 activeFilter = categories[item.itemId]
-                val currentCount = HazeDatabase.getInstance(activity).getAllDownloads(activeFilter).size
-                val label = when (activeFilter) {
-                    "ALL" -> "All"
-                    "ACTIVE" -> "Active"
-                    "COMPLETED" -> "Completed"
-                    "FAILED" -> "Failed"
-                    else -> activeFilter
-                }
-                tvFilter.text = if (currentCount > 0) "$label ($currentCount)" else label
                 refreshListProxy?.invoke()
                 true
             }
