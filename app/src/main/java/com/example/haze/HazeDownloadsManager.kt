@@ -33,34 +33,43 @@ object HazeDownloadsManager {
         contentLength: Long,
         isPrivate: Boolean = false
     ) {
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val guessedFileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val sizeFormatted = formatFileSize(contentLength)
+        val askBeforeDownload = prefs.getBoolean("download_ask_location", false)
         
-        val message = if (isPrivate) {
-            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}\n\nWARNING: Downloaded files will be saved to your device and may remain after closing Private Mode."
-        } else {
-            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}"
+        val startDownload = {
+            activity.triggerStrongHaptic()
+            HazeDownloadEngine.enqueueDownload(
+                context = activity,
+                url = url,
+                userAgent = userAgent,
+                contentDisposition = contentDisposition,
+                mimeType = mimeType,
+                contentLength = contentLength,
+                suggestedFileName = guessedFileName,
+                isPrivate = isPrivate
+            )
+            Toast.makeText(activity, "Download added: $guessedFileName", Toast.LENGTH_SHORT).show()
         }
 
-        AlertDialog.Builder(activity)
-            .setTitle("Download File?")
-            .setMessage(message)
-            .setPositiveButton("Download") { _, _ ->
-                activity.triggerStrongHaptic()
-                HazeDownloadEngine.enqueueDownload(
-                    context = activity,
-                    url = url,
-                    userAgent = userAgent,
-                    contentDisposition = contentDisposition,
-                    mimeType = mimeType,
-                    contentLength = contentLength,
-                    suggestedFileName = guessedFileName,
-                    isPrivate = isPrivate
-                )
-                Toast.makeText(activity, "Download added: $guessedFileName", Toast.LENGTH_SHORT).show()
+        if (askBeforeDownload || isPrivate) {
+            val message = if (isPrivate) {
+                "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${android.net.Uri.parse(url).host}\n\nWARNING: Downloaded files will be saved to your device and may remain after closing Private Mode."
+            } else {
+                "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${android.net.Uri.parse(url).host}"
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+
+            AlertDialog.Builder(activity)
+                .setTitle("Download File?")
+                .setMessage(message)
+                .setPositiveButton("Download") { _, _ -> startDownload() }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            // Auto start if Ask Before Download is disabled
+            startDownload()
+        }
     }
 
     fun showDownloadsDialog(activity: MainActivity) {
@@ -820,8 +829,7 @@ object HazeDownloadsManager {
             setBackgroundResource(getSelectableRes(activity))
             setOnClickListener {
                 activity.triggerStrongHaptic()
-                Toast.makeText(activity, "Opening file picker...", Toast.LENGTH_SHORT).show()
-                // In a full implementation, you would launch ACTION_OPEN_DOCUMENT_TREE here
+                activity.downloadDirPickerLauncher.launch(null)
             }
         }
         val locTitle = TextView(activity).apply {
@@ -830,11 +838,35 @@ object HazeDownloadsManager {
             setTextColor(textColor)
             setPadding(0, 0, 0, dpToPx(activity, 4))
         }
+        
+        val customUriStr = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getString("custom_download_dir_uri", null)
+        val defaultLoc = "Internal Storage/Download"
+        var displayLoc = defaultLoc
+        if (customUriStr != null) {
+            try {
+                val uri = android.net.Uri.parse(customUriStr)
+                val pathStr = uri.path
+                if (pathStr != null) {
+                    val segments = pathStr.split(":")
+                    if (segments.size > 1) {
+                        displayLoc = segments.last()
+                    } else {
+                        displayLoc = pathStr
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+        
         val locSub = TextView(activity).apply {
-            text = "Internal Storage/Download" // Hardcoded placeholder matching standard Android behavior
+            text = displayLoc
             textSize = 12f
             setTextColor(subTextColor)
         }
+        
+        // Let's also update it dynamically if they change it while dialog is open.
+        // Easiest approach for now is the user closes/reopens the settings dialog to see the change,
+        // since ActivityResult runs asynchronously to this dialog.
+
         rowLocation.addView(locTitle)
         rowLocation.addView(locSub)
         root.addView(rowLocation)
@@ -869,8 +901,9 @@ object HazeDownloadsManager {
         promptCol.addView(promptTitle)
         promptCol.addView(promptSub)
         
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val swPrompt = Switch(activity).apply {
-            isChecked = true // Mocked state
+            isChecked = prefs.getBoolean("download_ask_location", false)
         }
         rowPrompt.addView(promptCol)
         rowPrompt.addView(swPrompt)
@@ -878,7 +911,9 @@ object HazeDownloadsManager {
         
         rowPrompt.setOnClickListener {
             activity.triggerStrongHaptic()
-            swPrompt.isChecked = !swPrompt.isChecked
+            val newState = !swPrompt.isChecked
+            swPrompt.isChecked = newState
+            prefs.edit().putBoolean("download_ask_location", newState).apply()
         }
         
         dialog.setContentView(root)

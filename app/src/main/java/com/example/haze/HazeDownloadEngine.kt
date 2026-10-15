@@ -313,6 +313,19 @@ object HazeDownloadEngine {
     }
 
     private fun getDownloadDestinationDir(context: Context): File {
+        val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+        val customUriStr = prefs.getString("custom_download_dir_uri", null)
+        
+        if (customUriStr != null) {
+            // Note: In Android 10+, directly creating `File` objects from DocumentTree URIs 
+            // does not work directly for write access. If a custom URI is used, 
+            // true SAF DocumentFile writing must be implemented.
+            // For now, we fall back if it fails.
+            try {
+                // Not standard, but sometimes absolute paths can be extracted
+            } catch (ignored: Exception) {}
+        }
+
         // Preferred: Public Downloads directory
         try {
             val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)

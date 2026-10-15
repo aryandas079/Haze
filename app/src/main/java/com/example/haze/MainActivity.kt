@@ -323,7 +323,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    val deviceAccountPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    val downloadDirPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            contentResolver.takePersistableUriPermission(uri, takeFlags)
+            prefs.edit().putString("custom_download_dir_uri", uri.toString()).apply()
+            // Optional: You can try to map this back to a nice name, but often OpenDocumentTree 
+            // paths are somewhat opaque. It is easiest to show a snippet.
+        }
+    }
+
+    private val deviceAccountPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             HazeAccountManager.handleDeviceAccountPickerResult(
                 this,
