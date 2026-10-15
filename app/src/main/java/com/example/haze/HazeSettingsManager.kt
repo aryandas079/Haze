@@ -216,6 +216,33 @@ object HazeSettingsManager {
         })
         content.addView(cardPrivacy)
 
+        // --- PERFORMANCE ---
+        addSectionHeader("Performance")
+        val cardPerformance = createCardContainer()
+        cardPerformance.addView(createSwitchRow(
+            activity,
+            textColor,
+            subTextColor,
+            accentColor,
+            prefs,
+            "Faster Reloading",
+            "Prepare frequently visited websites in the background for faster loading.",
+            HazeFasterReloadingEngine.PREF_FASTER_RELOADING,
+            true
+        ) { isEnabled ->
+            HazeFasterReloadingEngine.setEnabled(activity, isEnabled)
+        })
+        cardPerformance.addView(createRow(
+            activity,
+            "Performance Dashboard",
+            "View preloaded websites, cache reuse rates, and measured time saved",
+            textColor,
+            subTextColor
+        ) {
+            HazeFasterReloadingEngine.showPerformanceDashboard(activity)
+        })
+        content.addView(cardPerformance)
+
         // --- CARD 4: MEDIA & MINIPLAYER ---
         addSectionHeader("Media & Miniplayer")
         val cardMedia = createCardContainer()
