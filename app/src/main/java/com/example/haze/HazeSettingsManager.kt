@@ -243,14 +243,6 @@ object HazeSettingsManager {
         })
         content.addView(cardPerformance)
 
-        // --- CARD 4: MEDIA & MINIPLAYER ---
-        addSectionHeader("Media & Miniplayer")
-        val cardMedia = createCardContainer()
-        cardMedia.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Automatic Miniplayer (PiP)", "Pop out floating video player when minimizing browser", "auto_pip_enabled", true) { isEnabled ->
-            activity.updatePipAutoEnter(isEnabled)
-        })
-        content.addView(cardMedia)
-
         // --- CARD 5: GENERAL ---
         addSectionHeader("General")
         val cardGeneral = createCardContainer()
