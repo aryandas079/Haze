@@ -2486,9 +2486,9 @@ class MainActivity : AppCompatActivity() {
         val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         
         val bgColor = if (isIncognito) "#181818" else (if (isDarkSetting) "#121212" else "#FAFAFA")
-        val cardColor = if (isIncognito) "#2A2A2A" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
-        val textColor = if (isDark) "#FFFFFF" else "#202124"
-        val labelColor = if (isDark) "#E0E0E0" else "#202124"
+        val cardColor = if (isIncognito) "#25272B" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
+        val textColor = if (isIncognito || isDark) "#FFFFFF" else "#202124"
+        val labelColor = if (isIncognito || isDark) "#E0E0E0" else "#202124"
         val cardBorder = "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
         
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
@@ -2587,16 +2587,16 @@ class MainActivity : AppCompatActivity() {
                 <body>
                     <div class="container">
                         <div class="logo-wrapper">
-                            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
-                                <circle cx="32" cy="62" r="15" fill="$textColor"/>
-                                <circle cx="32" cy="62" r="11" fill="$bgColor"/>
-                                <circle cx="68" cy="62" r="15" fill="$textColor"/>
-                                <circle cx="68" cy="62" r="11" fill="$bgColor"/>
-                                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="2"/>
-                            </svg>
-                        </div>
-                        <div class="title">You've gone Incognito</div>
+                            <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
+                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
+                <circle cx="32" cy="62" r="15" fill="$textColor"/>
+                <circle cx="32" cy="62" r="11" fill="$bgColor"/>
+                <circle cx="68" cy="62" r="15" fill="$textColor"/>
+                <circle cx="68" cy="62" r="11" fill="$bgColor"/>
+                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
+            </svg>
+        </div>
+        <div class="title">You've gone Incognito</div>
                         
                         <div class="info-box">
                             <div class="info-title">Haze won't save the following:</div>
@@ -2659,12 +2659,12 @@ class MainActivity : AppCompatActivity() {
         val logoViewHtml = if (isIncognito) {
             """
             <svg class="logo" viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;">
-                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="$textColor"/>
-                <circle cx="32" cy="62" r="15" fill="$textColor"/>
+                <path d="M50 10 C38 10 28 16 22 22 C18 30 5 32 5 38 C5 40 7 42 10 42 L90 42 C93 42 95 40 95 38 C95 32 82 30 78 22 C72 16 62 10 50 10 Z" fill="#FFFFFF"/>
+                <circle cx="32" cy="62" r="15" fill="#FFFFFF"/>
                 <circle cx="32" cy="62" r="11" fill="$bgColor"/>
-                <circle cx="68" cy="62" r="15" fill="$textColor"/>
+                <circle cx="68" cy="62" r="15" fill="#FFFFFF"/>
                 <circle cx="68" cy="62" r="11" fill="$bgColor"/>
-                <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
+                <path d="M47 62 L53 62" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
             </svg>
             """.trimIndent()
         } else {
@@ -2763,7 +2763,7 @@ class MainActivity : AppCompatActivity() {
         
         val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         val barBgColor = if (isPrivateMode) Color.parseColor("#2A2A2A") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
@@ -5867,7 +5867,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#F8F9FA")
 
