@@ -1161,6 +1161,8 @@ class MainActivity : AppCompatActivity() {
         val initialUrl = intent?.dataString?.takeIf { it.isNotEmpty() } ?: HAZE_HOME_URL
         // Clear any orphaned private sessions on startup to ensure strict isolation
         ChromiumEngineManager.getEngine(this).clearPrivateSession(null)
+        // Schedule Faster Reloading background warmup for top candidate sites
+        HazeFasterReloadingEngine.scheduleStartupWarmup(this)
 
         val shouldContinueSession = prefs.getBoolean("continue_where_left_off", true)
         val hasRestored = if (shouldContinueSession && initialUrl == HAZE_HOME_URL) {
@@ -3763,7 +3765,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (!url.isNullOrEmpty()) topLevelUrl = url
+                if (!url.isNullOrEmpty()) {
+                    topLevelUrl = url
+                    HazeFasterReloadingEngine.recordNavigation(this@MainActivity, url)
+                }
                 showPageLoading(5)
                 super.onPageStarted(view, url, favicon)
                 updatePrivacyShieldButton()

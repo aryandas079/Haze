@@ -216,7 +216,34 @@ object HazeSettingsManager {
         })
         content.addView(cardPrivacy)
 
-        // --- CARD 4: GENERAL ---
+        // --- PERFORMANCE ---
+        addSectionHeader("Performance")
+        val cardPerformance = createCardContainer()
+        cardPerformance.addView(createSwitchRow(
+            activity,
+            textColor,
+            subTextColor,
+            accentColor,
+            prefs,
+            "Faster Reloading",
+            "Prepare frequently visited websites in the background for faster loading.",
+            HazeFasterReloadingEngine.PREF_FASTER_RELOADING,
+            true
+        ) { isEnabled ->
+            HazeFasterReloadingEngine.setEnabled(activity, isEnabled)
+        })
+        cardPerformance.addView(createRow(
+            activity,
+            "Performance Dashboard",
+            "View preloaded websites, cache reuse rates, and measured time saved",
+            textColor,
+            subTextColor
+        ) {
+            HazeFasterReloadingEngine.showPerformanceDashboard(activity)
+        })
+        content.addView(cardPerformance)
+
+        // --- CARD 5: GENERAL ---
         addSectionHeader("General")
         val cardGeneral = createCardContainer()
         cardGeneral.addView(createRow(activity, "Personalize Theme", "Choose wallpapers, solid colors, and dark mode", textColor, subTextColor) {
@@ -235,21 +262,6 @@ object HazeSettingsManager {
                 Toast.makeText(activity, "Select Haze in Android Settings > Default Apps", Toast.LENGTH_SHORT).show()
             }
         })
-        content.addView(cardGeneral)
-
-        // --- CARD 5: ADVANCED & DEVELOPER TOOLS ---
-        addSectionHeader("Advanced & Developer Tools")
-        val cardAdvanced = createCardContainer()
-        cardAdvanced.addView(createRow(activity, "Developer Tools", "Inspect DOM elements, console logs, network requests, and active viewport", textColor, subTextColor) {
-            dialog.dismiss()
-            val activeTab = activity.getActiveTab()
-            if (activeTab != null) {
-                HazeDevToolsManager.showDevToolsDialog(activity, activeTab)
-            } else {
-                Toast.makeText(activity, "No active tab to inspect", Toast.LENGTH_SHORT).show()
-            }
-        })
-        content.addView(cardAdvanced)
         cardGeneral.addView(createRow(activity, "About Haze Browser", "Haze Browser v2.2 - Ultra-fast minimalist browser", textColor, subTextColor) {
             val isDarkAbout = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
             val dialogBg = if (isDarkAbout) Color.parseColor("#1E1E1E") else Color.WHITE
@@ -361,6 +373,20 @@ object HazeSettingsManager {
             aboutDialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accentColor)
         })
         content.addView(cardGeneral)
+
+        // --- CARD 6: ADVANCED & DEVELOPER TOOLS ---
+        addSectionHeader("Advanced & Developer Tools")
+        val cardAdvanced = createCardContainer()
+        cardAdvanced.addView(createRow(activity, "Developer Tools", "Inspect DOM elements, console logs, network requests, and active viewport", textColor, subTextColor) {
+            dialog.dismiss()
+            val activeTab = activity.getActiveTab()
+            if (activeTab != null) {
+                HazeDevToolsManager.showDevToolsDialog(activity, activeTab)
+            } else {
+                Toast.makeText(activity, "No active tab to inspect", Toast.LENGTH_SHORT).show()
+            }
+        })
+        content.addView(cardAdvanced)
 
         dialog.setContentView(root)
         dialog.show()
