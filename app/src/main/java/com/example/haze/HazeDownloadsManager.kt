@@ -24,6 +24,26 @@ import java.util.*
 
 object HazeDownloadsManager {
 
+    fun getDisplayPathFromUri(context: Context, uriStr: String?): String {
+        if (uriStr.isNullOrEmpty()) return "Downloads"
+        return try {
+            val uri = Uri.parse(uriStr)
+            if ("content" == uri.scheme) {
+                val docId = android.provider.DocumentsContract.getTreeDocumentId(uri)
+                val parts = docId.split(":")
+                if (parts.size >= 2) {
+                    val relativePath = parts[1]
+                    if (relativePath.isNotEmpty()) "Downloads/$relativePath" else "Downloads"
+                } else "Downloads"
+            } else if ("file" == uri.scheme) {
+                val path = uri.path ?: ""
+                if (path.isNotEmpty()) path.substringAfterLast("/") else "Downloads"
+            } else "Downloads"
+        } catch (_: Exception) {
+            "Downloads"
+        }
+    }
+
     fun initDownload(
         activity: MainActivity,
         url: String,
@@ -33,34 +53,152 @@ object HazeDownloadsManager {
         contentLength: Long,
         isPrivate: Boolean = false
     ) {
-        val guessedFileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+        val defaultFileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
         val sizeFormatted = formatFileSize(contentLength)
+        val askBeforeDownload = prefs.getBoolean("download_ask_location", false)
         
-        val message = if (isPrivate) {
-            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}\n\nWARNING: Downloaded files will be saved to your device and may remain after closing Private Mode."
-        } else {
-            "File: $guessedFileName\nSize: $sizeFormatted\nFrom: ${Uri.parse(url).host}"
-        }
+        var selectedCustomUri: String? = prefs.getString("custom_download_dir_uri", null)
 
-        AlertDialog.Builder(activity)
-            .setTitle("Download File?")
-            .setMessage(message)
-            .setPositiveButton("Download") { _, _ ->
-                activity.triggerStrongHaptic()
-                HazeDownloadEngine.enqueueDownload(
-                    context = activity,
-                    url = url,
-                    userAgent = userAgent,
-                    contentDisposition = contentDisposition,
-                    mimeType = mimeType,
-                    contentLength = contentLength,
-                    suggestedFileName = guessedFileName,
-                    isPrivate = isPrivate
-                )
-                Toast.makeText(activity, "Download added: $guessedFileName", Toast.LENGTH_SHORT).show()
+        if (askBeforeDownload || isPrivate) {
+            val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+            val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+            val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+            val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+
+            val dialogView = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 16))
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+
+            val tvTitle = TextView(activity).apply {
+                text = "Download File"
+                textSize = 18f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(textColor)
+                setPadding(0, 0, 0, dpToPx(activity, 8))
+            }
+            dialogView.addView(tvTitle)
+
+            val tvSub = TextView(activity).apply {
+                text = "Size: $sizeFormatted • From: ${Uri.parse(url).host ?: url}"
+                textSize = 12f
+                setTextColor(subTextColor)
+                setPadding(0, 0, 0, dpToPx(activity, 12))
+            }
+            dialogView.addView(tvSub)
+
+            // Filename Input
+            val tvFileLabel = TextView(activity).apply {
+                text = "File Name"
+                textSize = 12f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(subTextColor)
+                setPadding(0, 0, 0, dpToPx(activity, 4))
+            }
+            dialogView.addView(tvFileLabel)
+
+            val etFileName = EditText(activity).apply {
+                setText(defaultFileName)
+                textSize = 14f
+                setTextColor(textColor)
+                setSingleLine()
+                background = GradientDrawable().apply {
+                    setColor(if (isDark) Color.parseColor("#2D2D2D") else Color.parseColor("#F1F3F4"))
+                    cornerRadius = dpToPx(activity, 8).toFloat()
+                }
+                setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
+            }
+            dialogView.addView(etFileName)
+
+            // Location Picker Row
+            val locationRow = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dpToPx(activity, 14), 0, dpToPx(activity, 10))
+                isClickable = true
+                isFocusable = true
+            }
+
+            val tvFolderLabel = TextView(activity).apply {
+                text = "Save To: "
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(subTextColor)
+            }
+            val tvFolderName = TextView(activity).apply {
+                text = getDisplayPathFromUri(activity, selectedCustomUri)
+                textSize = 13f
+                setTextColor(accentColor)
+                setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val btnChangeFolder = TextView(activity).apply {
+                text = "Change"
+                textSize = 13f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(accentColor)
+            }
+            locationRow.addView(tvFolderLabel)
+            locationRow.addView(tvFolderName)
+            locationRow.addView(btnChangeFolder)
+            dialogView.addView(locationRow)
+
+            locationRow.setOnClickListener {
+                activity.triggerStrongHaptic()
+                activity.onCustomDirSelected = { uri ->
+                    selectedCustomUri = uri.toString()
+                    tvFolderName.text = getDisplayPathFromUri(activity, selectedCustomUri)
+                }
+                activity.downloadDirPickerLauncher.launch(null)
+            }
+
+            if (isPrivate) {
+                val tvWarn = TextView(activity).apply {
+                    text = "WARNING: Downloaded files remain on your device after closing Private Mode."
+                    textSize = 11f
+                    setTextColor(Color.parseColor("#D93025"))
+                    setPadding(0, dpToPx(activity, 4), 0, dpToPx(activity, 8))
+                }
+                dialogView.addView(tvWarn)
+            }
+
+            AlertDialog.Builder(activity)
+                .setView(dialogView)
+                .setPositiveButton("Download") { _, _ ->
+                    val finalFileName = etFileName.text.toString().trim().ifEmpty { defaultFileName }
+                    activity.triggerStrongHaptic()
+                    HazeDownloadEngine.enqueueDownload(
+                        context = activity,
+                        url = url,
+                        userAgent = userAgent,
+                        contentDisposition = contentDisposition,
+                        mimeType = mimeType,
+                        contentLength = contentLength,
+                        suggestedFileName = finalFileName,
+                        isPrivate = isPrivate,
+                        customTargetDirUri = selectedCustomUri
+                    )
+                    Toast.makeText(activity, "Download added: $finalFileName", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            // Auto-start download directly with defaults
+            activity.triggerStrongHaptic()
+            HazeDownloadEngine.enqueueDownload(
+                context = activity,
+                url = url,
+                userAgent = userAgent,
+                contentDisposition = contentDisposition,
+                mimeType = mimeType,
+                contentLength = contentLength,
+                suggestedFileName = defaultFileName,
+                isPrivate = isPrivate,
+                customTargetDirUri = selectedCustomUri
+            )
+            Toast.makeText(activity, "Download added: $defaultFileName", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun showDownloadsDialog(activity: MainActivity) {
@@ -124,8 +262,47 @@ object HazeDownloadsManager {
                 showDownloadSettingsDialog(activity, surfaceColor, textColor, subTextColor, strokeColor)
             }
         }
+        
+        val btnFilter = ImageView(activity).apply {
+            id = View.generateViewId()
+            setImageResource(R.drawable.ic_chevron_down)
+            setColorFilter(textColor)
+            setBackgroundResource(getSelectableRes(activity))
+            setPadding(dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+            layoutParams = RelativeLayout.LayoutParams(dpToPx(activity, 40), dpToPx(activity, 40)).apply {
+                addRule(RelativeLayout.LEFT_OF, btnSettings.id)
+                addRule(RelativeLayout.CENTER_VERTICAL)
+                marginEnd = dpToPx(activity, 4)
+            }
+        }
+        
+        var refreshListProxy: (() -> Unit)? = null
+
+        btnFilter.setOnClickListener {
+            val popup = android.widget.PopupMenu(activity, btnFilter)
+            val categories = listOf("ALL", "ACTIVE", "COMPLETED", "FAILED")
+            for (cat in categories) {
+                val count = HazeDatabase.getInstance(activity).getAllDownloads(cat).size
+                val label = when (cat) {
+                    "ALL" -> "All"
+                    "ACTIVE" -> "Active"
+                    "COMPLETED" -> "Completed"
+                    "FAILED" -> "Failed"
+                    else -> cat
+                }
+                popup.menu.add(android.view.Menu.NONE, categories.indexOf(cat), android.view.Menu.NONE, if (count > 0) "$label ($count)" else label)
+            }
+            popup.setOnMenuItemClickListener { item ->
+                activeFilter = categories[item.itemId]
+                refreshListProxy?.invoke()
+                true
+            }
+            popup.show()
+        }
+
         header.addView(btnBack)
         header.addView(btnSettings)
+        header.addView(btnFilter)
 
         val tvTitle = TextView(activity).apply {
             text = "Downloads"
@@ -178,19 +355,7 @@ object HazeDownloadsManager {
         root.addView(topContainer)
 
         // --- Category Tabs ---
-        val tabsScroll = HorizontalScrollView(activity).apply {
-            isHorizontalScrollBarEnabled = false
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(dpToPx(activity, 16), 0, dpToPx(activity, 16), dpToPx(activity, 12))
-            }
-        }
-
-        val tabsRow = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        val categories = listOf("ALL", "ACTIVE", "COMPLETED", "FAILED")
-        val tabButtons = mutableListOf<TextView>()
+        // Removed
 
         // --- Recycler & Empty View ---
         val contentFrame = FrameLayout(activity).apply {
@@ -264,8 +429,6 @@ object HazeDownloadsManager {
         }
         contentFrame.addView(recyclerView)
 
-        tabsScroll.addView(tabsRow)
-        root.addView(tabsScroll)
         root.addView(contentFrame)
 
         var adapter: DownloadsRecyclerAdapter? = null
@@ -334,56 +497,10 @@ object HazeDownloadsManager {
                 recyclerView.adapter = adapter
             }
 
-            // Update Tab Badges & Selection
-            for (i in categories.indices) {
-                val btn = tabButtons[i]
-                val cat = categories[i]
-                val count = db.getAllDownloads(cat).size
-                val label = when (cat) {
-                    "ALL" -> "All ($count)"
-                    "ACTIVE" -> "Active ($count)"
-                    "COMPLETED" -> "Completed ($count)"
-                    "FAILED" -> "Failed ($count)"
-                    else -> cat
-                }
-                btn.text = label
-
-                if (cat == activeFilter) {
-                    btn.background = GradientDrawable().apply {
-                        cornerRadius = dpToPx(activity, 20).toFloat()
-                        setColor(accentColor)
-                    }
-                    btn.setTextColor(Color.WHITE)
-                } else {
-                    btn.background = GradientDrawable().apply {
-                        cornerRadius = dpToPx(activity, 20).toFloat()
-                        setColor(surfaceColor)
-                        setStroke(dpToPx(activity, 1), strokeColor)
-                    }
-                    btn.setTextColor(subTextColor)
-                }
-            }
+            // Removed old Category Tabs logic
         }
 
-        // Build Tabs
-        for (cat in categories) {
-            val tv = TextView(activity).apply {
-                text = cat
-                textSize = 12f
-                setTypeface(null, Typeface.BOLD)
-                setPadding(dpToPx(activity, 14), dpToPx(activity, 8), dpToPx(activity, 14), dpToPx(activity, 8))
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    marginEnd = dpToPx(activity, 8)
-                }
-                setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activeFilter = cat
-                    refreshList()
-                }
-            }
-            tabButtons.add(tv)
-            tabsRow.addView(tv)
-        }
+        refreshListProxy = { refreshList() }
 
         // Register Real-Time Progress Listener
         val downloadListener = object : DownloadProgressListener {
@@ -841,8 +958,7 @@ object HazeDownloadsManager {
             setBackgroundResource(getSelectableRes(activity))
             setOnClickListener {
                 activity.triggerStrongHaptic()
-                Toast.makeText(activity, "Opening file picker...", Toast.LENGTH_SHORT).show()
-                // In a full implementation, you would launch ACTION_OPEN_DOCUMENT_TREE here
+                activity.downloadDirPickerLauncher.launch(null)
             }
         }
         val locTitle = TextView(activity).apply {
@@ -851,11 +967,22 @@ object HazeDownloadsManager {
             setTextColor(textColor)
             setPadding(0, 0, 0, dpToPx(activity, 4))
         }
+        
+        val customUriStr = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getString("custom_download_dir_uri", null)
         val locSub = TextView(activity).apply {
-            text = "Internal Storage/Download" // Hardcoded placeholder matching standard Android behavior
+            text = getDisplayPathFromUri(activity, customUriStr)
             textSize = 12f
             setTextColor(subTextColor)
         }
+
+        rowLocation.setOnClickListener {
+            activity.triggerStrongHaptic()
+            activity.onCustomDirSelected = { uri ->
+                locSub.text = getDisplayPathFromUri(activity, uri.toString())
+            }
+            activity.downloadDirPickerLauncher.launch(null)
+        }
+
         rowLocation.addView(locTitle)
         rowLocation.addView(locSub)
         root.addView(rowLocation)
@@ -890,8 +1017,9 @@ object HazeDownloadsManager {
         promptCol.addView(promptTitle)
         promptCol.addView(promptSub)
         
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val swPrompt = Switch(activity).apply {
-            isChecked = true // Mocked state
+            isChecked = prefs.getBoolean("download_ask_location", false)
         }
         rowPrompt.addView(promptCol)
         rowPrompt.addView(swPrompt)
@@ -899,7 +1027,9 @@ object HazeDownloadsManager {
         
         rowPrompt.setOnClickListener {
             activity.triggerStrongHaptic()
-            swPrompt.isChecked = !swPrompt.isChecked
+            val newState = !swPrompt.isChecked
+            swPrompt.isChecked = newState
+            prefs.edit().putBoolean("download_ask_location", newState).apply()
         }
         
         dialog.setContentView(root)
