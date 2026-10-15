@@ -2485,8 +2485,8 @@ class MainActivity : AppCompatActivity() {
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2" // "off", "1", "2"
         val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         
-        val bgColor = if (isIncognito) "#181818" else (if (isDarkSetting) "#121212" else "#FAFAFA")
-        val cardColor = if (isIncognito) "#25272B" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
+        val bgColor = if (isIncognito) "#121212" else (if (isDarkSetting) "#121212" else "#FAFAFA")
+        val cardColor = if (isIncognito) "#1E1E1E" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
         val textColor = if (isIncognito || isDark) "#FFFFFF" else "#202124"
         val labelColor = if (isIncognito || isDark) "#E0E0E0" else "#202124"
         val cardBorder = "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
@@ -2596,7 +2596,7 @@ class MainActivity : AppCompatActivity() {
                 <path d="M47 62 L53 62" stroke="$textColor" stroke-width="4" stroke-linecap="round"/>
             </svg>
         </div>
-        <div class="title">You've gone Incognito</div>
+        <div class="title">Private Browsing</div>
                         
                         <div class="info-box">
                             <div class="info-title">Haze won't save the following:</div>
@@ -2761,8 +2761,8 @@ class MainActivity : AppCompatActivity() {
     private fun applyTheme() {
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         
-        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-        val barBgColor = if (isPrivateMode) Color.parseColor("#2A2A2A") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
+        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
         val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         
@@ -3072,13 +3072,18 @@ class MainActivity : AppCompatActivity() {
         addressBarContainer.visibility = View.VISIBLE
         val isHome = url == null || url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home") || url == "about:blank" || url.startsWith("about:") || url.isEmpty()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        val bgColor = if (isPrivateMode) Color.parseColor("#181818") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
+        
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         
         if (isHome) {
             addressBar.setText("")
         }
 
-        val barBgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
+        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
+        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
+        
+        addressBar.setTextColor(textColor)
+        
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
         val barShape = GradientDrawable().apply {
             this.shape = GradientDrawable.RECTANGLE
@@ -3092,7 +3097,7 @@ class MainActivity : AppCompatActivity() {
         addressBarInner.elevation = 0f
         addressBarInner.outlineProvider = null
         
-        addressBarContainer.setBackgroundColor(Color.TRANSPARENT)
+        addressBarContainer.setBackgroundColor(if (isPrivateMode) bgColor else Color.TRANSPARENT)
         addressBarContainer.elevation = 0f
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val hasBgPhoto = bgTheme != "default" && !isPrivateMode
