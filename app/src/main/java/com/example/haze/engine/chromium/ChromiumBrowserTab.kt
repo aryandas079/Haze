@@ -155,21 +155,34 @@ class ChromiumBrowserTab(
             webView.settings.minimumLogicalFontSize = 8
         }
         
-        webView.evaluateJavascript(
+        // Do not forcefully inject viewport sizes as a string. Instead, use a cleaner, non-intrusive approach. 
+        // Forcefully overriding the viewport tag causes YouTube and other complex web apps to shrink improperly on mobile devices in desktop mode.
+        val jsViewportFix = if (desktop) {
             """
             (function() {
                 var meta = document.querySelector('meta[name="viewport"]');
                 if (meta) {
-                    meta.setAttribute('content', '${if (desktop) "width=1280, initial-scale=0.35, minimum-scale=0.25, maximum-scale=5.0, user-scalable=1" else "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=1"}');
+                    meta.setAttribute('content', 'width=1280');
                 } else {
                     meta = document.createElement('meta');
                     meta.name = 'viewport';
-                    meta.content = '${if (desktop) "width=1280, initial-scale=0.35, minimum-scale=0.25, maximum-scale=5.0, user-scalable=1" else "width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=1"}';
+                    meta.content = 'width=1280';
                     (document.head || document.documentElement).appendChild(meta);
                 }
             })();
             """.trimIndent()
-        ) {
+        } else {
+            """
+            (function() {
+                var meta = document.querySelector('meta[name="viewport"]');
+                if (meta) {
+                    meta.setAttribute('content', 'width=device-width, initial-scale=1.0');
+                }
+            })();
+            """.trimIndent()
+        }
+        
+        webView.evaluateJavascript(jsViewportFix) {
             navigationController.reload()
             // Resume timers slightly after reload initiates
             webView.postDelayed({ webView.resumeTimers() }, 100)
@@ -1287,12 +1300,7 @@ class ChromiumBrowserTab(
                         meta.name = 'viewport';
                         (document.head || document.documentElement).appendChild(meta);
                     }
-                    meta.setAttribute('content', 'width=1280, initial-scale=0.35, minimum-scale=0.25, maximum-scale=5.0, user-scalable=yes');
-                    if (navigator.userAgentData) {
-                        try {
-                            Object.defineProperty(navigator.userAgentData, 'mobile', { get: function() { return false; }, configurable: true });
-                        } catch(_) {}
-                    }
+                    meta.setAttribute('content', 'width=1280');
                 } catch(e) {}
             })();
         """.trimIndent()
@@ -1301,16 +1309,8 @@ class ChromiumBrowserTab(
             (function() {
                 try {
                     var meta = document.querySelector('meta[name="viewport"]');
-                    if (!meta) {
-                        meta = document.createElement('meta');
-                        meta.name = 'viewport';
-                        (document.head || document.documentElement).appendChild(meta);
-                    }
-                    meta.setAttribute('content', 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes');
-                    if (navigator.userAgentData) {
-                        try {
-                            Object.defineProperty(navigator.userAgentData, 'mobile', { get: function() { return true; }, configurable: true });
-                        } catch(_) {}
+                    if (meta) {
+                        meta.setAttribute('content', 'width=device-width, initial-scale=1.0');
                     }
                 } catch(e) {}
             })();
