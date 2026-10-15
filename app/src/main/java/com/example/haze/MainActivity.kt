@@ -8270,23 +8270,38 @@ class MainActivity : AppCompatActivity() {
         if (enable) {
             val script = """
                 (function() {
-                    var v = window.hazeActiveVideo;
-                    if (!v) {
-                        var videos = document.querySelectorAll('video');
-                        for (var i = 0; i < videos.length; i++) {
-                            if (!videos[i].paused || videos[i].currentTime > 0) {
-                                v = videos[i];
-                                break;
+                    function getActiveVideo() {
+                        var v = window.hazeActiveVideo;
+                        if (!v || !document.contains(v)) {
+                            var videos = document.querySelectorAll('video');
+                            for (var i = 0; i < videos.length; i++) {
+                                if (!videos[i].paused || videos[i].currentTime > 0) {
+                                    v = videos[i];
+                                    break;
+                                }
                             }
+                            if (!v && videos.length > 0) v = videos[0];
                         }
-                        if (!v && videos.length > 0) v = videos[0];
+                        return v;
                     }
+
+                    var v = getActiveVideo();
                     if (!v) return;
                     window.hazeActiveVideo = v;
+                    window.__hazeInPipMode = true;
 
                     if (v.paused) {
                         var p = v.play();
                         if (p && p.catch) p.catch(function(){});
+                    }
+
+                    if (!v.__hazePipLocked) {
+                        v.__hazePipLocked = true;
+                        v.addEventListener('pause', function(e) {
+                            if (window.__hazeInPipMode && !v.ended) {
+                                setTimeout(function() { v.play(); }, 50);
+                            }
+                        });
                     }
 
                     var style = document.getElementById('__haze_pip_isolate_css');
@@ -8295,11 +8310,12 @@ class MainActivity : AppCompatActivity() {
                         style.id = '__haze_pip_isolate_css';
                         (document.head || document.documentElement).appendChild(style);
                     }
-                    style.textContent = 'html, body { background: #000000 !important; background-color: #000000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100vw !important; height: 100vh !important; } video { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; z-index: 2147483647 !important; object-fit: contain !important; background: #000000 !important; }';
+                    style.textContent = 'html, body { background: #000000 !important; background-color: #000000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100vw !important; height: 100vh !important; } video { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; z-index: 2147483647 !important; object-fit: contain !important; background: #000000 !important; visibility: visible !important; opacity: 1 !important; } ytm-mobile-topbar-renderer, ytm-pivot-bar-renderer, ytm-app-header-renderer, ytm-custom-control-renderer, .ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom, .ytp-pause-overlay, .ytp-scroll-min, #secondary, #guide, .header-content, #header-bar, .page-header, .site-header, .nav-bar, header, nav { display: none !important; opacity: 0 !important; pointer-events: none !important; }';
 
                     var parent = v.parentElement;
-                    while (parent && parent !== document.body) {
+                    while (parent && parent !== document.body && parent !== document.documentElement) {
                         parent.style.transform = 'none';
+                        parent.style.webkitTransform = 'none';
                         parent.style.filter = 'none';
                         parent.style.perspective = 'none';
                         parent.style.contain = 'none';
@@ -8307,30 +8323,13 @@ class MainActivity : AppCompatActivity() {
                         parent.style.overflow = 'visible';
                         parent = parent.parentElement;
                     }
-
-                    var selectorsToHide = [
-                        'ytm-mobile-topbar-renderer',
-                        'ytm-pivot-bar-renderer',
-                        'ytm-app-header-renderer',
-                        'ytm-custom-control-renderer',
-                        '.header-content',
-                        '#header-bar',
-                        '.page-header',
-                        '.site-header',
-                        '.nav-bar',
-                        'header',
-                        'nav'
-                    ];
-                    selectorsToHide.forEach(function(sel) {
-                        var el = document.querySelector(sel);
-                        if (el) el.style.display = 'none';
-                    });
                 })();
             """.trimIndent()
             currentTab.browserTab.evaluateJavascript(script, null)
         } else {
             val restoreScript = """
                 (function() {
+                    window.__hazeInPipMode = false;
                     var style = document.getElementById('__haze_pip_isolate_css');
                     if (style && style.parentNode) {
                         style.parentNode.removeChild(style);
@@ -8339,17 +8338,23 @@ class MainActivity : AppCompatActivity() {
                         'ytm-mobile-topbar-renderer',
                         'ytm-pivot-bar-renderer',
                         'ytm-app-header-renderer',
-                        '.header-content',
-                        '#header-bar',
-                        '.page-header',
-                        '.site-header',
-                        '.nav-bar',
+                        'ytm-custom-control-renderer',
+                        '.ytp-chrome-top',
+                        '.ytp-chrome-bottom',
+                        '.ytp-gradient-top',
+                        '.ytp-gradient-bottom',
+                        '#secondary',
+                        '#guide',
                         'header',
                         'nav'
                     ];
                     selectorsToRestore.forEach(function(sel) {
                         var el = document.querySelector(sel);
-                        if (el) el.style.display = '';
+                        if (el) {
+                            el.style.display = '';
+                            el.style.opacity = '';
+                            el.style.pointerEvents = '';
+                        }
                     });
                 })();
             """.trimIndent()
