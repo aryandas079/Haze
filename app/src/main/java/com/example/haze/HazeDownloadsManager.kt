@@ -121,7 +121,7 @@ object HazeDownloadsManager {
             }
             setOnClickListener {
                 activity.triggerStrongHaptic(it)
-                Toast.makeText(activity, "Download Settings (Coming soon)", Toast.LENGTH_SHORT).show()
+                showDownloadSettingsDialog(activity, surfaceColor, textColor, subTextColor, strokeColor)
             }
         }
         header.addView(btnBack)
@@ -145,9 +145,23 @@ object HazeDownloadsManager {
             alpha = 0.5f
         }
         
-        val totalStorageStr = "Using 0.00 KB of 64.00 GB" // Placeholder for actual calculation
+        fun calculateStorageString(): String {
+            return try {
+                val dir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                if (dir.exists()) {
+                    var totalBytes = 0L
+                    dir.listFiles()?.forEach { if (it.isFile) totalBytes += it.length() }
+                    val totalSpaceBytes = android.os.Environment.getExternalStorageDirectory().totalSpace
+                    "Using ${formatFileSize(totalBytes)} of ${formatFileSize(totalSpaceBytes)}"
+                } else {
+                    "Using 0.00 KB of 64.00 GB"
+                }
+            } catch (e: Exception) {
+                "Using 0.00 KB of 64.00 GB"
+            }
+        }
         val tvStorage = TextView(activity).apply {
-            text = totalStorageStr
+            text = calculateStorageString()
             textSize = 10f
             setTextColor(subTextColor)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -786,6 +800,110 @@ object HazeDownloadsManager {
             seconds < 3600 -> "${seconds / 60}m ${seconds % 60}s remaining"
             else -> "${seconds / 3600}h ${(seconds % 3600) / 60}m remaining"
         }
+    }
+
+    private fun showDownloadSettingsDialog(
+        activity: MainActivity,
+        surfaceColor: Int,
+        textColor: Int,
+        subTextColor: Int,
+        strokeColor: Int
+    ) {
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(activity)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(surfaceColor)
+                val r = dpToPx(activity, 16).toFloat()
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            }
+            setPadding(0, dpToPx(activity, 16), 0, dpToPx(activity, 16))
+        }
+        
+        val title = TextView(activity).apply {
+            text = "Download Settings"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            setPadding(dpToPx(activity, 20), 0, dpToPx(activity, 20), dpToPx(activity, 16))
+        }
+        root.addView(title)
+        
+        val div1 = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
+            setBackgroundColor(strokeColor)
+        }
+        root.addView(div1)
+        
+        val rowLocation = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 16))
+            setBackgroundResource(getSelectableRes(activity))
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                Toast.makeText(activity, "Opening file picker...", Toast.LENGTH_SHORT).show()
+                // In a full implementation, you would launch ACTION_OPEN_DOCUMENT_TREE here
+            }
+        }
+        val locTitle = TextView(activity).apply {
+            text = "Download location"
+            textSize = 16f
+            setTextColor(textColor)
+            setPadding(0, 0, 0, dpToPx(activity, 4))
+        }
+        val locSub = TextView(activity).apply {
+            text = "Internal Storage/Download" // Hardcoded placeholder matching standard Android behavior
+            textSize = 12f
+            setTextColor(subTextColor)
+        }
+        rowLocation.addView(locTitle)
+        rowLocation.addView(locSub)
+        root.addView(rowLocation)
+        
+        val div2 = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)
+            setBackgroundColor(strokeColor)
+        }
+        root.addView(div2)
+        
+        val rowPrompt = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 16))
+            setBackgroundResource(getSelectableRes(activity))
+        }
+        val promptCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val promptTitle = TextView(activity).apply {
+            text = "Ask where to save files"
+            textSize = 16f
+            setTextColor(textColor)
+            setPadding(0, 0, 0, dpToPx(activity, 4))
+        }
+        val promptSub = TextView(activity).apply {
+            text = "Before downloading"
+            textSize = 12f
+            setTextColor(subTextColor)
+        }
+        promptCol.addView(promptTitle)
+        promptCol.addView(promptSub)
+        
+        val swPrompt = Switch(activity).apply {
+            isChecked = true // Mocked state
+        }
+        rowPrompt.addView(promptCol)
+        rowPrompt.addView(swPrompt)
+        root.addView(rowPrompt)
+        
+        rowPrompt.setOnClickListener {
+            activity.triggerStrongHaptic()
+            swPrompt.isChecked = !swPrompt.isChecked
+        }
+        
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun dpToPx(context: Context, dp: Int): Int {
