@@ -124,3 +124,31 @@ val prepareNativeChromiumLibs by tasks.registering {
 tasks.named("preBuild") {
     dependsOn(prepareNativeChromiumLibs)
 }
+
+val clearReadOnlyFlags by tasks.registering {
+    description = "Clears Windows ReadOnly file and folder attributes to prevent AccessDeniedException during cleanup"
+    doFirst {
+        if (System.getProperty("os.name", "").lowercase().contains("windows")) {
+            val buildDir = layout.buildDirectory.asFile.get()
+            if (buildDir.exists()) {
+                try {
+                    ProcessBuilder("attrib", "-r", "/s", "/d", "${buildDir.absolutePath}\\*")
+                        .redirectErrorStream(true)
+                        .start()
+                        .waitFor()
+                } catch (_: Exception) {}
+            }
+        }
+    }
+}
+
+tasks.named("preBuild") {
+    dependsOn(clearReadOnlyFlags)
+}
+
+tasks.matching { task ->
+    val name = task.name
+    name.contains("Manifest", ignoreCase = true) || name.contains("dex", ignoreCase = true)
+}.configureEach {
+    dependsOn(clearReadOnlyFlags)
+}
