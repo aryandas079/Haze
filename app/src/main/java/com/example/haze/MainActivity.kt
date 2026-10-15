@@ -72,17 +72,13 @@ import androidx.core.content.FileProvider
 import com.example.haze.engine.*
 import com.example.haze.engine.chromium.*
 import android.app.PendingIntent
-import android.app.PictureInPictureParams
-import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.graphics.drawable.Icon
 import android.media.AudioManager
-import android.util.Rational
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import java.util.concurrent.Executors
@@ -282,15 +278,6 @@ class MainActivity : AppCompatActivity() {
     private var customVideoView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private lateinit var fullscreenVideoContainer: FrameLayout
-    private val ACTION_PIP_PLAY_PAUSE = "com.example.haze.ACTION_PIP_PLAY_PAUSE"
-
-    private val pipReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == ACTION_PIP_PLAY_PAUSE) {
-                toggleMediaPlayback()
-            }
-        }
-    }
 
     private var onGoogleSignInSuccess: ((HazeAccountManager.HazeUser) -> Unit)? = null
     private var onGoogleSignInError: ((String) -> Unit)? = null
@@ -323,7 +310,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    val deviceAccountPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+    var onCustomDirSelected: ((Uri) -> Unit)? = null
+
+    val downloadDirPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (_: Exception) {}
+            prefs.edit().putString("custom_download_dir_uri", uri.toString()).apply()
+            onCustomDirSelected?.invoke(uri)
+            onCustomDirSelected = null
+        }
+    }
+
+    private val deviceAccountPickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             HazeAccountManager.handleDeviceAccountPickerResult(
                 this,
@@ -753,7 +756,6 @@ class MainActivity : AppCompatActivity() {
                     lastVideoWidth = width
                     lastVideoHeight = height
                 }
-                updatePipAutoEnter()
             }
         }
         @JavascriptInterface
@@ -826,16 +828,6 @@ class MainActivity : AppCompatActivity() {
 
         webContainer = findViewById(R.id.webContainer)
         fullscreenVideoContainer = findViewById(R.id.fullscreenVideoContainer)
-        try {
-            ContextCompat.registerReceiver(
-                this,
-                pipReceiver,
-                IntentFilter(ACTION_PIP_PLAY_PAUSE),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         addressBar = findViewById(R.id.addressBar)
         tabCountBtn = findViewById(R.id.tabCountBtn)
         btnTabsCircular = findViewById(R.id.btnTabsCircular)
@@ -3575,7 +3567,7 @@ class MainActivity : AppCompatActivity() {
             userAgentString = if (isDesk) {
                 if (isSpotify) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
             } else {
-                WebSettings.getDefaultUserAgent(this@MainActivity)
+                com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
             }
             useWideViewPort = isDesk
             loadWithOverviewMode = isDesk
@@ -3788,7 +3780,7 @@ class MainActivity : AppCompatActivity() {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view ?: webView, true)
                         } catch (_: Throwable) {}
-                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
                         view?.settings?.useWideViewPort = isDesk
                         view?.settings?.loadWithOverviewMode = isDesk
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
@@ -3797,8 +3789,9 @@ class MainActivity : AppCompatActivity() {
                         view?.settings?.useWideViewPort = true
                         view?.settings?.loadWithOverviewMode = true
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
                     } else {
-                        view?.settings?.userAgentString = WebSettings.getDefaultUserAgent(this@MainActivity)
+                        view?.settings?.userAgentString = com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
                         view?.settings?.useWideViewPort = false
                         view?.settings?.loadWithOverviewMode = false
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
@@ -3893,6 +3886,7 @@ class MainActivity : AppCompatActivity() {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
                     } else if (isDesk) {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
+                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
                     } else {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
                     }
@@ -4230,7 +4224,6 @@ class MainActivity : AppCompatActivity() {
                     floatingNavContainer.visibility = View.GONE
                 }
                 isMediaPlaying = true
-                updatePipAutoEnter()
             }
 
             override fun onHideCustomView() {
@@ -4243,7 +4236,6 @@ class MainActivity : AppCompatActivity() {
                 customViewCallback = null
                 val currentTab = currentTabsList.getOrNull(activeTabIndex)
                 updateChromeVisibility(currentTab?.url)
-                updatePipAutoEnter()
             }
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -4295,7 +4287,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveSessionState()
-        if (!isMediaPlaying && !isInPictureInPictureMode) {
+        if (!isMediaPlaying && miniPlayerManager?.isActive != true) {
             try {
                 currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onPause()
             } catch (_: Exception) {}
@@ -6528,12 +6520,6 @@ class MainActivity : AppCompatActivity() {
         addTool("Capture Screenshot", R.drawable.ic_image) {
             captureCurrentTabScreenshot()
         }
-        addTool("Floating Miniplayer (PiP)", R.drawable.ic_fullscreen) {
-            val success = enterMiniplayerPip()
-            if (!success) {
-                Toast.makeText(this, "Miniplayer requires Android 8.0+ or active media playback", Toast.LENGTH_SHORT).show()
-            }
-        }
         addTool("Save for offline reading", R.drawable.ic_download) {
             saveCurrentPageForOffline()
         }
@@ -8142,145 +8128,6 @@ class MainActivity : AppCompatActivity() {
         currentTab.browserTab.evaluateJavascript(toggleScript) { result ->
             val isPlaying = result?.contains("playing") == true
             isMediaPlaying = isPlaying
-            updatePipAutoEnter()
-        }
-    }
-
-    fun buildPipParams(): PictureInPictureParams? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
-        val builder = PictureInPictureParams.Builder()
-
-        val w = if (lastVideoWidth > 0) lastVideoWidth else 16
-        val h = if (lastVideoHeight > 0) lastVideoHeight else 9
-        val rational = try {
-            val r = Rational(w, h)
-            val f = r.toFloat()
-            if (f in 0.42f..2.38f) r else Rational(16, 9)
-        } catch (e: Exception) {
-            Rational(16, 9)
-        }
-        builder.setAspectRatio(rational)
-
-        // Actions: Play / Pause in PiP window
-        try {
-            val isPlaying = isMediaPlaying
-            val iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-            val title = if (isPlaying) "Pause" else "Play"
-            val intent = Intent(ACTION_PIP_PLAY_PAUSE).setPackage(packageName)
-            val pendingIntent = PendingIntent.getBroadcast(
-                this,
-                101,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val action = RemoteAction(
-                Icon.createWithResource(this, iconRes),
-                title,
-                title,
-                pendingIntent
-            )
-            builder.setActions(listOf(action))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // Android 12+ (API 31+): auto-enter support
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            val isAudioActive = audioManager?.isMusicActive == true
-            val shouldAutoEnter = isAutoPipEnabled && !isHome && (isMediaPlaying || customVideoView != null || isAudioActive)
-            builder.setAutoEnterEnabled(shouldAutoEnter)
-        }
-
-        return builder.build()
-    }
-
-    fun updatePipAutoEnter(enabled: Boolean = prefs.getBoolean("auto_pip_enabled", true)) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val params = buildPipParams()
-            if (params != null) {
-                try {
-                    setPictureInPictureParams(params)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-    }
-
-    fun enterMiniplayerPip(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val isPipSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-            if (!isPipSupported) return false
-            val params = buildPipParams()
-            return try {
-                if (params != null) {
-                    enterPictureInPictureMode(params)
-                } else {
-                    @Suppress("DEPRECATION")
-                    enterPictureInPictureMode()
-                    true
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                false
-            }
-        }
-        return false
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
-        if (!isAutoPipEnabled) return
-
-        val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
-        if (isHome) return
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        val isAudioActive = audioManager?.isMusicActive == true
-        val hasMedia = isMediaPlaying || customVideoView != null || isAudioActive
-
-        if (hasMedia) {
-            enterMiniplayerPip()
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        if (isInPictureInPictureMode) {
-            addressBarContainer.visibility = View.GONE
-            findBarContainer.visibility = View.GONE
-            searchSuggestionStrip.visibility = View.GONE
-            searchEngineSelectorBar.visibility = View.GONE
-            dimOverlay.visibility = View.GONE
-            if (::topRightActions.isInitialized) {
-                topRightActions.visibility = View.GONE
-            }
-            if (::floatingNavContainer.isInitialized) {
-                floatingNavContainer.visibility = View.GONE
-            }
-            if (customVideoView != null) {
-                fullscreenVideoContainer.visibility = View.VISIBLE
-                webContainer.visibility = View.GONE
-            } else {
-                webContainer.visibility = View.VISIBLE
-            }
-        } else {
-            if (customVideoView != null) {
-                fullscreenVideoContainer.visibility = View.VISIBLE
-                webContainer.visibility = View.GONE
-                addressBarContainer.visibility = View.GONE
-            } else {
-                fullscreenVideoContainer.visibility = View.GONE
-                webContainer.visibility = View.VISIBLE
-                val currentTab = currentTabsList.getOrNull(activeTabIndex)
-                updateChromeVisibility(currentTab?.url)
-            }
         }
     }
 
@@ -8290,9 +8137,6 @@ class MainActivity : AppCompatActivity() {
         dbExecutor.shutdownNow()
         miniPlayerManager?.release()
         super.onDestroy()
-        try {
-            unregisterReceiver(pipReceiver)
-        } catch (e: Exception) {}
     }
 
     private fun handleBackNavigation() {

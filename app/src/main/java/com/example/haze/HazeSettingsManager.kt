@@ -216,15 +216,7 @@ object HazeSettingsManager {
         })
         content.addView(cardPrivacy)
 
-        // --- CARD 4: MEDIA & MINIPLAYER ---
-        addSectionHeader("Media & Miniplayer")
-        val cardMedia = createCardContainer()
-        cardMedia.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Automatic Miniplayer (PiP)", "Pop out floating video player when minimizing browser", "auto_pip_enabled", true) { isEnabled ->
-            activity.updatePipAutoEnter(isEnabled)
-        })
-        content.addView(cardMedia)
-
-        // --- CARD 5: GENERAL ---
+        // --- CARD 4: GENERAL ---
         addSectionHeader("General")
         val cardGeneral = createCardContainer()
         cardGeneral.addView(createRow(activity, "Personalize Theme", "Choose wallpapers, solid colors, and dark mode", textColor, subTextColor) {
@@ -245,7 +237,7 @@ object HazeSettingsManager {
         })
         content.addView(cardGeneral)
 
-        // --- CARD 6: ADVANCED & DEVELOPER TOOLS ---
+        // --- CARD 5: ADVANCED & DEVELOPER TOOLS ---
         addSectionHeader("Advanced & Developer Tools")
         val cardAdvanced = createCardContainer()
         cardAdvanced.addView(createRow(activity, "Developer Tools", "Inspect DOM elements, console logs, network requests, and active viewport", textColor, subTextColor) {

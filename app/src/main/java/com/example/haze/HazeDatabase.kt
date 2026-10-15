@@ -621,39 +621,43 @@ class HazeDatabase private constructor(context: Context) :
 
     fun getHistoryGrouped(): Map<String, List<HistoryItem>> {
         val all = getAllHistory()
+        val grouped = linkedMapOf<String, MutableList<HistoryItem>>()
+        
         val calendar = Calendar.getInstance()
-
-        // Start of today
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
         calendar.set(Calendar.MILLISECOND, 0)
         val todayStart = calendar.timeInMillis
 
-        // Start of yesterday
         calendar.add(Calendar.DAY_OF_YEAR, -1)
         val yesterdayStart = calendar.timeInMillis
 
-        // Start of 7 days ago
-        calendar.add(Calendar.DAY_OF_YEAR, -6)
-        val sevenDaysStart = calendar.timeInMillis
+        calendar.add(Calendar.DAY_OF_YEAR, -5)
+        val sixDaysAgoStart = calendar.timeInMillis
 
-        val grouped = linkedMapOf<String, MutableList<HistoryItem>>()
-        grouped["Today"] = mutableListOf()
-        grouped["Yesterday"] = mutableListOf()
-        grouped["Last 7 Days"] = mutableListOf()
-        grouped["Older"] = mutableListOf()
+        val dayOfWeekFormat = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault())
+        val dateFormat = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
 
         for (item in all) {
-            when {
-                item.timestamp >= todayStart -> grouped["Today"]!!.add(item)
-                item.timestamp >= yesterdayStart -> grouped["Yesterday"]!!.add(item)
-                item.timestamp >= sevenDaysStart -> grouped["Last 7 Days"]!!.add(item)
-                else -> grouped["Older"]!!.add(item)
+            val label = when {
+                item.timestamp >= todayStart -> "Today"
+                item.timestamp >= yesterdayStart -> "Yesterday"
+                item.timestamp >= sixDaysAgoStart -> {
+                    val c = Calendar.getInstance()
+                    c.timeInMillis = item.timestamp
+                    dayOfWeekFormat.format(c.time)
+                }
+                else -> {
+                    val c = Calendar.getInstance()
+                    c.timeInMillis = item.timestamp
+                    dateFormat.format(c.time)
+                }
             }
+            grouped.getOrPut(label) { mutableListOf() }.add(item)
         }
 
-        return grouped.filterValues { it.isNotEmpty() }
+        return grouped
     }
 
     fun deleteHistoryItem(id: Long): Boolean {
