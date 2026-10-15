@@ -15,6 +15,7 @@ import com.example.haze.HazePrivacyShieldEngine
 import com.example.haze.HazeAntiTrackingEngine
 import com.example.haze.HazeFilterListManager
 import com.example.haze.HazeSecurityWarningManager
+import com.example.haze.HazeDevToolsManager
 import com.example.haze.engine.*
 import java.io.ByteArrayInputStream
 
@@ -324,6 +325,14 @@ class ChromiumBrowserTab(
                     isMainFrame = isMain,
                     isPrivate = isPrivate
                 )
+                HazeDevToolsManager.recordNetworkRequest(
+                    tabId = id,
+                    url = reqUrl,
+                    method = request.method ?: "GET",
+                    headers = request.requestHeaders ?: emptyMap(),
+                    isMainFrame = isMain,
+                    isBlocked = decision.shouldBlock
+                )
                 if (decision.shouldBlock) {
                     if (isMain && decision.isHarmfulPageNavigation) {
                         val isDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES || isPrivate
@@ -362,6 +371,26 @@ class ChromiumBrowserTab(
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                if (consoleMessage != null) {
+                    val level = when (consoleMessage.messageLevel()) {
+                        ConsoleMessage.MessageLevel.ERROR -> HazeDevToolsManager.ConsoleLogEntry.Level.ERROR
+                        ConsoleMessage.MessageLevel.WARNING -> HazeDevToolsManager.ConsoleLogEntry.Level.WARNING
+                        ConsoleMessage.MessageLevel.LOG -> HazeDevToolsManager.ConsoleLogEntry.Level.LOG
+                        ConsoleMessage.MessageLevel.TIP, ConsoleMessage.MessageLevel.DEBUG -> HazeDevToolsManager.ConsoleLogEntry.Level.INFO
+                        else -> HazeDevToolsManager.ConsoleLogEntry.Level.LOG
+                    }
+                    HazeDevToolsManager.recordConsoleMessage(
+                        tabId = id,
+                        message = consoleMessage.message(),
+                        sourceId = consoleMessage.sourceId(),
+                        lineNumber = consoleMessage.lineNumber(),
+                        level = level
+                    )
+                }
+                return super.onConsoleMessage(consoleMessage)
+            }
+
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 progress = newProgress
                 observer?.onPageProgress(this@ChromiumBrowserTab, newProgress)

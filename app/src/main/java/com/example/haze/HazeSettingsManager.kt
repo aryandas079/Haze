@@ -243,6 +243,21 @@ object HazeSettingsManager {
                 Toast.makeText(activity, "Select Haze in Android Settings > Default Apps", Toast.LENGTH_SHORT).show()
             }
         })
+        content.addView(cardGeneral)
+
+        // --- CARD 6: ADVANCED & DEVELOPER TOOLS ---
+        addSectionHeader("Advanced & Developer Tools")
+        val cardAdvanced = createCardContainer()
+        cardAdvanced.addView(createRow(activity, "Developer Tools", "Inspect DOM elements, console logs, network requests, and active viewport", textColor, subTextColor) {
+            dialog.dismiss()
+            val activeTab = activity.getActiveTab()
+            if (activeTab != null) {
+                HazeDevToolsManager.showDevToolsDialog(activity, activeTab)
+            } else {
+                Toast.makeText(activity, "No active tab to inspect", Toast.LENGTH_SHORT).show()
+            }
+        })
+        content.addView(cardAdvanced)
         cardGeneral.addView(createRow(activity, "About Haze Browser", "Haze Browser v2.2 - Ultra-fast minimalist browser", textColor, subTextColor) {
             val isDarkAbout = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
             val dialogBg = if (isDarkAbout) Color.parseColor("#1E1E1E") else Color.WHITE

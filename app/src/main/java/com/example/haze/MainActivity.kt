@@ -3625,6 +3625,15 @@ class MainActivity : AppCompatActivity() {
                     isPrivate = tabIsPrivate()
                 )
 
+                HazeDevToolsManager.recordNetworkRequest(
+                    tabId = getTabFromWebView(view ?: webView)?.id ?: 0L,
+                    url = reqUrl,
+                    method = request.method ?: "GET",
+                    headers = request.requestHeaders ?: emptyMap(),
+                    isMainFrame = isMainFrame,
+                    isBlocked = decision.shouldBlock
+                )
+
                 if (decision.shouldBlock) {
                     if (isMainFrame && decision.isHarmfulPageNavigation) {
                         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
@@ -3947,6 +3956,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                if (consoleMessage != null) {
+                    val tabId = getTabFromWebView(webView)?.id ?: 0L
+                    val level = when (consoleMessage.messageLevel()) {
+                        ConsoleMessage.MessageLevel.ERROR -> HazeDevToolsManager.ConsoleLogEntry.Level.ERROR
+                        ConsoleMessage.MessageLevel.WARNING -> HazeDevToolsManager.ConsoleLogEntry.Level.WARNING
+                        ConsoleMessage.MessageLevel.LOG -> HazeDevToolsManager.ConsoleLogEntry.Level.LOG
+                        ConsoleMessage.MessageLevel.TIP, ConsoleMessage.MessageLevel.DEBUG -> HazeDevToolsManager.ConsoleLogEntry.Level.INFO
+                        else -> HazeDevToolsManager.ConsoleLogEntry.Level.LOG
+                    }
+                    HazeDevToolsManager.recordConsoleMessage(
+                        tabId = tabId,
+                        message = consoleMessage.message(),
+                        sourceId = consoleMessage.sourceId(),
+                        lineNumber = consoleMessage.lineNumber(),
+                        level = level
+                    )
+                }
+                return super.onConsoleMessage(consoleMessage)
+            }
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
                 if (newProgress < 100) showPageLoading(newProgress.coerceAtLeast(5))
@@ -5640,6 +5669,7 @@ class MainActivity : AppCompatActivity() {
             Pair("Share", R.drawable.ic_share),
             Pair("Recent Tabs", R.drawable.ic_restore),
             Pair("Save Offline", R.drawable.ic_download),
+            Pair("DevTools", R.drawable.ic_code),
             Pair("Extra", R.drawable.ic_extra),
             Pair("Settings", R.drawable.ic_settings)
         )
@@ -5690,6 +5720,7 @@ class MainActivity : AppCompatActivity() {
                     "Share" -> shareCurrentPage()
                     "Recent Tabs" -> showRecentlyClosedTabsDialog()
                     "Save Offline" -> saveCurrentPageForOffline()
+                    "DevTools", "Inspect" -> currentTabsList.getOrNull(activeTabIndex)?.let { HazeDevToolsManager.showDevToolsDialog(this, it) }
                     "Extra" -> showExtraToolsDialog()
                     "Settings" -> HazeSettingsManager.showSettingsDialog(this)
                 }

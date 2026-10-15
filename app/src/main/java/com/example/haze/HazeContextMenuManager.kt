@@ -384,22 +384,8 @@ object HazeContextMenuManager {
             activity.addNewTab("view-source:$currentUrl")
         }
 
-        addItem("Inspect (Mobile DevTools Console)", R.drawable.ic_settings) {
-            val erudaJs = """
-                (function () { 
-                    var src = '//cdn.jsdelivr.net/npm/eruda';
-                    if (!window.eruda) {
-                        var script = document.createElement('script');
-                        script.src = src;
-                        document.body.appendChild(script);
-                        script.onload = function () { eruda.init(); eruda.show(); }
-                    } else {
-                        eruda.show();
-                    }
-                })();
-            """.trimIndent()
-            tab.evaluateJavascript(erudaJs, null)
-            Toast.makeText(activity, "DevTools Console loaded", Toast.LENGTH_SHORT).show()
+        addItem("Inspect Element", R.drawable.ic_code) {
+            HazeDevToolsManager.showDevToolsDialog(activity, tab, initialTab = "ELEMENTS")
         }
 
         dialog.setContentView(root)
