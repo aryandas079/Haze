@@ -81,7 +81,6 @@ object HazeDownloadsManager {
         }
 
         var activeFilter = "ALL" // ALL, ACTIVE, COMPLETED, FAILED
-        var btnFilterUpdateCallback: ((String, Int) -> Unit)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -155,7 +154,7 @@ object HazeDownloadsManager {
         btnFilter.addView(ivFilterArrow)
         
         var refreshListProxy: (() -> Unit)? = null
-        btnFilterUpdateCallback = { cat, count ->
+        val btnFilterUpdateCallback: ((String, Int) -> Unit) = { cat, count ->
             val label = when (cat) {
                 "ALL" -> "All"
                 "ACTIVE" -> "Active"
@@ -197,11 +196,12 @@ object HazeDownloadsManager {
         val tvTitle = TextView(activity).apply {
             text = "Downloads"
             textSize = 20f
-            setTypeface(null, Typeface.NORMAL)
+            setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_START)
+                addRule(RelativeLayout.RIGHT_OF, btnBack.id)
                 addRule(RelativeLayout.CENTER_VERTICAL)
+                marginStart = dpToPx(activity, 16)
             }
         }
         header.addView(tvTitle)
