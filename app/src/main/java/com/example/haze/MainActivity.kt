@@ -6010,7 +6010,7 @@ class MainActivity : AppCompatActivity() {
                     var candidates = document.querySelectorAll(selectors[i]);
                     for (var j = 0; j < candidates.length; j++) {
                         var candidate = candidates[j];
-                        var length = (candidate.innerText || '').replace(/\s+/g, ' ').trim().length;
+                        var length = (candidate.innerText || candidate.textContent || '').replace(/\s+/g, ' ').trim().length;
                         if (length > bestLength) {
                             bestLength = length;
                             article = candidate;
@@ -6019,9 +6019,33 @@ class MainActivity : AppCompatActivity() {
                 }
                 if (!article) article = document.body;
                 var copy = article.cloneNode(true);
-                var unwanted = copy.querySelectorAll('script, style, noscript, iframe, video, audio, canvas, nav, footer, form, aside');
+
+                // Systematically expand all details, dropdowns, accordions, and collapsed sections
+                var detailsEls = copy.querySelectorAll('details');
+                for (var d = 0; d < detailsEls.length; d++) {
+                    detailsEls[d].open = true;
+                    detailsEls[d].setAttribute('open', 'true');
+                }
+
+                var collapsedEls = copy.querySelectorAll('[aria-expanded="false"], [aria-hidden="true"], .collapse, .collapsed, .hidden, [hidden], .mw-collapsed');
+                for (var c = 0; c < collapsedEls.length; c++) {
+                    var el = collapsedEls[c];
+                    el.removeAttribute('hidden');
+                    el.removeAttribute('aria-hidden');
+                    el.setAttribute('aria-expanded', 'true');
+                    el.classList.remove('collapse', 'collapsed', 'hidden', 'mw-collapsed');
+                    el.classList.add('show', 'in', 'expanded');
+                    el.style.display = 'block';
+                    el.style.visibility = 'visible';
+                    el.style.maxHeight = 'none';
+                    el.style.height = 'auto';
+                    el.style.opacity = '1';
+                }
+
+                var unwanted = copy.querySelectorAll('script, style, noscript, iframe, video, audio, canvas, nav, footer, form, aside, .ad, .ads, .advertisement');
                 for (var k = 0; k < unwanted.length; k++) unwanted[k].remove();
-                var plain = (copy.innerText || '').replace(/\s+/g, ' ').trim();
+
+                var plain = (copy.innerText || copy.textContent || '').replace(/\s+/g, ' ').trim();
                 var wordCount = plain.split(/\s+/).filter(Boolean).length;
                 var readTimeMinutes = Math.max(1, Math.ceil(wordCount / 200));
                 var title = document.title;
@@ -6035,12 +6059,14 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 var paragraphs = copy.querySelectorAll('p').length;
-                var readable = plain.length >= 400 && (paragraphs >= 2 || plain.length >= 800);
+                var readable = plain.length >= 300 && (paragraphs >= 1 || plain.length >= 600);
+
                 return JSON.stringify({
                     title: title,
                     author: author,
                     readTime: readTimeMinutes + ' min read',
                     html: copy.innerHTML,
+                    plainText: plain,
                     readable: readable,
                     characters: plain.length
                 });
@@ -6062,8 +6088,9 @@ class MainActivity : AppCompatActivity() {
                 val author = json.optString("author", "")
                 val readTime = json.optString("readTime", "2 min read")
                 val contentHtml = json.optString("html", "")
+                val plainText = json.optString("plainText", "")
                 
-                showReaderModeDialog(title, author, readTime, contentHtml)
+                showReaderModeDialog(title, author, readTime, contentHtml, plainText)
             } catch (e: Exception) {
                 Toast.makeText(this, "Could not format page for reading", Toast.LENGTH_SHORT).show()
             }
@@ -6074,7 +6101,47 @@ class MainActivity : AppCompatActivity() {
     private var isTtsSpeaking = false
     private var ttsSpeed = 1.0f
 
-    private fun showReaderModeDialog(title: String, author: String, readTime: String, contentHtml: String) {
+    private fun speakLongText(tts: TextToSpeech?, text: String, speed: Float) {
+        if (tts == null) return
+        tts.stop()
+        tts.setSpeechRate(speed)
+
+        val clean = text
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace(Regex("&#39;|&#x27;"), "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        if (clean.isEmpty()) return
+
+        val maxChunk = 2500
+        var start = 0
+        var isFirst = true
+
+        while (start < clean.length) {
+            var end = (start + maxChunk).coerceAtMost(clean.length)
+            if (end < clean.length) {
+                val lastPeriod = clean.substring(start, end).lastIndexOfAny(charArrayOf('.', '!', '?', '\n'))
+                if (lastPeriod > 400) {
+                    end = start + lastPeriod + 1
+                }
+            }
+            val chunk = clean.substring(start, end).trim()
+            if (chunk.isNotEmpty()) {
+                val queueMode = if (isFirst) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                val utteranceId = "reader_tts_$start"
+                tts.speak(chunk, queueMode, null, utteranceId)
+                isFirst = false
+            }
+            start = end
+        }
+    }
+
+    private fun showReaderModeDialog(title: String, author: String, readTime: String, contentHtml: String, plainText: String) {
         val dialog = Dialog(this, android.R.style.Theme_Light_NoTitleBar_Fullscreen)
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         val isDark = prefs.getBoolean("is_dark", false)
@@ -6245,9 +6312,8 @@ class MainActivity : AppCompatActivity() {
                 isTtsSpeaking = false
                 Toast.makeText(this, "Read aloud paused", Toast.LENGTH_SHORT).show()
             } else {
-                val plainText = contentHtml.replace(Regex("<[^>]*>"), "")
-                tts?.setSpeechRate(ttsSpeed)
-                tts?.speak(plainText, TextToSpeech.QUEUE_FLUSH, null, null)
+                val speechText = if (plainText.isNotBlank()) plainText else contentHtml.replace(Regex("<[^>]*>"), "")
+                speakLongText(tts, speechText, ttsSpeed)
                 isTtsSpeaking = true
                 Toast.makeText(this, "Reading aloud...", Toast.LENGTH_SHORT).show()
             }
