@@ -72,17 +72,13 @@ import androidx.core.content.FileProvider
 import com.example.haze.engine.*
 import com.example.haze.engine.chromium.*
 import android.app.PendingIntent
-import android.app.PictureInPictureParams
-import android.app.RemoteAction
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.graphics.drawable.Icon
 import android.media.AudioManager
-import android.util.Rational
 import androidx.core.content.ContextCompat
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import java.util.concurrent.Executors
@@ -282,15 +278,6 @@ class MainActivity : AppCompatActivity() {
     private var customVideoView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private lateinit var fullscreenVideoContainer: FrameLayout
-    private val ACTION_PIP_PLAY_PAUSE = "com.example.haze.ACTION_PIP_PLAY_PAUSE"
-
-    private val pipReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == ACTION_PIP_PLAY_PAUSE) {
-                toggleMediaPlayback()
-            }
-        }
-    }
 
     private var onGoogleSignInSuccess: ((HazeAccountManager.HazeUser) -> Unit)? = null
     private var onGoogleSignInError: ((String) -> Unit)? = null
@@ -765,7 +752,6 @@ class MainActivity : AppCompatActivity() {
                     lastVideoWidth = width
                     lastVideoHeight = height
                 }
-                updatePipAutoEnter()
             }
         }
         @JavascriptInterface
@@ -838,16 +824,6 @@ class MainActivity : AppCompatActivity() {
 
         webContainer = findViewById(R.id.webContainer)
         fullscreenVideoContainer = findViewById(R.id.fullscreenVideoContainer)
-        try {
-            ContextCompat.registerReceiver(
-                this,
-                pipReceiver,
-                IntentFilter(ACTION_PIP_PLAY_PAUSE),
-                ContextCompat.RECEIVER_NOT_EXPORTED
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         addressBar = findViewById(R.id.addressBar)
         tabCountBtn = findViewById(R.id.tabCountBtn)
         btnTabsCircular = findViewById(R.id.btnTabsCircular)
@@ -4242,7 +4218,6 @@ class MainActivity : AppCompatActivity() {
                     floatingNavContainer.visibility = View.GONE
                 }
                 isMediaPlaying = true
-                updatePipAutoEnter()
             }
 
             override fun onHideCustomView() {
@@ -4255,7 +4230,6 @@ class MainActivity : AppCompatActivity() {
                 customViewCallback = null
                 val currentTab = currentTabsList.getOrNull(activeTabIndex)
                 updateChromeVisibility(currentTab?.url)
-                updatePipAutoEnter()
             }
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -4307,9 +4281,6 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveSessionState()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode) {
-            return
-        }
         if (!isMediaPlaying && miniPlayerManager?.isActive != true) {
             try {
                 currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onPause()
@@ -6543,12 +6514,6 @@ class MainActivity : AppCompatActivity() {
         addTool("Capture Screenshot", R.drawable.ic_image) {
             captureCurrentTabScreenshot()
         }
-        addTool("Floating Miniplayer (PiP)", R.drawable.ic_fullscreen) {
-            val success = enterMiniplayerPip()
-            if (!success) {
-                Toast.makeText(this, "Miniplayer requires Android 8.0+ or active media playback", Toast.LENGTH_SHORT).show()
-            }
-        }
         addTool("Save for offline reading", R.drawable.ic_download) {
             saveCurrentPageForOffline()
         }
@@ -8157,250 +8122,6 @@ class MainActivity : AppCompatActivity() {
         currentTab.browserTab.evaluateJavascript(toggleScript) { result ->
             val isPlaying = result?.contains("playing") == true
             isMediaPlaying = isPlaying
-            updatePipAutoEnter()
-        }
-    }
-
-    fun buildPipParams(): PictureInPictureParams? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return null
-        val builder = PictureInPictureParams.Builder()
-
-        val w = if (lastVideoWidth > 0) lastVideoWidth else 16
-        val h = if (lastVideoHeight > 0) lastVideoHeight else 9
-        val rational = try {
-            val r = Rational(w, h)
-            val f = r.toFloat()
-            if (f in 0.42f..2.38f) r else Rational(16, 9)
-        } catch (e: Exception) {
-            Rational(16, 9)
-        }
-        builder.setAspectRatio(rational)
-
-        // Actions: Play / Pause in PiP window
-        try {
-            val isPlaying = isMediaPlaying
-            val iconRes = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-            val title = if (isPlaying) "Pause" else "Play"
-            val intent = Intent(ACTION_PIP_PLAY_PAUSE).setPackage(packageName)
-            val pendingIntent = PendingIntent.getBroadcast(
-                this,
-                101,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val action = RemoteAction(
-                Icon.createWithResource(this, iconRes),
-                title,
-                title,
-                pendingIntent
-            )
-            builder.setActions(listOf(action))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        // Android 12+ (API 31+): auto-enter support
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
-            val currentTab = currentTabsList.getOrNull(activeTabIndex)
-            val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
-            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            val isAudioActive = audioManager?.isMusicActive == true
-            val shouldAutoEnter = isAutoPipEnabled && !isHome && (isMediaPlaying || customVideoView != null || isAudioActive)
-            builder.setAutoEnterEnabled(shouldAutoEnter)
-        }
-
-        return builder.build()
-    }
-
-    fun updatePipAutoEnter(enabled: Boolean = prefs.getBoolean("auto_pip_enabled", true)) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val params = buildPipParams()
-            if (params != null) {
-                try {
-                    setPictureInPictureParams(params)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-    }
-
-    fun enterMiniplayerPip(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val isPipSupported = packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
-            if (!isPipSupported) return false
-            val params = buildPipParams()
-            return try {
-                if (params != null) {
-                    enterPictureInPictureMode(params)
-                } else {
-                    @Suppress("DEPRECATION")
-                    enterPictureInPictureMode()
-                    true
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                false
-            }
-        }
-        return false
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        val isAutoPipEnabled = prefs.getBoolean("auto_pip_enabled", true)
-        if (!isAutoPipEnabled) return
-
-        val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        val isHome = miniPlayerManager?.isActive != true && (currentTab == null || isHomeTab(currentTab))
-        if (isHome) return
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        val isAudioActive = audioManager?.isMusicActive == true
-        val hasMedia = isMediaPlaying || customVideoView != null || isAudioActive
-
-        if (hasMedia) {
-            enterMiniplayerPip()
-        }
-    }
-
-    fun isolateVideoForPip(enable: Boolean) {
-        val currentTab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        if (enable) {
-            val script = """
-                (function() {
-                    function getActiveVideo() {
-                        var v = window.hazeActiveVideo;
-                        if (!v || !document.contains(v)) {
-                            var videos = document.querySelectorAll('video');
-                            for (var i = 0; i < videos.length; i++) {
-                                if (!videos[i].paused || videos[i].currentTime > 0) {
-                                    v = videos[i];
-                                    break;
-                                }
-                            }
-                            if (!v && videos.length > 0) v = videos[0];
-                        }
-                        return v;
-                    }
-
-                    var v = getActiveVideo();
-                    if (!v) return;
-                    window.hazeActiveVideo = v;
-                    window.__hazeInPipMode = true;
-
-                    if (v.paused) {
-                        var p = v.play();
-                        if (p && p.catch) p.catch(function(){});
-                    }
-
-                    if (!v.__hazePipLocked) {
-                        v.__hazePipLocked = true;
-                        v.addEventListener('pause', function(e) {
-                            if (window.__hazeInPipMode && !v.ended) {
-                                setTimeout(function() { v.play(); }, 50);
-                            }
-                        });
-                    }
-
-                    var style = document.getElementById('__haze_pip_isolate_css');
-                    if (!style) {
-                        style = document.createElement('style');
-                        style.id = '__haze_pip_isolate_css';
-                        (document.head || document.documentElement).appendChild(style);
-                    }
-                    style.textContent = 'html, body { background: #000000 !important; background-color: #000000 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; width: 100vw !important; height: 100vh !important; } video { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; max-width: 100vw !important; max-height: 100vh !important; z-index: 2147483647 !important; object-fit: contain !important; background: #000000 !important; visibility: visible !important; opacity: 1 !important; } ytm-mobile-topbar-renderer, ytm-pivot-bar-renderer, ytm-app-header-renderer, ytm-custom-control-renderer, .ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom, .ytp-pause-overlay, .ytp-scroll-min, #secondary, #guide, .header-content, #header-bar, .page-header, .site-header, .nav-bar, header, nav { display: none !important; opacity: 0 !important; pointer-events: none !important; }';
-
-                    var parent = v.parentElement;
-                    while (parent && parent !== document.body && parent !== document.documentElement) {
-                        parent.style.transform = 'none';
-                        parent.style.webkitTransform = 'none';
-                        parent.style.filter = 'none';
-                        parent.style.perspective = 'none';
-                        parent.style.contain = 'none';
-                        parent.style.clipPath = 'none';
-                        parent.style.overflow = 'visible';
-                        parent = parent.parentElement;
-                    }
-                })();
-            """.trimIndent()
-            currentTab.browserTab.evaluateJavascript(script, null)
-        } else {
-            val restoreScript = """
-                (function() {
-                    window.__hazeInPipMode = false;
-                    var style = document.getElementById('__haze_pip_isolate_css');
-                    if (style && style.parentNode) {
-                        style.parentNode.removeChild(style);
-                    }
-                    var selectorsToRestore = [
-                        'ytm-mobile-topbar-renderer',
-                        'ytm-pivot-bar-renderer',
-                        'ytm-app-header-renderer',
-                        'ytm-custom-control-renderer',
-                        '.ytp-chrome-top',
-                        '.ytp-chrome-bottom',
-                        '.ytp-gradient-top',
-                        '.ytp-gradient-bottom',
-                        '#secondary',
-                        '#guide',
-                        'header',
-                        'nav'
-                    ];
-                    selectorsToRestore.forEach(function(sel) {
-                        var el = document.querySelector(sel);
-                        if (el) {
-                            el.style.display = '';
-                            el.style.opacity = '';
-                            el.style.pointerEvents = '';
-                        }
-                    });
-                })();
-            """.trimIndent()
-            currentTab.browserTab.evaluateJavascript(restoreScript, null)
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        val currentTab = currentTabsList.getOrNull(activeTabIndex)
-        val webView = currentTab?.webView
-
-        if (isInPictureInPictureMode) {
-            addressBarContainer.visibility = View.GONE
-            findBarContainer.visibility = View.GONE
-            searchSuggestionStrip.visibility = View.GONE
-            searchEngineSelectorBar.visibility = View.GONE
-            dimOverlay.visibility = View.GONE
-            if (::topRightActions.isInitialized) {
-                topRightActions.visibility = View.GONE
-            }
-            if (::floatingNavContainer.isInitialized) {
-                floatingNavContainer.visibility = View.GONE
-            }
-
-            webView?.setBackgroundColor(Color.BLACK)
-            webView?.onResume()
-            isolateVideoForPip(true)
-
-            if (customVideoView != null) {
-                fullscreenVideoContainer.visibility = View.VISIBLE
-                webContainer.visibility = View.GONE
-            } else {
-                webContainer.visibility = View.VISIBLE
-            }
-        } else {
-            isolateVideoForPip(false)
-            if (customVideoView != null) {
-                fullscreenVideoContainer.visibility = View.VISIBLE
-                webContainer.visibility = View.GONE
-                addressBarContainer.visibility = View.GONE
-            } else {
-                fullscreenVideoContainer.visibility = View.GONE
-                webContainer.visibility = View.VISIBLE
-                updateChromeVisibility(currentTab?.url)
-            }
         }
     }
 
@@ -8410,9 +8131,6 @@ class MainActivity : AppCompatActivity() {
         dbExecutor.shutdownNow()
         miniPlayerManager?.release()
         super.onDestroy()
-        try {
-            unregisterReceiver(pipReceiver)
-        } catch (e: Exception) {}
     }
 
     private fun handleBackNavigation() {

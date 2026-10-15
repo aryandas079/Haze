@@ -155,9 +155,6 @@ Haze turns video consumption on mobile into a multitasking breeze.
   - Responsive edge-snapping physics and corner minimization.
   - Integrated seek bar, volume mute toggle, and forward/rewind controls.
   - Pinch-and-drag resize handle for flexible scaling.
-- **System-Level Picture-in-Picture (PiP)**:
-  - Seamlessly transitions into native Android Picture-in-Picture when minimizing the app during video playback.
-  - Full Android `MediaSession` integration with lock screen and notification action controls.
 
 ---
 
@@ -438,7 +435,7 @@ Haze treats user privacy as a fundamental architectural constraint, not an after
 - [x] Hybrid local database indexing + live Google autocomplete search omnibox
 - [x] Native C++17 Shield Engine (`libhazeshield.so`) with JNI integration
 - [x] Hardware-backed Password Vault with biometric unlock
-- [x] In-app Draggable Mini-Player & System PiP
+- [x] In-app Draggable Mini-Player
 - [x] Multi-threaded resumable download engine
 - [x] Google Account Cloud Sync
 - [ ] DNS-over-HTTPS (DoH) with NextDNS & Cloudflare presets
