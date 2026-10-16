@@ -7842,8 +7842,17 @@ class MainActivity : AppCompatActivity() {
         addTool("Print / Save as PDF", R.drawable.ic_download) {
             printCurrentPage()
         }
-        addTool("Capture Screenshot", R.drawable.ic_image) {
-            captureCurrentTabScreenshot()
+        addTool("Screenshot", R.drawable.ic_image) {
+            HazeWebContentToolsManager.captureViewportScreenshot(this)
+        }
+        addTool("Full-page screenshot", R.drawable.ic_fullscreen) {
+            HazeWebContentToolsManager.captureFullPageScreenshot(this)
+        }
+        addTool("Screenshot selected area", R.drawable.ic_edit) {
+            HazeWebContentToolsManager.startSelectedAreaScreenshot(this)
+        }
+        addTool("Saved selections & snippets", R.drawable.ic_reading_mode) {
+            HazeWebContentToolsManager.showSavedSelectionsDialog(this)
         }
         addTool("Save for offline reading", R.drawable.ic_download) {
             saveCurrentPageForOffline()

@@ -260,6 +260,10 @@ object HazeContextMenuManager {
             activity.startActivity(Intent.createChooser(intent, "Share image link"))
         }
 
+        addItem("Copy text from image", R.drawable.ic_code) {
+            HazeWebContentToolsManager.copyTextFromImageUrl(activity, imageUrl)
+        }
+
         addItem("Visual search with Google", R.drawable.ic_lens) {
             val searchUrl = "https://lens.google.com/uploadbyurl?url=${URLEncoder.encode(imageUrl, "UTF-8")}"
             activity.addNewTab(searchUrl)
@@ -460,15 +464,20 @@ object HazeContextMenuManager {
             Toast.makeText(activity, "Copied to clipboard", Toast.LENGTH_SHORT).show()
         }
 
-        addItem("Send to AI Copilot", R.drawable.ic_sparkles, isHighlight = true) {
-            showAiCopilotDialog(activity, selectedText)
-        }
-
-        addItem("Search the web", R.drawable.ic_search) {
+        addItem("Search selected text", R.drawable.ic_search) {
             activity.loadUrlFromInput(selectedText)
         }
 
-        addItem("Share", R.drawable.ic_share) {
+        addItem("Translate selected text", R.drawable.ic_translate) {
+            val url = "https://translate.google.com/?sl=auto&tl=en&text=${URLEncoder.encode(selectedText, "UTF-8")}&op=translate"
+            activity.addNewTab(url)
+        }
+
+        addItem("Explain selected text", R.drawable.ic_sparkles, isHighlight = true) {
+            showExplainDialog(activity, selectedText)
+        }
+
+        addItem("Share selected text", R.drawable.ic_share) {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, selectedText)
@@ -476,9 +485,12 @@ object HazeContextMenuManager {
             activity.startActivity(Intent.createChooser(intent, "Share text"))
         }
 
-        addItem("Translate selection", R.drawable.ic_translate) {
-            val url = "https://translate.google.com/?sl=auto&tl=en&text=${URLEncoder.encode(selectedText, "UTF-8")}&op=translate"
-            activity.addNewTab(url)
+        addItem("Save selection", R.drawable.ic_reading_mode) {
+            val tab = activity.getActiveTab()
+            val pageTitle = tab?.title ?: "Web Snippet"
+            val pageUrl = tab?.url ?: ""
+            HazeDatabase.getInstance(activity).addSavedSelection(pageTitle, pageUrl, selectedText)
+            Toast.makeText(activity, "Selection saved to Snippets!", Toast.LENGTH_SHORT).show()
         }
 
         addItem("Read aloud", R.drawable.ic_volume_up) {
@@ -487,6 +499,10 @@ object HazeContextMenuManager {
 
         dialog.setContentView(root)
         dialog.show()
+    }
+
+    fun showExplainDialog(activity: MainActivity, textContext: String) {
+        showAiCopilotDialog(activity, textContext)
     }
 
     // ==========================================

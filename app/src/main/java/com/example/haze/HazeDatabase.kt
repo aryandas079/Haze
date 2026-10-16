@@ -127,6 +127,15 @@ data class OfflinePageItem(
     val savedAt: Long = System.currentTimeMillis()
 )
 
+data class SavedSelectionItem(
+    val id: Long = 0L,
+    val title: String,
+    val url: String,
+    val selectedText: String,
+    val note: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 
 class HazeDatabase private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
@@ -279,6 +288,7 @@ class HazeDatabase private constructor(context: Context) :
         )
         createPasswordTable(db)
         createOfflineTable(db)
+        createSavedSelectionsTable(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -300,6 +310,7 @@ class HazeDatabase private constructor(context: Context) :
             createPrivacyTables(db)
         }
         createOfflineTable(db)
+        createSavedSelectionsTable(db)
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -319,6 +330,7 @@ class HazeDatabase private constructor(context: Context) :
         createPrivacyTables(db)
         createPasswordTable(db)
         createOfflineTable(db)
+        createSavedSelectionsTable(db)
         try {
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_history_title ON history(title)")
             db.execSQL("CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url)")
@@ -340,6 +352,22 @@ class HazeDatabase private constructor(context: Context) :
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_offline_saved_at ON offline_pages(saved_at DESC)")
+    }
+
+    private fun createSavedSelectionsTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS saved_selections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                selected_text TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                timestamp INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_saved_selections_ts ON saved_selections(timestamp DESC)")
     }
 
 
@@ -1813,6 +1841,48 @@ class HazeDatabase private constructor(context: Context) :
 
     fun clearAllOfflinePages(): Int {
         return writableDatabase.delete("offline_pages", null, null)
+    }
+
+    // =========================================================================
+    // SAVED SELECTIONS / WEB SNIPPETS
+    // =========================================================================
+    fun addSavedSelection(title: String, url: String, selectedText: String, note: String = ""): Long {
+        val values = ContentValues().apply {
+            put("title", title)
+            put("url", url)
+            put("selected_text", selectedText)
+            put("note", note)
+            put("timestamp", System.currentTimeMillis())
+        }
+        return writableDatabase.insert("saved_selections", null, values)
+    }
+
+    fun getAllSavedSelections(): List<SavedSelectionItem> {
+        val list = mutableListOf<SavedSelectionItem>()
+        val db = readableDatabase
+        val cursor = db.rawQuery("SELECT id, title, url, selected_text, note, timestamp FROM saved_selections ORDER BY timestamp DESC", null)
+        while (cursor.moveToNext()) {
+            list.add(
+                SavedSelectionItem(
+                    id = cursor.getLong(0),
+                    title = cursor.getString(1),
+                    url = cursor.getString(2),
+                    selectedText = cursor.getString(3),
+                    note = cursor.getString(4),
+                    timestamp = cursor.getLong(5)
+                )
+            )
+        }
+        cursor.close()
+        return list
+    }
+
+    fun deleteSavedSelection(id: Long): Int {
+        return writableDatabase.delete("saved_selections", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun clearAllSavedSelections(): Int {
+        return writableDatabase.delete("saved_selections", null, null)
     }
 }
 
