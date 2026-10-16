@@ -237,6 +237,27 @@ class MainActivity : AppCompatActivity() {
                     renderSearchSuggestions(query, suggestions)
                 }
             }
+            HazeSmartOmniboxEngine.fetchAsyncSmartItem(this@MainActivity, query) { asyncSmart ->
+                if (asyncSmart != null) {
+                    mainHandler.post {
+                        if (requestId == suggestionRequestId &&
+                            isSearchActive &&
+                            getUserTypedQuery() == query
+                        ) {
+                            val smartRow = SuggestionRowItem(
+                                title = asyncSmart.title,
+                                subtitle = asyncSmart.subtitle,
+                                iconRes = asyncSmart.iconRes,
+                                target = asyncSmart.target,
+                                isSmartItem = true,
+                                badgeText = asyncSmart.badgeText,
+                                fillText = asyncSmart.fillText
+                            )
+                            updateTopSmartSuggestion(smartRow)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -964,6 +985,19 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.removeCallbacks(suggestionDebounce)
                         renderRecentSearchesAndShortcuts()
                     } else {
+                        val instantSmart = HazeSmartOmniboxEngine.evaluateInstantSmartItem(trimmed)
+                        if (instantSmart != null) {
+                            val smartRow = SuggestionRowItem(
+                                title = instantSmart.title,
+                                subtitle = instantSmart.subtitle,
+                                iconRes = instantSmart.iconRes,
+                                target = instantSmart.target,
+                                isSmartItem = true,
+                                badgeText = instantSmart.badgeText,
+                                fillText = instantSmart.fillText
+                            )
+                            renderImmediateSmartItem(smartRow)
+                        }
                         mainHandler.removeCallbacks(suggestionDebounce)
                         mainHandler.postDelayed(suggestionDebounce, 150L)
                     }
@@ -1562,7 +1596,10 @@ class MainActivity : AppCompatActivity() {
         val isRecent: Boolean = false,
         val isHistory: Boolean = false,
         val isBookmark: Boolean = false,
-        val isShortcut: Boolean = false
+        val isShortcut: Boolean = false,
+        val isSmartItem: Boolean = false,
+        val badgeText: String? = null,
+        val fillText: String? = null
     )
 
     private fun applySuggestionTheme(isDark: Boolean) {
@@ -1704,6 +1741,7 @@ class MainActivity : AppCompatActivity() {
         val foreground = rowContainer.findViewById<View>(R.id.layoutSuggestionForeground)
         val ivIcon = rowContainer.findViewById<ImageView>(R.id.ivSuggestionIcon)
         val tvTitle = rowContainer.findViewById<TextView>(R.id.tvSuggestionTitle)
+        val tvBadge = rowContainer.findViewById<TextView>(R.id.tvSuggestionBadge)
         val tvSub = rowContainer.findViewById<TextView>(R.id.tvSuggestionSubtitle)
         val btnFill = rowContainer.findViewById<ImageButton>(R.id.btnFillQuery)
 
@@ -1717,12 +1755,29 @@ class MainActivity : AppCompatActivity() {
 
         val titleColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val subColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val iconColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val defaultIconColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val smartAccentColor = if (isPrivateMode || isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8")
 
         ivIcon.setImageResource(item.iconRes)
-        ivIcon.setColorFilter(iconColor)
+        ivIcon.setColorFilter(if (item.isSmartItem) smartAccentColor else defaultIconColor)
         tvTitle.text = item.title
         tvTitle.setTextColor(titleColor)
+        tvTitle.setTypeface(null, if (item.isSmartItem) Typeface.BOLD else Typeface.NORMAL)
+
+        if (!item.badgeText.isNullOrBlank()) {
+            tvBadge.text = item.badgeText.uppercase(Locale.US)
+            val badgeBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(4f).toFloat()
+                setColor(if (isPrivateMode || isDark) Color.parseColor("#1E3A5F") else Color.parseColor("#E8F0FE"))
+            }
+            tvBadge.background = badgeBg
+            tvBadge.setTextColor(smartAccentColor)
+            tvBadge.visibility = View.VISIBLE
+        } else {
+            tvBadge.visibility = View.GONE
+        }
+
         if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
             tvSub.text = item.subtitle
             tvSub.setTextColor(subColor)
@@ -1730,10 +1785,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             tvSub.visibility = View.GONE
         }
-        btnFill.setColorFilter(iconColor)
+        btnFill.setColorFilter(defaultIconColor)
 
         btnFill.setOnClickListener {
             triggerStrongHaptic(it)
+            val fill = item.fillText ?: item.target
             if (item.target == "haze://qr") {
                 deactivateSearchMode()
                 omniboxManager.startQrScanner()
@@ -1745,8 +1801,8 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                addressBar.setText(item.target)
-                addressBar.setSelection(item.target.length)
+                addressBar.setText(fill)
+                addressBar.setSelection(fill.length)
             }
         }
 
@@ -1762,10 +1818,20 @@ class MainActivity : AppCompatActivity() {
                     switchTab(idx)
                     Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
                 }
+            } else if (item.isSmartItem && item.fillText != null && !item.target.startsWith("http://") && !item.target.startsWith("https://")) {
+                val clipManager = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                clipManager?.setPrimaryClip(android.content.ClipData.newPlainText("Result", item.fillText))
+                Toast.makeText(this, "Copied \"${item.fillText}\" to clipboard", Toast.LENGTH_SHORT).show()
+                addressBar.setText(item.fillText)
+                addressBar.setSelection(item.fillText.length)
             } else {
                 addressBar.setText(item.target)
                 loadUrlFromInput(item.target)
             }
+        }
+
+        if (item.isSmartItem) {
+            return rowContainer
         }
 
         bgDelete.setOnClickListener {
@@ -2142,6 +2208,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun renderImmediateSmartItem(smartRow: SuggestionRowItem) {
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        applySuggestionTheme(isDark)
+        if (suggestionChipContainer.childCount > 0) {
+            val firstView = suggestionChipContainer.getChildAt(0)
+            val badge = firstView.findViewById<TextView>(R.id.tvSuggestionBadge)
+            if (badge != null && badge.visibility == View.VISIBLE) {
+                suggestionChipContainer.removeViewAt(0)
+            }
+        }
+        val rowView = createSuggestionRowView(smartRow, isDark)
+        suggestionChipContainer.addView(rowView, 0)
+        adjustSuggestionStripHeight(suggestionChipContainer.childCount, hasClipboard = false)
+        searchSuggestionStrip.visibility = View.VISIBLE
+    }
+
+    private fun updateTopSmartSuggestion(smartRow: SuggestionRowItem) {
+        if (!isSearchActive) return
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        if (suggestionChipContainer.childCount > 0) {
+            val firstView = suggestionChipContainer.getChildAt(0)
+            val badge = firstView.findViewById<TextView>(R.id.tvSuggestionBadge)
+            if (badge != null && badge.visibility == View.VISIBLE) {
+                suggestionChipContainer.removeViewAt(0)
+            }
+        }
+        val rowView = createSuggestionRowView(smartRow, isDark)
+        suggestionChipContainer.addView(rowView, 0)
+        adjustSuggestionStripHeight(suggestionChipContainer.childCount, hasClipboard = false)
+        searchSuggestionStrip.visibility = View.VISIBLE
+    }
+
     private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
         suggestionChipContainer.removeAllViews()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
@@ -2151,6 +2249,23 @@ class MainActivity : AppCompatActivity() {
             clipboardContainer.visibility = View.GONE
         }
         val rowItems = mutableListOf<SuggestionRowItem>()
+
+        // 00. Smart Omnibox Result (Calculator, Currency, Unit conversion, Weather, Wiki preview, Dictionary)
+        val smart = HazeSmartOmniboxEngine.evaluateInstantSmartItem(query)
+            ?: HazeSmartOmniboxEngine.getCachedSmartItem(query)
+        if (smart != null) {
+            rowItems.add(
+                SuggestionRowItem(
+                    title = smart.title,
+                    subtitle = smart.subtitle,
+                    iconRes = smart.iconRes,
+                    target = smart.target,
+                    isSmartItem = true,
+                    badgeText = smart.badgeText,
+                    fillText = smart.fillText
+                )
+            )
+        }
 
         // 0. Search open tabs & "Switch to existing tab"
         val trimmedSearch = query.trim().lowercase(Locale.US)
@@ -2285,8 +2400,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val filteredItems = rowItems.filterNot {
-            dismissedSuggestions.contains(it.target.lowercase(Locale.US)) ||
-            dismissedSuggestions.contains(it.title.lowercase(Locale.US))
+            !it.isSmartItem && (dismissedSuggestions.contains(it.target.lowercase(Locale.US)) ||
+            dismissedSuggestions.contains(it.title.lowercase(Locale.US)))
         }
 
         if (filteredItems.isEmpty()) {
@@ -6668,10 +6783,10 @@ class MainActivity : AppCompatActivity() {
         var selectedColor = accentColor
         var selectedBg = currentBg
 
-        val surfaceColor = if (isDark) Color.parseColor("#292A24") else Color.parseColor("#FFFFFF")
-        val cardColor = if (isDark) Color.parseColor("#37382D") else Color.parseColor("#F1F3F4")
-        val textColor = if (isDark) Color.parseColor("#F1F3E8") else Color.parseColor("#202124")
-        val secondaryTextColor = if (isDark) Color.parseColor("#C4C6B8") else Color.parseColor("#5F6368")
+        val surfaceColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#F8F9FA")
+        val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#FFFFFF")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val secondaryTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val accent = Color.parseColor(accentColor)
 
         val cardLayout = LinearLayout(this).apply {
