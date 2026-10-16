@@ -848,6 +848,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
         @JavascriptInterface
+        fun saveCardPrompt(cardNumber: String, holderName: String, expMonth: String, expYear: String, nickname: String) {
+            runOnUiThread {
+                if (cardNumber.isBlank() || isPrivateMode) return@runOnUiThread
+                HazePasswordManager.promptSaveCreditCard(this@MainActivity, cardNumber, holderName, expMonth, expYear, nickname)
+            }
+        }
+        @JavascriptInterface
+        fun saveAddressPrompt(fullName: String, address1: String, address2: String, city: String, state: String, zip: String, country: String, phone: String) {
+            runOnUiThread {
+                if (address1.isBlank() || isPrivateMode) return@runOnUiThread
+                HazePasswordManager.promptSaveAddress(this@MainActivity, fullName, address1, address2, city, state, zip, country, phone)
+            }
+        }
+        @JavascriptInterface
         fun checkAutofill(url: String) {
             runOnUiThread {
                 if (isPrivateMode) return@runOnUiThread
@@ -4279,13 +4293,87 @@ class MainActivity : AppCompatActivity() {
                                 if (window.Android && window.Android.notifyFormSubmitted) {
                                     window.Android.notifyFormSubmitted();
                                 }
-                                var passInput = form ? form.querySelector('input[type="password"]') : document.querySelector('input[type="password"]');
+                                var rootElem = form || document;
+
+                                // 1. Passwords Autosave Detection
+                                var passInput = rootElem.querySelector('input[type="password"]');
                                 if (passInput && passInput.value) {
                                     var password = passInput.value;
-                                    var userInput = form ? form.querySelector('input[type="email"], input[type="text"], input[name*="user" i], input[name*="email" i], input[name*="login" i], input[autocomplete*="username" i]') : document.querySelector('input[type="email"], input[type="text"], input[name*="user" i]');
+                                    var userInput = rootElem.querySelector('input[autocomplete*="username" i], input[type="email"], input[type="text"], input[name*="user" i], input[name*="email" i], input[name*="login" i]');
                                     var username = userInput ? userInput.value : '';
                                     if (window.Android && window.Android.saveCredentialPrompt) {
                                         window.Android.saveCredentialPrompt(window.location.href, username, password);
+                                    }
+                                }
+
+                                // 2. Credit Card Autosave Detection
+                                var ccInput = rootElem.querySelector('input[autocomplete*="cc-number" i], input[name*="cardnumber" i], input[name*="card_num" i], input[name*="cc_number" i], input[id*="cardnumber" i], input[id*="cc_number" i], input[id*="card-number" i]');
+                                if (!ccInput) {
+                                    var numInputs = rootElem.querySelectorAll('input[type="tel"], input[type="text"], input[type="number"], input:not([type])');
+                                    for (var i = 0; i < numInputs.length; i++) {
+                                        var v = numInputs[i].value.replace(/\s+/g, '').replace(/-/g, '');
+                                        var n = (numInputs[i].name || '').toLowerCase();
+                                        if (/^\d{13,19}$/.test(v) && !n.includes('phone') && !n.includes('zip') && !n.includes('pin') && !n.includes('otp')) {
+                                            ccInput = numInputs[i];
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (ccInput && ccInput.value) {
+                                    var cardNum = ccInput.value.replace(/\s+/g, '').replace(/-/g, '');
+                                    if (cardNum.length >= 13 && cardNum.length <= 19) {
+                                        var holderInput = rootElem.querySelector('input[autocomplete*="cc-name" i], input[name*="cardholder" i], input[name*="ccname" i], input[id*="cardholder" i], input[id*="cc-name" i]');
+                                        var holderName = holderInput ? holderInput.value.trim() : '';
+                                        var expMonthInput = rootElem.querySelector('input[autocomplete*="cc-exp-month" i], select[name*="exp_month" i], select[name*="expmonth" i], select[id*="exp_month" i], input[name*="exp_month" i]');
+                                        var expYearInput = rootElem.querySelector('input[autocomplete*="cc-exp-year" i], select[name*="exp_year" i], select[name*="expyear" i], select[id*="exp_year" i], input[name*="exp_year" i]');
+                                        var expInput = rootElem.querySelector('input[autocomplete*="cc-exp" i], input[name*="ccexp" i], input[name*="card_exp" i], input[id*="cc-exp" i]');
+                                        var expM = expMonthInput ? expMonthInput.value.trim() : '';
+                                        var expY = expYearInput ? expYearInput.value.trim() : '';
+                                        if (expInput && (!expM || !expY)) {
+                                            var expParts = expInput.value.split(/[\/\-\s]+/);
+                                            if (expParts.length >= 2) {
+                                                expM = expParts[0].trim();
+                                                expY = expParts[1].trim();
+                                            }
+                                        }
+                                        var brand = 'Credit / Debit Card';
+                                        if (/^4/.test(cardNum)) brand = 'Visa';
+                                        else if (/^5[1-5]/.test(cardNum) || /^2[2-7]/.test(cardNum)) brand = 'Mastercard';
+                                        else if (/^3[47]/.test(cardNum)) brand = 'American Express';
+                                        else if (/^6011|^65/.test(cardNum)) brand = 'Discover';
+                                        else if (/^35/.test(cardNum)) brand = 'JCB';
+                                        else if (/^60|^6521|^6522/.test(cardNum)) brand = 'RuPay';
+
+                                        if (window.Android && window.Android.saveCardPrompt) {
+                                            window.Android.saveCardPrompt(cardNum, holderName, expM, expY, brand);
+                                        }
+                                    }
+                                }
+
+                                // 3. Location / Address Autosave Detection
+                                var addrInput = rootElem.querySelector('input[autocomplete*="address-line1" i], input[autocomplete*="street-address" i], input[name*="address1" i], input[name*="street" i], input[id*="address1" i], input[id*="street" i], textarea[name*="address" i]');
+                                if (addrInput && addrInput.value && addrInput.value.trim().length > 3) {
+                                    var nameInput = rootElem.querySelector('input[autocomplete*="name" i]:not([autocomplete*="cc" i]), input[name*="fullname" i], input[name*="name" i], input[id*="fullname" i]');
+                                    var addr2Input = rootElem.querySelector('input[autocomplete*="address-line2" i], input[name*="address2" i], input[id*="address2" i]');
+                                    var cityInput = rootElem.querySelector('input[autocomplete*="address-level2" i], input[name*="city" i], input[id*="city" i]');
+                                    var stateInput = rootElem.querySelector('input[autocomplete*="address-level1" i], input[name*="state" i], select[name*="state" i], input[id*="state" i]');
+                                    var zipInput = rootElem.querySelector('input[autocomplete*="postal-code" i], input[name*="zip" i], input[name*="postal" i], input[name*="pincode" i], input[id*="zip" i], input[id*="postal" i], input[id*="pincode" i]');
+                                    var countryInput = rootElem.querySelector('input[autocomplete*="country" i], select[name*="country" i], input[name*="country" i]');
+                                    var phoneInput = rootElem.querySelector('input[type="tel"], input[autocomplete*="tel" i], input[name*="phone" i], input[name*="mobile" i]');
+
+                                    var fullName = nameInput ? nameInput.value.trim() : '';
+                                    var line1 = addrInput.value.trim();
+                                    var line2 = addr2Input ? addr2Input.value.trim() : '';
+                                    var city = cityInput ? cityInput.value.trim() : '';
+                                    var state = stateInput ? stateInput.value.trim() : '';
+                                    var zip = zipInput ? zipInput.value.trim() : '';
+                                    var country = countryInput ? countryInput.value.trim() : '';
+                                    var phone = phoneInput ? phoneInput.value.trim() : '';
+
+                                    if (line1 && (city || zip || state || fullName)) {
+                                        if (window.Android && window.Android.saveAddressPrompt) {
+                                            window.Android.saveAddressPrompt(fullName, line1, line2, city, state, zip, country, phone);
+                                        }
                                     }
                                 }
                             } catch(_) {}

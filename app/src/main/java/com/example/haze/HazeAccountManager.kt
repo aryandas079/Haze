@@ -222,6 +222,7 @@ object HazeAccountManager {
 
         addProfile(context, user)
         syncGoogleAccountToCookieManager(context)
+        HazePasswordManager.importGooglePasswordManagerData(context)
         notifyAccountChanged(user)
     }
 
