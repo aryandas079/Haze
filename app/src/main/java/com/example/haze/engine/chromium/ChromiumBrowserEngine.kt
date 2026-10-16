@@ -41,6 +41,9 @@ class ChromiumBrowserEngine private constructor() : IBrowserEngine {
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
 
+            // Enable Chrome DevTools Protocol (CDP) remote debugging
+            WebView.setWebContentsDebuggingEnabled(true)
+
             isInitialized = true
         } catch (e: Exception) {
             isInitialized = true
