@@ -668,6 +668,14 @@ class HazeDatabase private constructor(context: Context) :
         }
     }
 
+    fun deleteHistoryByUrl(url: String): Boolean {
+        return try {
+            writableDatabase.delete("history", "url = ?", arrayOf(url)) > 0
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun deleteHistoryItems(ids: List<Long>): Int {
         if (ids.isEmpty()) return 0
         return try {
@@ -809,6 +817,14 @@ class HazeDatabase private constructor(context: Context) :
         return try {
             writableDatabase.delete("bookmarks", "id = ?", arrayOf(id.toString())) > 0
         } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun deleteBookmarkByUrl(url: String): Boolean {
+        return try {
+            writableDatabase.delete("bookmarks", "url = ?", arrayOf(url)) > 0
+        } catch (_: Exception) {
             false
         }
     }

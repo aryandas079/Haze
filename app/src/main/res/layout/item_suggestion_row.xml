@@ -1,71 +1,107 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/suggestionRowContainer"
     android:layout_width="match_parent"
-    android:layout_height="50dp"
-    android:gravity="center_vertical"
-    android:orientation="horizontal"
-    android:paddingStart="16dp"
-    android:paddingEnd="10dp"
-    android:background="?attr/selectableItemBackground"
-    android:clickable="true"
-    android:focusable="true"
-    android:descendantFocusability="afterDescendants">
+    android:layout_height="50dp">
 
-    <ImageView
-        android:id="@+id/ivSuggestionIcon"
-        android:layout_width="20dp"
-        android:layout_height="20dp"
-        android:src="@drawable/ic_search"
-        app:tint="#5F6368"
-        android:contentDescription="Suggestion Icon" />
-
+    <!-- Background revealed when swiping right to delete -->
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="8dp"
-        android:orientation="vertical"
-        android:clickable="false"
-        android:focusable="false">
+        android:id="@+id/layoutSwipeDeleteBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical|start"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:background="#D93025"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_delete"
+            app:tint="#FFFFFF"
+            android:contentDescription="Delete icon" />
 
         <TextView
-            android:id="@+id/tvSuggestionTitle"
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Suggestion query"
-            android:textColor="#202124"
-            android:textSize="14.5sp"
-            android:fontFamily="sans-serif"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:clickable="false"
-            android:focusable="false" />
-
-        <TextView
-            android:id="@+id/tvSuggestionSubtitle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="https://example.com"
-            android:textColor="#80868B"
-            android:textSize="11.5sp"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:visibility="gone"
-            android:clickable="false"
-            android:focusable="false" />
+            android:text="Delete"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginStart="8dp" />
     </LinearLayout>
 
-    <ImageButton
-        android:id="@+id/btnFillQuery"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:src="@drawable/ic_wide_arrow_down"
-        android:rotation="135"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        app:tint="#80868B"
-        android:contentDescription="Fill into search bar"
+    <!-- Foreground row content that slides to the right -->
+    <LinearLayout
+        android:id="@+id/layoutSuggestionForeground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="10dp"
+        android:background="#FFFFFF"
         android:clickable="true"
-        android:focusable="false" />
-</LinearLayout>
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/ivSuggestionIcon"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_search"
+            app:tint="#5F6368"
+            android:contentDescription="Suggestion Icon" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="8dp"
+            android:orientation="vertical"
+            android:clickable="false"
+            android:focusable="false">
+
+            <TextView
+                android:id="@+id/tvSuggestionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Suggestion query"
+                android:textColor="#202124"
+                android:textSize="14.5sp"
+                android:fontFamily="sans-serif"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:clickable="false"
+                android:focusable="false" />
+
+            <TextView
+                android:id="@+id/tvSuggestionSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="https://example.com"
+                android:textColor="#80868B"
+                android:textSize="11.5sp"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:visibility="gone"
+                android:clickable="false"
+                android:focusable="false" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnFillQuery"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@drawable/ic_wide_arrow_down"
+            android:rotation="135"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            app:tint="#80868B"
+            android:contentDescription="Fill into search bar"
+            android:clickable="true"
+            android:focusable="false" />
+    </LinearLayout>
+</FrameLayout>

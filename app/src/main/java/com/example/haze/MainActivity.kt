@@ -51,7 +51,11 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.interpolator.view.animation.FastOutSlowInInterpolator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
+import android.view.ViewConfiguration
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.PathInterpolator
 import androidx.recyclerview.widget.ItemTouchHelper
@@ -214,6 +218,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     )
+    private val dismissedSuggestions = Collections.synchronizedSet(mutableSetOf<String>())
     private var suggestionRequestId = 0L
     private val suggestionDebounce = Runnable {
         val query = getUserTypedQuery()
@@ -1472,7 +1477,10 @@ class MainActivity : AppCompatActivity() {
         val subtitle: String? = null,
         val iconRes: Int,
         val target: String,
-        val isRecent: Boolean = false
+        val isRecent: Boolean = false,
+        val isHistory: Boolean = false,
+        val isBookmark: Boolean = false,
+        val isShortcut: Boolean = false
     )
 
     private fun applySuggestionTheme(isDark: Boolean) {
@@ -1488,6 +1496,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         searchSuggestionStrip.background = bgCard
+        searchSuggestionStrip.clipToOutline = true
     }
 
     private fun adjustSuggestionStripHeight(itemCount: Int, hasClipboard: Boolean = false) {
@@ -1501,6 +1510,255 @@ class MainActivity : AppCompatActivity() {
             params.height = ViewGroup.LayoutParams.WRAP_CONTENT
         }
         searchSuggestionStrip.layoutParams = params
+    }
+
+    private fun collapseAndDeleteRow(rowContainer: View, item: SuggestionRowItem) {
+        val initialHeight = rowContainer.height.takeIf { it > 0 } ?: dpToPx(50)
+        val anim = ValueAnimator.ofInt(initialHeight, 0)
+        anim.duration = 180L
+        anim.interpolator = FAST_INTERPOLATOR
+        anim.addUpdateListener { va ->
+            val value = va.animatedValue as Int
+            val lp = rowContainer.layoutParams
+            lp.height = value
+            rowContainer.layoutParams = lp
+        }
+        anim.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                suggestionChipContainer.removeView(rowContainer)
+                val remainingCount = suggestionChipContainer.childCount
+                if (remainingCount == 0) {
+                    searchSuggestionStrip.visibility = View.GONE
+                } else {
+                    val hasClipboard = ::clipboardContainer.isInitialized && clipboardContainer.visibility == View.VISIBLE
+                    adjustSuggestionStripHeight(remainingCount, hasClipboard = hasClipboard)
+                }
+                executeDeleteSuggestionItem(item)
+            }
+        })
+        anim.start()
+    }
+
+    private fun executeDeleteSuggestionItem(item: SuggestionRowItem) {
+        val lowerTarget = item.target.lowercase(Locale.US)
+        val lowerTitle = item.title.lowercase(Locale.US)
+        dismissedSuggestions.add(lowerTarget)
+        dismissedSuggestions.add(lowerTitle)
+        suggestionCache.clear()
+
+        suggestionExecutor.execute {
+            try {
+                val db = HazeDatabase.getInstance(this@MainActivity)
+                // Delete recent searches
+                db.deleteRecentSearch(item.target)
+                db.deleteRecentSearch(item.title)
+                // Delete history
+                db.deleteHistoryByUrl(item.target)
+                // Delete bookmark if it was bookmark
+                if (item.isBookmark) {
+                    db.deleteBookmarkByUrl(item.target)
+                }
+                // Delete shortcut if it was shortcut
+                if (item.isShortcut) {
+                    val list = getCustomShortcuts().filterNot {
+                        it.url.equals(item.target, ignoreCase = true) || it.name.equals(item.title, ignoreCase = true)
+                    }
+                    mainHandler.post { saveCustomShortcuts(list) }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error deleting suggestion item", e)
+            }
+        }
+        val displayTitle = if (item.title.length > 25) item.title.take(22) + "..." else item.title
+        Toast.makeText(this, "Deleted \"$displayTitle\"", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun createSuggestionRowView(item: SuggestionRowItem, isDark: Boolean): View {
+        val rowContainer = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false) as FrameLayout
+        val bgDelete = rowContainer.findViewById<View>(R.id.layoutSwipeDeleteBackground)
+        val foreground = rowContainer.findViewById<View>(R.id.layoutSuggestionForeground)
+        val ivIcon = rowContainer.findViewById<ImageView>(R.id.ivSuggestionIcon)
+        val tvTitle = rowContainer.findViewById<TextView>(R.id.tvSuggestionTitle)
+        val tvSub = rowContainer.findViewById<TextView>(R.id.tvSuggestionSubtitle)
+        val btnFill = rowContainer.findViewById<ImageButton>(R.id.btnFillQuery)
+
+        val rowBgColor = if (isDark) Color.parseColor("#1E222A") else Color.WHITE
+        val rippleColor = if (isDark) Color.parseColor("#26FFFFFF") else Color.parseColor("#1F000000")
+        foreground.background = RippleDrawable(
+            ColorStateList.valueOf(rippleColor),
+            ColorDrawable(rowBgColor),
+            ColorDrawable(Color.WHITE)
+        )
+
+        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
+        ivIcon.setImageResource(item.iconRes)
+        ivIcon.setColorFilter(iconColor)
+        tvTitle.text = item.title
+        tvTitle.setTextColor(titleColor)
+        if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
+            tvSub.text = item.subtitle
+            tvSub.setTextColor(subColor)
+            tvSub.visibility = View.VISIBLE
+        } else {
+            tvSub.visibility = View.GONE
+        }
+        btnFill.setColorFilter(subColor)
+
+        btnFill.setOnClickListener {
+            triggerStrongHaptic(it)
+            if (item.target == "haze://qr") {
+                deactivateSearchMode()
+                omniboxManager.startQrScanner()
+            } else if (item.target.startsWith("haze://switch_tab/")) {
+                val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
+                if (idx != null && idx in currentTabsList.indices) {
+                    deactivateSearchMode()
+                    switchTab(idx)
+                    Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                addressBar.setText(item.target)
+                addressBar.setSelection(item.target.length)
+            }
+        }
+
+        foreground.setOnClickListener {
+            triggerStrongHaptic(it)
+            if (item.target == "haze://qr") {
+                deactivateSearchMode()
+                omniboxManager.startQrScanner()
+            } else if (item.target.startsWith("haze://switch_tab/")) {
+                val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
+                if (idx != null && idx in currentTabsList.indices) {
+                    deactivateSearchMode()
+                    switchTab(idx)
+                    Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                addressBar.setText(item.target)
+                loadUrlFromInput(item.target)
+            }
+        }
+
+        bgDelete.setOnClickListener {
+            triggerStrongHaptic(it, isHeavy = true)
+            collapseAndDeleteRow(rowContainer, item)
+        }
+
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var startX = 0f
+        var startY = 0f
+        var isSwiping = false
+        var velocityTracker: VelocityTracker? = null
+
+        foreground.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.rawX
+                    startY = event.rawY
+                    isSwiping = false
+                    velocityTracker?.recycle()
+                    velocityTracker = VelocityTracker.obtain()
+                    velocityTracker?.addMovement(event)
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    velocityTracker?.addMovement(event)
+                    val dx = event.rawX - startX
+                    val dy = event.rawY - startY
+                    if (!isSwiping) {
+                        if (dx > touchSlop && dx > Math.abs(dy) * 1.15f) {
+                            isSwiping = true
+                            searchSuggestionStrip.requestDisallowInterceptTouchEvent(true)
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            bgDelete.visibility = View.VISIBLE
+                            val cancelEvent = MotionEvent.obtain(
+                                event.downTime, event.eventTime,
+                                MotionEvent.ACTION_CANCEL, event.x, event.y, 0
+                            )
+                            v.onTouchEvent(cancelEvent)
+                            cancelEvent.recycle()
+                        }
+                    }
+                    if (isSwiping) {
+                        searchSuggestionStrip.requestDisallowInterceptTouchEvent(true)
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        val translation = (event.rawX - startX).coerceAtLeast(0f)
+                        v.translationX = translation
+                        true
+                    } else {
+                        false
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    velocityTracker?.addMovement(event)
+                    searchSuggestionStrip.requestDisallowInterceptTouchEvent(false)
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                    if (isSwiping) {
+                        velocityTracker?.computeCurrentVelocity(1000)
+                        val xVel = velocityTracker?.xVelocity ?: 0f
+                        val currentX = v.translationX
+                        val width = v.width.toFloat().coerceAtLeast(1f)
+                        val shouldDelete = currentX > width * 0.35f || (xVel > 800f && currentX > width * 0.12f)
+                        if (shouldDelete) {
+                            triggerStrongHaptic(v, isHeavy = true)
+                            v.animate()
+                                .translationX(width + dpToPx(60))
+                                .alpha(0f)
+                                .setDuration(160L)
+                                .setInterpolator(FAST_INTERPOLATOR)
+                                .withEndAction {
+                                    collapseAndDeleteRow(rowContainer, item)
+                                }
+                                .start()
+                        } else {
+                            v.animate()
+                                .translationX(0f)
+                                .alpha(1f)
+                                .setDuration(200L)
+                                .setInterpolator(BUTTER_INTERPOLATOR)
+                                .withEndAction {
+                                    bgDelete.visibility = View.GONE
+                                }
+                                .start()
+                        }
+                        velocityTracker?.recycle()
+                        velocityTracker = null
+                        isSwiping = false
+                        true
+                    } else {
+                        velocityTracker?.recycle()
+                        velocityTracker = null
+                        false
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    searchSuggestionStrip.requestDisallowInterceptTouchEvent(false)
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                    if (isSwiping) {
+                        v.animate()
+                            .translationX(0f)
+                            .alpha(1f)
+                            .setDuration(150L)
+                            .setInterpolator(BUTTER_INTERPOLATOR)
+                            .withEndAction {
+                                bgDelete.visibility = View.GONE
+                            }
+                            .start()
+                    }
+                    velocityTracker?.recycle()
+                    velocityTracker = null
+                    isSwiping = false
+                    false
+                }
+                else -> false
+            }
+        }
+
+        return rowContainer
     }
 
     private fun getUserTypedQuery(): String {
@@ -1619,64 +1877,34 @@ class MainActivity : AppCompatActivity() {
                 val label = s.name.ifBlank { cleanUrlForMatching(s.url) }
                 val sub = cleanUrlForMatching(s.url)
                 if (rowItems.none { it.target == s.url }) {
-                    rowItems.add(SuggestionRowItem(title = label, subtitle = if (label != sub) sub else null, iconRes = R.drawable.ic_globe, target = s.url))
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = label,
+                            subtitle = if (label != sub) sub else null,
+                            iconRes = R.drawable.ic_globe,
+                            target = s.url,
+                            isShortcut = true
+                        )
+                    )
                 }
             }
         } catch (_: Exception) {}
 
-        if (rowItems.isEmpty()) {
+        val filteredItems = rowItems.filterNot {
+            dismissedSuggestions.contains(it.target.lowercase(Locale.US)) ||
+            dismissedSuggestions.contains(it.title.lowercase(Locale.US))
+        }
+
+        if (filteredItems.isEmpty()) {
             searchSuggestionStrip.visibility = View.GONE
             return
         }
 
-        val itemsToDisplay = rowItems.take(8)
+        val itemsToDisplay = filteredItems.take(8)
         adjustSuggestionStripHeight(itemsToDisplay.size, hasClipboard = hasClipboard)
 
-        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-
         for (item in itemsToDisplay) {
-            val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
-            val ivIcon = rowView.findViewById<ImageView>(R.id.ivSuggestionIcon)
-            val tvTitle = rowView.findViewById<TextView>(R.id.tvSuggestionTitle)
-            val tvSub = rowView.findViewById<TextView>(R.id.tvSuggestionSubtitle)
-            val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
-
-            ivIcon.setImageResource(item.iconRes)
-            ivIcon.setColorFilter(iconColor)
-            tvTitle.text = item.title
-            tvTitle.setTextColor(titleColor)
-            if (!item.subtitle.isNullOrBlank()) {
-                tvSub.text = item.subtitle
-                tvSub.setTextColor(subColor)
-                tvSub.visibility = View.VISIBLE
-            } else {
-                tvSub.visibility = View.GONE
-            }
-            btnFill.setColorFilter(subColor)
-
-            btnFill.setOnClickListener {
-                triggerStrongHaptic(it)
-                if (item.target == "haze://qr") {
-                    deactivateSearchMode()
-                    omniboxManager.startQrScanner()
-                } else {
-                    addressBar.setText(item.target)
-                    addressBar.setSelection(item.target.length)
-                }
-            }
-
-            rowView.setOnClickListener {
-                triggerStrongHaptic(it)
-                if (item.target == "haze://qr") {
-                    deactivateSearchMode()
-                    omniboxManager.startQrScanner()
-                } else {
-                    addressBar.setText(item.target)
-                    loadUrlFromInput(item.target)
-                }
-            }
+            val rowView = createSuggestionRowView(item, isDark)
             suggestionChipContainer.addView(rowView)
         }
 
@@ -1844,14 +2072,30 @@ class MainActivity : AppCompatActivity() {
                 val clean = cleanUrlForMatching(b.url)
                 val title = b.title.ifBlank { clean }
                 if (rowItems.none { it.target == b.url }) {
-                    rowItems.add(SuggestionRowItem(title = title, subtitle = clean, iconRes = R.drawable.ic_globe, target = b.url))
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = title,
+                            subtitle = clean,
+                            iconRes = R.drawable.ic_globe,
+                            target = b.url,
+                            isBookmark = true
+                        )
+                    )
                 }
             }
             for (h in db.searchHistory(query).take(3)) {
                 val clean = cleanUrlForMatching(h.url)
                 val title = h.title.ifBlank { clean }
                 if (rowItems.none { it.target == h.url }) {
-                    rowItems.add(SuggestionRowItem(title = title, subtitle = clean, iconRes = R.drawable.ic_globe, target = h.url))
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = title,
+                            subtitle = clean,
+                            iconRes = R.drawable.ic_globe,
+                            target = h.url,
+                            isHistory = true
+                        )
+                    )
                 }
             }
         } catch (_: Exception) {}
@@ -1862,7 +2106,16 @@ class MainActivity : AppCompatActivity() {
             val icon = if (isUrl) R.drawable.ic_globe else R.drawable.ic_search
             val clean = if (isUrl) cleanUrlForMatching(s) else null
             if (rowItems.none { it.target.equals(s, ignoreCase = true) || it.title.equals(s, ignoreCase = true) }) {
-                rowItems.add(SuggestionRowItem(title = s, subtitle = clean, iconRes = icon, target = s))
+                val isRecent = getRecentSearches().any { it.equals(s, ignoreCase = true) }
+                rowItems.add(
+                    SuggestionRowItem(
+                        title = s,
+                        subtitle = clean,
+                        iconRes = if (isRecent) R.drawable.ic_history else icon,
+                        target = s,
+                        isRecent = isRecent
+                    )
+                )
             }
         }
 
@@ -1870,73 +2123,21 @@ class MainActivity : AppCompatActivity() {
             rowItems.add(SuggestionRowItem(title = query, subtitle = "Search the web", iconRes = R.drawable.ic_search, target = query))
         }
 
-        if (rowItems.isEmpty()) {
+        val filteredItems = rowItems.filterNot {
+            dismissedSuggestions.contains(it.target.lowercase(Locale.US)) ||
+            dismissedSuggestions.contains(it.title.lowercase(Locale.US))
+        }
+
+        if (filteredItems.isEmpty()) {
             searchSuggestionStrip.visibility = View.GONE
             return
         }
 
-        val itemsToDisplay = rowItems.take(8)
+        val itemsToDisplay = filteredItems.take(8)
         adjustSuggestionStripHeight(itemsToDisplay.size)
 
-        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-
         for (item in itemsToDisplay) {
-            val rowView = layoutInflater.inflate(R.layout.item_suggestion_row, suggestionChipContainer, false)
-            val ivIcon = rowView.findViewById<ImageView>(R.id.ivSuggestionIcon)
-            val tvTitle = rowView.findViewById<TextView>(R.id.tvSuggestionTitle)
-            val tvSub = rowView.findViewById<TextView>(R.id.tvSuggestionSubtitle)
-            val btnFill = rowView.findViewById<ImageButton>(R.id.btnFillQuery)
-
-            ivIcon.setImageResource(item.iconRes)
-            ivIcon.setColorFilter(iconColor)
-            tvTitle.text = item.title
-            tvTitle.setTextColor(titleColor)
-            if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
-                tvSub.text = item.subtitle
-                tvSub.setTextColor(subColor)
-                tvSub.visibility = View.VISIBLE
-            } else {
-                tvSub.visibility = View.GONE
-            }
-            btnFill.setColorFilter(subColor)
-
-            btnFill.setOnClickListener {
-                triggerStrongHaptic(it)
-                if (item.target == "haze://qr") {
-                    deactivateSearchMode()
-                    omniboxManager.startQrScanner()
-                } else if (item.target.startsWith("haze://switch_tab/")) {
-                    val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
-                    if (idx != null && idx in currentTabsList.indices) {
-                        deactivateSearchMode()
-                        switchTab(idx)
-                        Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    addressBar.setText(item.target)
-                    addressBar.setSelection(item.target.length)
-                }
-            }
-
-            rowView.setOnClickListener {
-                triggerStrongHaptic(it)
-                if (item.target == "haze://qr") {
-                    deactivateSearchMode()
-                    omniboxManager.startQrScanner()
-                } else if (item.target.startsWith("haze://switch_tab/")) {
-                    val idx = item.target.removePrefix("haze://switch_tab/").toIntOrNull()
-                    if (idx != null && idx in currentTabsList.indices) {
-                        deactivateSearchMode()
-                        switchTab(idx)
-                        Toast.makeText(this, "Switched to tab: ${currentTabsList[idx].title}", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    addressBar.setText(item.target)
-                    loadUrlFromInput(item.target)
-                }
-            }
+            val rowView = createSuggestionRowView(item, isDark)
             suggestionChipContainer.addView(rowView)
         }
 
