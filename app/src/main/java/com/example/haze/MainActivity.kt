@@ -2538,12 +2538,16 @@ class MainActivity : AppCompatActivity() {
             window.decorView.postDelayed({ activateSearchMode() }, 200)
         }
         if (intent.hasExtra("activate_search")) {
-            val q = intent.getStringExtra("activate_search") ?: ""
+            val rawQ = intent.getStringExtra("activate_search") ?: ""
+            val q = rawQ.trim('\'', '"')
             window.decorView.postDelayed({
                 activateSearchMode()
                 if (q.isNotEmpty()) {
                     addressBar.setText(q)
                     addressBar.setSelection(q.length)
+                    fetchSearchSuggestions(q) { suggestions ->
+                        renderSearchSuggestions(q, suggestions)
+                    }
                 }
             }, 200)
         }
