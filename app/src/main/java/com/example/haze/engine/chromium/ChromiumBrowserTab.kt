@@ -2,6 +2,8 @@ package com.example.haze.engine.chromium
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
@@ -393,10 +395,40 @@ class ChromiumBrowserTab(
                 return null
             }
 
+            private fun handleExternalScheme(view: WebView?, targetUrl: String): Boolean {
+                if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://") ||
+                    targetUrl.startsWith("about:") || targetUrl.startsWith("data:") ||
+                    targetUrl.startsWith("javascript:") || targetUrl.startsWith("haze://")) {
+                    return false
+                }
+                val ctx = view?.context ?: webView.context
+                return try {
+                    val intent = Intent.parseUri(targetUrl, Intent.URI_INTENT_SCHEME)
+                    if (intent != null) {
+                        val pm = ctx.packageManager
+                        val info = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                        if (info != null) {
+                            ctx.startActivity(intent)
+                            return true
+                        }
+                        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                        if (!fallbackUrl.isNullOrEmpty() && (fallbackUrl.startsWith("http://") || fallbackUrl.startsWith("https://"))) {
+                            view?.loadUrl(fallbackUrl)
+                            return true
+                        }
+                    }
+                    false
+                } catch (e: Exception) {
+                    true
+                }
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 var targetUrl = request?.url?.toString() ?: return false
+                if (handleExternalScheme(view, targetUrl)) return true
+
                 val ctx = webView.context
-                val isGet = request?.method == null || request.method.equals("GET", ignoreCase = true)
+                val isGet = request.method == null || request.method.equals("GET", ignoreCase = true)
                 if (isGet && com.example.haze.HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(ctx)) {
                     val unwrapped = com.example.haze.HazeAntiTrackingEngine.unwrapBounceTrackingUrl(targetUrl, ctx)
                     if (unwrapped != null) {
@@ -517,11 +549,42 @@ class ChromiumBrowserTab(
                     }
                 }
 
+                // 1. Check if user clicked an anchor/link element with target="_blank"
+                val hitTest = view?.hitTestResult
+                val hitUrl = hitTest?.extra
+                if (!hitUrl.isNullOrEmpty() && (hitUrl.startsWith("http://") || hitUrl.startsWith("https://") || hitUrl.startsWith("haze://"))) {
+                    return observer?.onNewWindowRequested(hitUrl, isUserGesture, isDialog) ?: false
+                }
+
                 val transport = resultMsg?.obj as? WebView.WebViewTransport
-                if (transport != null) {
-                    // Let the observer handle new window / tab opening
-                    val handled = observer?.onNewWindowRequested(url, isUserGesture, isDialog) ?: false
-                    return handled
+                if (transport != null && resultMsg != null) {
+                    val appCtx = view?.context?.applicationContext ?: webView.context.applicationContext
+                    val tempWebView = WebView(appCtx)
+                    tempWebView.settings.javaScriptEnabled = true
+                    tempWebView.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                            val destUrl = request?.url?.toString()
+                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
+                                observer?.onNewWindowRequested(destUrl, isUserGesture, isDialog)
+                                tempWebView.destroy()
+                                return true
+                            }
+                            return false
+                        }
+
+                        @Suppress("DEPRECATION")
+                        override fun shouldOverrideUrlLoading(v: WebView?, destUrl: String?): Boolean {
+                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
+                                observer?.onNewWindowRequested(destUrl, isUserGesture, isDialog)
+                                tempWebView.destroy()
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    transport.webView = tempWebView
+                    resultMsg.sendToTarget()
+                    return true
                 }
                 return false
             }

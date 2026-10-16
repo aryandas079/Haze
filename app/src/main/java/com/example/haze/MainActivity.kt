@@ -3870,6 +3870,8 @@ class MainActivity : AppCompatActivity() {
             setRenderPriority(WebSettings.RenderPriority.HIGH)
             saveFormData = true
             savePassword = true
+            setSupportMultipleWindows(true)
+            javaScriptCanOpenWindowsAutomatically = true
         }
 
         // Chromium Cookie Store Session Security & Anti-Tracking Policy
@@ -3964,8 +3966,38 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
+            private fun handleExternalScheme(view: WebView?, targetUrl: String): Boolean {
+                if (targetUrl.startsWith("http://") || targetUrl.startsWith("https://") ||
+                    targetUrl.startsWith("about:") || targetUrl.startsWith("data:") ||
+                    targetUrl.startsWith("javascript:") || targetUrl.startsWith("haze://")) {
+                    return false
+                }
+                return try {
+                    val intent = Intent.parseUri(targetUrl, Intent.URI_INTENT_SCHEME)
+                    if (intent != null) {
+                        val pm = packageManager
+                        val info = pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+                        if (info != null) {
+                            startActivity(intent)
+                            return true
+                        }
+                        // Handle browser fallback URL (e.g. from intent:// urls on Google News / MSN)
+                        val fallbackUrl = intent.getStringExtra("browser_fallback_url")
+                        if (!fallbackUrl.isNullOrEmpty() && (fallbackUrl.startsWith("http://") || fallbackUrl.startsWith("https://"))) {
+                            view?.loadUrl(fallbackUrl)
+                            return true
+                        }
+                    }
+                    false
+                } catch (e: Exception) {
+                    true // Consume invalid or unsupported scheme to prevent WebView crash / net::ERR_UNKNOWN_URL_SCHEME
+                }
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 var url = request?.url?.toString() ?: return false
+                if (handleExternalScheme(view, url)) return true
+
                 if (HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(this@MainActivity)) {
                     val unwrapped = HazeAntiTrackingEngine.unwrapBounceTrackingUrl(url, this@MainActivity)
                     if (unwrapped != null) {
@@ -3992,6 +4024,8 @@ class MainActivity : AppCompatActivity() {
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url == null) return false
                 var finalUrl = url
+                if (handleExternalScheme(view, finalUrl)) return true
+
                 if (HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(this@MainActivity)) {
                     val unwrapped = HazeAntiTrackingEngine.unwrapBounceTrackingUrl(finalUrl, this@MainActivity)
                     if (unwrapped != null) {
@@ -4408,6 +4442,50 @@ class MainActivity : AppCompatActivity() {
                     HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, view?.url ?: "", view?.url, isPrivateMode)
                     return false
                 }
+
+                // 1. Check if user clicked an anchor/link element with target="_blank"
+                val hitTest = view?.hitTestResult
+                val hitUrl = hitTest?.extra
+                if (!hitUrl.isNullOrEmpty() && (hitUrl.startsWith("http://") || hitUrl.startsWith("https://") || hitUrl.startsWith("haze://"))) {
+                    addNewTab(hitUrl)
+                    return true
+                }
+
+                // 2. Window.open(...) or async script navigation via WebViewTransport
+                val transport = resultMsg?.obj as? WebView.WebViewTransport
+                if (transport != null && resultMsg != null) {
+                    val tempWebView = WebView(this@MainActivity)
+                    tempWebView.settings.javaScriptEnabled = true
+                    tempWebView.webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                            val destUrl = request?.url?.toString()
+                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
+                                runOnUiThread {
+                                    addNewTab(destUrl)
+                                    tempWebView.destroy()
+                                }
+                                return true
+                            }
+                            return false
+                        }
+
+                        @Suppress("DEPRECATION")
+                        override fun shouldOverrideUrlLoading(v: WebView?, destUrl: String?): Boolean {
+                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
+                                runOnUiThread {
+                                    addNewTab(destUrl)
+                                    tempWebView.destroy()
+                                }
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    transport.webView = tempWebView
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
                 return false
             }
 
