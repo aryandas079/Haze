@@ -153,7 +153,7 @@ class HazeOmniboxManager(
             name = "TikTok",
             prefix = "tt",
             searchUrlPattern = "https://www.tiktok.com/search?q=%s",
-            iconRes = R.drawable.ic_play,
+            iconRes = R.drawable.ic_tiktok,
             category = "Video & Streaming",
             description = "Short-form videos and creators"
         ),
@@ -162,7 +162,7 @@ class HazeOmniboxManager(
             name = "Twitch",
             prefix = "tw",
             searchUrlPattern = "https://www.twitch.tv/search?term=%s",
-            iconRes = R.drawable.ic_play_arrow,
+            iconRes = R.drawable.ic_twitch,
             category = "Video & Streaming",
             description = "Live game streams and creators"
         ),
@@ -171,7 +171,7 @@ class HazeOmniboxManager(
             name = "Vimeo",
             prefix = "vm",
             searchUrlPattern = "https://vimeo.com/search?q=%s",
-            iconRes = R.drawable.ic_play,
+            iconRes = R.drawable.ic_vimeo,
             category = "Video & Streaming",
             description = "High quality videos and filmmakers"
         ),
@@ -180,9 +180,18 @@ class HazeOmniboxManager(
             name = "Netflix",
             prefix = "nf",
             searchUrlPattern = "https://www.netflix.com/search?q=%s",
-            iconRes = R.drawable.ic_play,
+            iconRes = R.drawable.ic_netflix,
             category = "Video & Streaming",
             description = "Movies and TV series catalog"
+        ),
+        SearchEngine(
+            id = "spotify",
+            name = "Spotify",
+            prefix = "sp",
+            searchUrlPattern = "https://open.spotify.com/search/%s",
+            iconRes = R.drawable.ic_spotify,
+            category = "Video & Streaming",
+            description = "Music, podcasts and artists"
         ),
 
         // 3. Social & Community
@@ -191,7 +200,7 @@ class HazeOmniboxManager(
             name = "Reddit",
             prefix = "r",
             searchUrlPattern = "https://www.reddit.com/search/?q=%s",
-            iconRes = R.drawable.ic_search,
+            iconRes = R.drawable.ic_reddit,
             category = "Social & Community",
             description = "Discussions, forums and communities"
         ),
@@ -209,7 +218,7 @@ class HazeOmniboxManager(
             name = "Facebook",
             prefix = "fb",
             searchUrlPattern = "https://www.facebook.com/public/%s",
-            iconRes = R.drawable.ic_globe,
+            iconRes = R.drawable.ic_facebook,
             category = "Social & Community",
             description = "Social posts, friends and pages"
         ),
@@ -218,7 +227,7 @@ class HazeOmniboxManager(
             name = "X",
             prefix = "x",
             searchUrlPattern = "https://x.com/search?q=%s",
-            iconRes = R.drawable.ic_bolt,
+            iconRes = R.drawable.ic_x,
             category = "Social & Community",
             description = "Real-time news, posts and trends"
         ),
@@ -227,7 +236,7 @@ class HazeOmniboxManager(
             name = "Threads",
             prefix = "th",
             searchUrlPattern = "https://www.threads.net/search?q=%s",
-            iconRes = R.drawable.ic_globe,
+            iconRes = R.drawable.ic_threads,
             category = "Social & Community",
             description = "Discussions and sharing community"
         ),
@@ -236,7 +245,7 @@ class HazeOmniboxManager(
             name = "Pinterest",
             prefix = "pin",
             searchUrlPattern = "https://www.pinterest.com/search/pins/?q=%s",
-            iconRes = R.drawable.ic_image,
+            iconRes = R.drawable.ic_pinterest,
             category = "Social & Community",
             description = "Visual discovery and creative ideas"
         ),
@@ -265,7 +274,7 @@ class HazeOmniboxManager(
             name = "Amazon",
             prefix = "a",
             searchUrlPattern = "https://www.amazon.com/s?k=%s",
-            iconRes = R.drawable.ic_shopping,
+            iconRes = R.drawable.ic_amazon,
             category = "Shopping",
             description = "Online shopping, deals and products"
         ),
@@ -1022,15 +1031,37 @@ class HazeOmniboxManager(
             }
             chip.background = bg
 
+            val isBranded = engine.iconRes in listOf(
+                R.drawable.ic_google_logo,
+                R.drawable.ic_duckduckgo,
+                R.drawable.ic_youtube,
+                R.drawable.ic_reddit,
+                R.drawable.ic_facebook,
+                R.drawable.ic_instagram,
+                R.drawable.ic_netflix,
+                R.drawable.ic_tiktok,
+                R.drawable.ic_twitch,
+                R.drawable.ic_pinterest,
+                R.drawable.ic_spotify,
+                R.drawable.ic_threads,
+                R.drawable.ic_vimeo,
+                R.drawable.ic_amazon,
+                R.drawable.ic_x
+            )
+
             val iv = ImageView(activity).apply {
                 layoutParams = LinearLayout.LayoutParams(dp16, dp16).apply {
                     setMargins(0, 0, dp6, 0)
                 }
                 setImageResource(engine.iconRes)
-                if (isSelected) {
-                    setColorFilter(Color.WHITE)
+                if (isBranded) {
+                    clearColorFilter()
                 } else {
-                    setColorFilter(if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368"))
+                    if (isSelected) {
+                        setColorFilter(Color.WHITE)
+                    } else {
+                        setColorFilter(if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368"))
+                    }
                 }
             }
             chip.addView(iv)
@@ -1116,7 +1147,8 @@ class HazeOmniboxManager(
      */
     fun showSearchDestinationsCatalog(
         chipContainer: LinearLayout,
-        onEngineSelected: (SearchEngine) -> Unit
+        onEngineSelected: (SearchEngine) -> Unit,
+        initialCategory: String = "All"
     ) {
         val dialog = BottomSheetDialog(activity)
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
@@ -1305,7 +1337,7 @@ class HazeOmniboxManager(
             "Travel, Maps & Bookings",
             "Email & Productivity"
         )
-        var selectedCategory = "All"
+        var selectedCategory = initialCategory
         var filterText = ""
 
         fun renderList() {
@@ -1318,7 +1350,9 @@ class HazeOmniboxManager(
             val dp6 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, activity.resources.displayMetrics).toInt()
             val dp38 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, activity.resources.displayMetrics).toInt()
             val dp20 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, activity.resources.displayMetrics).toInt()
+            val dp22 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics).toInt()
             val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
+            val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
 
             val filtered = allEngines.filter { engine ->
                 val matchesCategory = (selectedCategory == "All") || engine.category.equals(selectedCategory, ignoreCase = true)
@@ -1367,6 +1401,24 @@ class HazeOmniboxManager(
                     isFocusable = true
                 }
 
+                val isBranded = engine.iconRes in listOf(
+                    R.drawable.ic_google_logo,
+                    R.drawable.ic_duckduckgo,
+                    R.drawable.ic_youtube,
+                    R.drawable.ic_reddit,
+                    R.drawable.ic_facebook,
+                    R.drawable.ic_instagram,
+                    R.drawable.ic_netflix,
+                    R.drawable.ic_tiktok,
+                    R.drawable.ic_twitch,
+                    R.drawable.ic_pinterest,
+                    R.drawable.ic_spotify,
+                    R.drawable.ic_threads,
+                    R.drawable.ic_vimeo,
+                    R.drawable.ic_amazon,
+                    R.drawable.ic_x
+                )
+
                 // Left squircle icon container
                 val iconBox = LinearLayout(activity).apply {
                     gravity = android.view.Gravity.CENTER
@@ -1378,105 +1430,53 @@ class HazeOmniboxManager(
                     }
                 }
                 val ivIcon = ImageView(activity).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp20, dp20)
+                    layoutParams = LinearLayout.LayoutParams(dp22, dp22)
                     setImageResource(engine.iconRes)
-                    if (isDark) {
-                        setColorFilter(Color.WHITE)
+                    if (isBranded) {
+                        clearColorFilter()
                     } else {
-                        setColorFilter(Color.parseColor("#202124"))
+                        setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
                     }
                 }
                 iconBox.addView(ivIcon)
                 itemCard.addView(iconBox)
 
-                // Middle Info Column
-                val infoCol = LinearLayout(activity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        setMargins(dp10, 0, dp8, 0)
-                    }
-                }
-
-                // Title row (Name + Prefix badge + Optional Default badge)
-                val titleRow = LinearLayout(activity).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                }
-
+                // Middle: Ultra-simple site name
                 val tvName = TextView(activity).apply {
                     text = engine.name
-                    textSize = 14f
-                    typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+                    textSize = 15f
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                     setTextColor(textColor)
-                }
-                titleRow.addView(tvName)
-
-                // Shortcut prefix badge
-                val tvPrefix = TextView(activity).apply {
-                    text = engine.prefix
-                    textSize = 10f
-                    typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
-                    setTextColor(accentColor)
-                    setPadding(dp6, dp4 / 2, dp6, dp4 / 2)
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.RECTANGLE
-                        cornerRadius = 8f
-                        setColor(if (isDark) Color.parseColor("#282D38") else Color.parseColor("#EEF3FD"))
-                    }
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        setMargins(dp6, 0, 0, 0)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(dp12, 0, dp8, 0)
                     }
                 }
-                titleRow.addView(tvPrefix)
+                itemCard.addView(tvName)
 
+                // Optional Active Badge
                 if (isCurrentDefault) {
                     val tvDefault = TextView(activity).apply {
                         text = "Active"
-                        textSize = 9f
+                        textSize = 9.5f
                         typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
                         setTextColor(Color.WHITE)
-                        setPadding(dp6, dp4 / 2, dp6, dp4 / 2)
+                        val padH = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 7f, activity.resources.displayMetrics).toInt()
+                        val padV = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2.5f, activity.resources.displayMetrics).toInt()
+                        setPadding(padH, padV, padH, padV)
                         background = GradientDrawable().apply {
                             shape = GradientDrawable.RECTANGLE
-                            cornerRadius = 8f
+                            cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, activity.resources.displayMetrics)
                             setColor(accentColor)
                         }
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply {
-                            setMargins(dp6, 0, 0, 0)
+                            setMargins(0, 0, dp8, 0)
                         }
                     }
-                    titleRow.addView(tvDefault)
+                    itemCard.addView(tvDefault)
                 }
-
-                infoCol.addView(titleRow)
-
-                // Description
-                if (engine.description.isNotEmpty()) {
-                    val tvDesc = TextView(activity).apply {
-                        text = engine.description
-                        textSize = 11f
-                        setTextColor(subTextColor)
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                    }
-                    infoCol.addView(tvDesc)
-                }
-
-                // Category tag
-                val tvCategory = TextView(activity).apply {
-                    text = engine.category
-                    textSize = 10f
-                    setTextColor(if (isDark) Color.parseColor("#80868B") else Color.parseColor("#70757A"))
-                }
-                infoCol.addView(tvCategory)
-
-                itemCard.addView(infoCol)
 
                 // Right Pin Button
                 val pinBtn = ImageView(activity).apply {

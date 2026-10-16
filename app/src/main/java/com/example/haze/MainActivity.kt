@@ -2644,6 +2644,14 @@ class MainActivity : AppCompatActivity() {
                 if (::weatherManager.isInitialized) weatherManager.showWeatherSettingsDialog()
             }, 300)
         }
+        if (intent.getBooleanExtra("open_destinations", false)) {
+            val cat = intent.getStringExtra("destinations_category") ?: "All"
+            webContainer.postDelayed({
+                if (::omniboxManager.isInitialized) {
+                    omniboxManager.showSearchDestinationsCatalog(searchEngineChipContainer, { /* no-op */ }, cat)
+                }
+            }, 300)
+        }
         if (intent.getBooleanExtra("open_bookmarks", false)) {
             webContainer.postDelayed({ HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) } }, 200)
         }
@@ -3143,15 +3151,49 @@ class MainActivity : AppCompatActivity() {
         val displayShortcutsHtml = StringBuilder()
         for (i in activeShortcuts.indices) {
             val s = activeShortcuts[i]
-            val iconContent = if (s.name.equals("Google", ignoreCase = true)) {
-                """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>"""
-            } else if (s.svgPath.isNotEmpty()) {
-                val effectiveFill = if (isDark && (s.fillColor == "#202124" || s.fillColor == "#000000" || s.fillColor.isEmpty())) "#FFFFFF" else s.fillColor.ifEmpty { accentColor }
-                """<svg viewBox="0 0 24 24" style="fill: $effectiveFill; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
-            } else if (s.iconUrl.isNotEmpty()) {
-                """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:28px; height:28px; align-items:center; justify-content:center; font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
-            } else {
-                """<div style="font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
+            val iconContent = when {
+                s.name.equals("Google", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>"""
+
+                s.name.equals("YouTube", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#FF0000" d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77C22 15.25 22 12 22 12s0-3.25-.42-4.81z"/><polygon fill="#FFFFFF" points="10,15 15.5,12 10,9"/></svg>"""
+
+                s.name.equals("Reddit", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="#FF4500"/><path fill="#FFFFFF" d="M12 7.2a1 1 0 0 1 .98 1.22l1.54.33a2.96 2.96 0 0 1 2.81-.84 1.12 1.12 0 1 1 .94 1.7c-.02.19-.05.38-.07.57 1.04.98 1.65 2.28 1.65 3.67 0 3.1-3.52 5.6-7.85 5.6S4.15 16.95 4.15 13.85c0-1.39.61-2.69 1.65-3.67a3.84 3.84 0 0 1-.07-.57 1.12 1.12 0 1 1 1.82-.88c.94.05 1.81.43 2.47 1.06l.99-.21A1 1 0 0 1 12 7.2z"/><circle cx="9.44" cy="14.48" r="1.12" fill="#FF4500"/><circle cx="14.56" cy="14.48" r="1.12" fill="#FF4500"/><path d="M9.8 16.5c.6.5 1.4.8 2.2.8s1.6-.3 2.2-.8" fill="none" stroke="#FF4500" stroke-width="0.8" stroke-linecap="round"/></svg>"""
+
+                s.name.equals("Instagram", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><defs><radialGradient id="igG" r="150%" cx="30%" cy="107%"><stop stop-color="#fdf497" offset="0%"/><stop stop-color="#fdf497" offset="5%"/><stop stop-color="#fd5949" offset="45%"/><stop stop-color="#d6249f" offset="60%"/><stop stop-color="#285AEB" offset="90%"/></radialGradient></defs><rect x="2" y="2" width="20" height="20" rx="5.5" fill="none" stroke="url(#igG)" stroke-width="2"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="url(#igG)" stroke-width="2"/><circle cx="17.2" cy="6.8" r="1.2" fill="url(#igG)"/></svg>"""
+
+                s.name.equals("Spotify", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="#1DB954"/><path fill="#121212" d="M16.85 16.85c-.19.31-.58.4-.89.21-2.43-1.48-5.5-1.82-9.11-.99-.36.08-.71-.14-.79-.5-.08-.36.14-.71.5-.79 3.96-.9 7.37-.52 10.08 1.18.31.19.4.58.21.89zm1.21-3.17c-.24.39-.75.51-1.14.27-2.78-1.71-7.02-2.21-10.31-1.21-.44.13-.91-.12-1.04-.56-.13-.44.12-.91.56-1.04 3.76-1.14 8.44-.58 11.66 1.4.39.24.51.75.27 1.14zm.11-3.29c-3.33-1.98-8.84-2.16-12.04-1.19-.51.15-1.05-.14-1.2-.65-.15-.51.14-1.05.65-1.2 3.68-1.12 9.76-.9 13.59 1.38.46.27.61.87.34 1.33-.27.45-.88.6-1.34.33z"/></svg>"""
+
+                s.name.equals("Twitter", ignoreCase = true) || s.name.equals("X", ignoreCase = true) ->
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#1DA1F2" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>"""
+
+                s.name.equals("GitHub", ignoreCase = true) -> {
+                    val ghColor = if (isDark) "#FFFFFF" else "#24292F"
+                    """<svg viewBox="0 0 24 24" style="fill: $ghColor; width:26px; height:26px;"><path d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 12 2z"/></svg>"""
+                }
+
+                s.name.equals("Wikipedia", ignoreCase = true) -> {
+                    val wpBg = if (isDark) "#333333" else "#F0F0F0"
+                    val wpFill = if (isDark) "#FFFFFF" else "#202124"
+                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="$wpBg"/><path fill="$wpFill" d="M15.3 16.5l-1.8-4.9-1.5 4.9H10l-2.4-7.8h1.8l1.5 5.5 1.6-5.5h1.8l1.6 5.5 1.5-5.5h1.8l-2.4 7.8h-1.9z"/></svg>"""
+                }
+
+                s.name.equals("Notion", ignoreCase = true) -> {
+                    val notionFill = if (isDark) "#FFFFFF" else "#000000"
+                    """<svg viewBox="0 0 24 24" style="fill: $notionFill; width:26px; height:26px;"><path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.093-.373L18.3 2.296a2.12 2.12 0 0 0-1.493-.606L3.992 2.482c-.373 0-.466.233-.326.42zm.84 3.733v12.413c0 .84.42 1.166 1.26 1.12l14.195-.84c.84-.047.933-.653.933-1.213V7.054c0-.606-.327-.933-.933-.886L5.886 7.007c-.467.047-.587.327-.587.934zm13.121 1.12c.094.42 0 .84-.42.887l-.84.14v7.746c-.466.28-.933.466-1.353.466-.653 0-.98-.28-1.54-.933l-4.293-6.673v6.766l1.307.28c.093.42 0 .84-.42.886l-3.36.187c-.093-.42 0-.84.42-.887l.98-.233V10.22l-1.213-.14c-.094-.42 0-.84.42-.887l3.453-.233 4.433 6.813V9.52l-1.12-.14c-.093-.42 0-.84.42-.887z"/></svg>"""
+                }
+
+                s.svgPath.isNotEmpty() -> {
+                    val effectiveFill = if (isDark && (s.fillColor == "#202124" || s.fillColor == "#000000" || s.fillColor.isEmpty())) "#FFFFFF" else s.fillColor.ifEmpty { accentColor }
+                    """<svg viewBox="0 0 24 24" style="fill: $effectiveFill; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
+                }
+                s.iconUrl.isNotEmpty() ->
+                    """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:28px; height:28px; align-items:center; justify-content:center; font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
+                else ->
+                    """<div style="font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
             }
             displayShortcutsHtml.append("""
                 <div class="shortcut" 
@@ -3172,15 +3214,17 @@ class MainActivity : AppCompatActivity() {
         
         if (shortcutsMode != "off") {
             val addClickAction = if (isFull) "Android.triggerHaptic(true); Android.showMaxShortcutsToast()" else "Android.triggerHaptic(false); Android.openAddShortcutDialog()"
-            val addStyle = if (isFull) "opacity: 0.45; cursor: pointer;" else "opacity: 1;"
+            val addBorder = if (isDark) "1.5px dashed #525866" else "1.5px dashed #A2A8B5"
+            val addIconColor = if (isDark) "#A8C7FA" else accentColor
             
             displayShortcutsHtml.append("""
                 <div class="shortcut" 
                      onclick="$addClickAction" 
-                     style="$addStyle"
                      oncontextmenu="event.preventDefault(); return false;">
-                    <div class="shortcut-box"><svg viewBox="0 0 24 24" style="fill: $accentColor; width:26px; height:26px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></div>
-                    <div class="shortcut-label">Add</div>
+                    <div class="shortcut-box" style="border: $addBorder; background: ${if (isDark) "#26282D" else "#EEF1F6"};">
+                        <svg viewBox="0 0 24 24" style="fill: $addIconColor; width:26px; height:26px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    </div>
+                    <div class="shortcut-label" style="color: $addIconColor;">Add</div>
                 </div>
             """)
         }
