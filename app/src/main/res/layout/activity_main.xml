@@ -49,6 +49,17 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/devToolsDockContainer"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Docked Chromium Developer Tools Container -->
+    <FrameLayout
+        android:id="@+id/devToolsDockContainer"
+        android:layout_width="0dp"
+        android:layout_height="320dp"
+        android:visibility="gone"
+        android:elevation="20dp"
         app:layout_constraintBottom_toTopOf="@id/findBarContainer"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

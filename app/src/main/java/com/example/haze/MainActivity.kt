@@ -670,11 +670,11 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun onElementInspected(selector: String) {
             runOnUiThread {
-                if (HazeDevToolsManager.activeDialog?.isShowing == true) {
+                if (HazeDevToolsManager.isDevToolsVisible(this@MainActivity)) {
                     HazeDevToolsManager.focusElement(selector)
                 } else {
                     val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
-                    HazeDevToolsManager.showDevToolsDialog(this@MainActivity, tab, "ELEMENTS", selector)
+                    HazeDevToolsManager.showDevTools(this@MainActivity, tab, "ELEMENTS", selector)
                 }
             }
         }
@@ -6074,7 +6074,13 @@ class MainActivity : AppCompatActivity() {
                     "Share" -> shareCurrentPage()
                     "Recent Tabs" -> showRecentlyClosedTabsDialog()
                     "Save Offline" -> saveCurrentPageForOffline()
-                    "DevTools", "Inspect" -> currentTabsList.getOrNull(activeTabIndex)?.let { HazeDevToolsManager.showDevToolsDialog(this, it) }
+                    "DevTools", "Inspect" -> currentTabsList.getOrNull(activeTabIndex)?.let {
+                        if (HazeDevToolsManager.isDevToolsVisible(this)) {
+                            HazeDevToolsManager.hideDevTools(this)
+                        } else {
+                            HazeDevToolsManager.showDevTools(this, it)
+                        }
+                    }
                     "Extra" -> showExtraToolsDialog()
                     "Settings" -> HazeSettingsManager.showSettingsDialog(this)
                 }
@@ -8501,6 +8507,10 @@ class MainActivity : AppCompatActivity() {
     private fun handleBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (HazeDevToolsManager.isDevToolsVisible(this@MainActivity)) {
+                    HazeDevToolsManager.hideDevTools(this@MainActivity)
+                    return
+                }
                 if (customVideoView != null) {
                     customViewCallback?.onCustomViewHidden()
                     fullscreenVideoContainer.removeAllViews()

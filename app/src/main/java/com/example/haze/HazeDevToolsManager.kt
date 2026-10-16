@@ -230,20 +230,241 @@ object HazeDevToolsManager {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), context.resources.displayMetrics).toInt()
     }
 
+    fun isDevToolsVisible(activity: MainActivity): Boolean {
+        val dock = activity.findViewById<FrameLayout>(R.id.devToolsDockContainer)
+        return (dock != null && dock.visibility == View.VISIBLE) || activeDialog?.isShowing == true
+    }
+
+    fun hideDevTools(activity: MainActivity) {
+        val currentTab = activity.getActiveTab()
+        val webView = currentTab?.webView ?: (currentTab?.browserTab?.renderView as? WebView)
+        deactivateInspectPickerScript(webView)
+
+        val dock = activity.findViewById<FrameLayout>(R.id.devToolsDockContainer)
+        if (dock != null) {
+            dock.visibility = View.GONE
+            dock.removeAllViews()
+        }
+        activeDialog?.dismiss()
+        activeDialog = null
+        activeTabUpdateListener = null
+        activeElementFocuser = null
+    }
+
+    fun showDevTools(activity: MainActivity, browserTab: IBrowserTab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
+        val webView = (browserTab.renderView as? WebView)
+        showDevToolsInternal(activity, browserTab.id, webView, initialTab, initialSelector)
+    }
+
+    fun showDevTools(activity: MainActivity, tab: MainActivity.Tab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
+        showDevToolsInternal(activity, tab.id, tab.webView, initialTab, initialSelector)
+    }
+
+    fun showDevToolsDialog(activity: MainActivity, browserTab: IBrowserTab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
+        showDevTools(activity, browserTab, initialTab, initialSelector)
+    }
+
+    fun showDevToolsDialog(activity: MainActivity, tab: MainActivity.Tab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
+        showDevTools(activity, tab, initialTab, initialSelector)
+    }
+
     fun focusElement(selector: String) {
         activeElementFocuser?.invoke(selector)
     }
 
-    fun showDevToolsDialog(activity: MainActivity, browserTab: IBrowserTab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
-        val webView = (browserTab.renderView as? WebView)
-        showDevToolsDialogInternal(activity, browserTab.id, webView, initialTab, initialSelector)
+    fun injectInspectPickerScript(webView: WebView?) {
+        webView?.evaluateJavascript(
+            """
+            (function() {
+                if (window.__hazeInspectorActive) return;
+                window.__hazeInspectorActive = true;
+
+                var overlay = document.getElementById('__haze_dev_overlay');
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.id = '__haze_dev_overlay';
+                    overlay.style.position = 'fixed';
+                    overlay.style.pointerEvents = 'none';
+                    overlay.style.zIndex = '2147483647';
+                    overlay.style.border = '2px solid #1A73E8';
+                    overlay.style.backgroundColor = 'rgba(26, 115, 232, 0.22)';
+                    overlay.style.boxSizing = 'border-box';
+                    document.documentElement.appendChild(overlay);
+                }
+                overlay.style.display = 'none';
+
+                var tooltip = document.getElementById('__haze_dev_tooltip');
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.id = '__haze_dev_tooltip';
+                    tooltip.style.position = 'fixed';
+                    tooltip.style.pointerEvents = 'none';
+                    tooltip.style.zIndex = '2147483647';
+                    tooltip.style.backgroundColor = '#202124';
+                    tooltip.style.color = '#FFFFFF';
+                    tooltip.style.fontSize = '11px';
+                    tooltip.style.padding = '3px 7px';
+                    tooltip.style.borderRadius = '3px';
+                    tooltip.style.fontFamily = 'monospace';
+                    tooltip.style.boxShadow = '0 2px 6px rgba(0,0,0,0.35)';
+                    document.documentElement.appendChild(tooltip);
+                }
+                tooltip.style.display = 'none';
+
+                function getUniqueSelector(el) {
+                    if (!el || el.nodeType !== 1) return '';
+                    if (el === document.body) return 'body';
+                    if (el === document.documentElement) return 'html';
+                    
+                    try {
+                        if (el.id && typeof el.id === 'string' && el.id.trim()) {
+                            var esc = '#' + CSS.escape(el.id.trim());
+                            if (document.querySelectorAll(esc).length === 1) return esc;
+                        }
+                    } catch(_) {}
+
+                    var path = [];
+                    var curr = el;
+                    while (curr && curr.nodeType === 1 && curr.tagName.toLowerCase() !== 'html') {
+                        var tag = curr.tagName.toLowerCase();
+                        try {
+                            if (curr.id && typeof curr.id === 'string' && curr.id.trim()) {
+                                var esc = '#' + CSS.escape(curr.id.trim());
+                                if (document.querySelectorAll(esc).length === 1) {
+                                    path.unshift(esc);
+                                    break;
+                                }
+                            }
+                        } catch(_) {}
+
+                        var parent = curr.parentNode;
+                        if (!parent || parent.nodeType !== 1) {
+                            path.unshift(tag);
+                            break;
+                        }
+                        var siblings = Array.from(parent.children).filter(function(c) {
+                            return c.tagName.toLowerCase() === tag;
+                        });
+                        if (siblings.length > 1) {
+                            var index = siblings.indexOf(curr) + 1;
+                            path.unshift(tag + ':nth-of-type(' + index + ')');
+                        } else {
+                            path.unshift(tag);
+                        }
+                        curr = parent;
+                    }
+                    return path.join(' > ');
+                }
+
+                function getDisplayLabel(el) {
+                    var tag = el.tagName.toLowerCase();
+                    var id = (el.id && typeof el.id === 'string') ? '#' + el.id : '';
+                    var cls = '';
+                    if (typeof el.className === 'string' && el.className.trim()) {
+                        cls = '.' + el.className.trim().split(/\s+/)[0];
+                    }
+                    return { tag: tag, id: id, cls: cls };
+                }
+
+                function highlightElement(el) {
+                    if (!el || el === overlay || el === tooltip || el === document.documentElement) return;
+                    var rect = el.getBoundingClientRect();
+                    overlay.style.display = 'block';
+                    overlay.style.top = rect.top + 'px';
+                    overlay.style.left = rect.left + 'px';
+                    overlay.style.width = rect.width + 'px';
+                    overlay.style.height = rect.height + 'px';
+
+                    var label = getDisplayLabel(el);
+                    tooltip.style.display = 'block';
+                    tooltip.innerHTML = '<span style="color:#FF7B72">' + label.tag + '</span>' +
+                                        '<span style="color:#79C0FF">' + label.id + '</span>' +
+                                        '<span style="color:#D2A8FF">' + label.cls + '</span> ' +
+                                        Math.round(rect.width) + '×' + Math.round(rect.height);
+
+                    var tooltipTop = rect.top - 26;
+                    if (tooltipTop < 0) tooltipTop = rect.bottom + 4;
+                    tooltip.style.top = tooltipTop + 'px';
+                    tooltip.style.left = Math.max(0, rect.left) + 'px';
+                }
+
+                var lastHovered = null;
+
+                function onPointerMove(e) {
+                    var x = e.clientX || (e.touches && e.touches.length > 0 ? e.touches[0].clientX : 0);
+                    var y = e.clientY || (e.touches && e.touches.length > 0 ? e.touches[0].clientY : 0);
+                    overlay.style.display = 'none';
+                    tooltip.style.display = 'none';
+                    var el = document.elementFromPoint(x, y);
+                    if (el && el !== overlay && el !== tooltip) {
+                        lastHovered = el;
+                        highlightElement(el);
+                    }
+                }
+
+                function onPointerSelect(e) {
+                    var x = e.clientX || (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientX : (e.touches && e.touches.length > 0 ? e.touches[0].clientX : 0));
+                    var y = e.clientY || (e.changedTouches && e.changedTouches.length > 0 ? e.changedTouches[0].clientY : (e.touches && e.touches.length > 0 ? e.touches[0].clientY : 0));
+                    
+                    overlay.style.display = 'none';
+                    tooltip.style.display = 'none';
+                    var el = (x && y) ? document.elementFromPoint(x, y) : null;
+                    if (!el || el === overlay || el === tooltip) el = lastHovered || e.target;
+                    if (!el || el === document.documentElement) return;
+
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    window.__hazeInspectedElement = el;
+                    highlightElement(el);
+
+                    var prevOutline = el.style.outline;
+                    el.style.outline = '3px solid #1A73E8';
+                    setTimeout(function() { el.style.outline = prevOutline; }, 3000);
+
+                    var selector = getUniqueSelector(el);
+                    if (window.Android && window.Android.onElementInspected) {
+                        window.Android.onElementInspected(selector);
+                    }
+                }
+
+                window.addEventListener('touchstart', onPointerMove, { capture: true, passive: true });
+                window.addEventListener('touchmove', onPointerMove, { capture: true, passive: true });
+                window.addEventListener('touchend', onPointerSelect, { capture: true, passive: false });
+                window.addEventListener('mousemove', onPointerMove, { capture: true, passive: true });
+                window.addEventListener('click', onPointerSelect, { capture: true, passive: false });
+
+                window.__hazeDeactivateInspector = function() {
+                    window.removeEventListener('touchstart', onPointerMove, { capture: true, passive: true });
+                    window.removeEventListener('touchmove', onPointerMove, { capture: true, passive: true });
+                    window.removeEventListener('touchend', onPointerSelect, { capture: true, passive: false });
+                    window.removeEventListener('mousemove', onPointerMove, { capture: true, passive: true });
+                    window.removeEventListener('click', onPointerSelect, { capture: true, passive: false });
+                    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                    if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
+                    window.__hazeInspectorActive = false;
+                    window.__hazeDeactivateInspector = null;
+                };
+            })();
+            """.trimIndent(),
+            null
+        )
     }
 
-    fun showDevToolsDialog(activity: MainActivity, tab: MainActivity.Tab, initialTab: String = "ELEMENTS", initialSelector: String? = null) {
-        showDevToolsDialogInternal(activity, tab.id, tab.webView, initialTab, initialSelector)
+    fun deactivateInspectPickerScript(webView: WebView?) {
+        webView?.evaluateJavascript(
+            """
+            (function() {
+                if (window.__hazeDeactivateInspector) {
+                    window.__hazeDeactivateInspector();
+                }
+            })();
+            """.trimIndent(),
+            null
+        )
     }
 
-    private fun showDevToolsDialogInternal(
+    private fun showDevToolsInternal(
         activity: MainActivity,
         tabId: Long,
         webView: WebView?,
@@ -285,32 +506,61 @@ object HazeDevToolsManager {
         val displayMetrics = activity.resources.displayMetrics
         val screenHeight = displayMetrics.heightPixels
         val minHeight = dpToPx(activity, 200)
-        val maxHeight = screenHeight
+        val maxHeight = (screenHeight * 0.70).toInt()
+        val defaultDockHeight = dpToPx(activity, 330).coerceAtMost((screenHeight * 0.45).toInt())
 
-        var savedHeight = prefs.getInt("devtools_dock_height", (screenHeight * 0.55).toInt())
+        val dockContainer = activity.findViewById<FrameLayout>(R.id.devToolsDockContainer)
+        if (dockContainer != null) {
+            dockContainer.visibility = View.VISIBLE
+            dockContainer.removeAllViews()
+        }
+
+        var savedHeight = prefs.getInt("devtools_dock_height", defaultDockHeight)
         if (savedHeight < minHeight || savedHeight > maxHeight) {
-            savedHeight = (screenHeight * 0.55).toInt()
+            savedHeight = defaultDockHeight
+            prefs.edit().putInt("devtools_dock_height", defaultDockHeight).apply()
         }
 
         var currentDockHeight = savedHeight
         var isFullScreen = false
 
-        val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
-        activeDialog = dialog
-        dialog.setOnDismissListener {
-            activeTabUpdateListener = null
-            activeDialog = null
+        var dialog: Dialog? = null
+        if (dockContainer == null) {
+            dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
+            activeDialog = dialog
+            dialog.setOnDismissListener {
+                activeTabUpdateListener = null
+                activeDialog = null
+            }
         }
 
         fun updateWindowLayout() {
-            dialog.window?.let { window ->
-                window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-                window.setGravity(Gravity.BOTTOM)
-                window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                window.setFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
+            if (dockContainer != null) {
+                val lp = dockContainer.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                    ?: androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, currentDockHeight)
+                if (isFullScreen) {
+                    lp.height = 0
+                    lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    lp.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                } else {
+                    lp.height = currentDockHeight
+                    lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                    lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                    lp.bottomToTop = R.id.findBarContainer
+                }
+                dockContainer.layoutParams = lp
+                dockContainer.requestLayout()
+            } else {
+                dialog?.window?.let { window ->
+                    window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+                    window.setGravity(Gravity.BOTTOM)
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                    window.setFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
 
-                val height = if (isFullScreen) ViewGroup.LayoutParams.MATCH_PARENT else currentDockHeight
-                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, height)
+                    val height = if (isFullScreen) ViewGroup.LayoutParams.MATCH_PARENT else currentDockHeight
+                    window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, height)
+                }
             }
         }
         updateWindowLayout()
@@ -337,22 +587,25 @@ object HazeDevToolsManager {
         }
         dragHandleContainer.addView(dragPill)
 
+        val btnFullscreenRef = arrayOfNulls<ImageView>(1)
+
         val gestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 activity.triggerStrongHaptic()
                 when {
                     isFullScreen -> {
                         isFullScreen = false
-                        currentDockHeight = (screenHeight * 0.38).toInt()
+                        currentDockHeight = (screenHeight * 0.35).toInt()
                     }
-                    currentDockHeight < (screenHeight * 0.5) -> {
-                        currentDockHeight = (screenHeight * 0.60).toInt()
+                    currentDockHeight < (screenHeight * 0.48) -> {
+                        currentDockHeight = (screenHeight * 0.58).toInt()
                     }
                     else -> {
                         isFullScreen = true
                     }
                 }
                 prefs.edit().putInt("devtools_dock_height", currentDockHeight).apply()
+                btnFullscreenRef[0]?.rotation = if (isFullScreen) 0f else 180f
                 updateWindowLayout()
                 return true
             }
@@ -370,11 +623,23 @@ object HazeDevToolsManager {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dy = event.rawY - dragStartY
-                    // Dragging UP decreases rawY, increasing height
                     val newHeight = (heightAtDragStart - dy).toInt().coerceIn(minHeight, maxHeight)
                     isFullScreen = false
+                    btnFullscreenRef[0]?.rotation = 180f
                     currentDockHeight = newHeight
-                    dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, currentDockHeight)
+                    if (dockContainer != null) {
+                        val lp = dockContainer.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                        if (lp != null) {
+                            lp.height = currentDockHeight
+                            lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                            lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+                            lp.bottomToTop = R.id.findBarContainer
+                            dockContainer.layoutParams = lp
+                            dockContainer.requestLayout()
+                        }
+                    } else {
+                        dialog?.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, currentDockHeight)
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -394,97 +659,39 @@ object HazeDevToolsManager {
             setBackgroundColor(topBarColor)
         }
 
-        // Element Picker Button
+        // Element Picker Button (Inspect Mode Toggle)
+        var isInspectActive = false
         val btnInspectPicker = ImageView(activity).apply {
             setImageResource(R.drawable.ic_devtools_inspect)
             setColorFilter(subTextColor)
             setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 28), dpToPx(activity, 28))
-            setOnClickListener {
-                activity.triggerStrongHaptic()
-                webView?.evaluateJavascript(
-                    """
-                    (function() {
-                        if (window.__hazeInspectorActive) return;
-                        window.__hazeInspectorActive = true;
-                        
-                        var overlay = document.createElement('div');
-                        overlay.style.position = 'fixed';
-                        overlay.style.pointerEvents = 'none';
-                        overlay.style.zIndex = '2147483647';
-                        overlay.style.border = '2px solid #1A73E8';
-                        overlay.style.backgroundColor = 'rgba(26, 115, 232, 0.2)';
-                        overlay.style.transition = 'all 0.08s ease';
-                        document.body.appendChild(overlay);
+        }
 
-                        var tooltip = document.createElement('div');
-                        tooltip.style.position = 'fixed';
-                        tooltip.style.pointerEvents = 'none';
-                        tooltip.style.zIndex = '2147483647';
-                        tooltip.style.backgroundColor = '#202124';
-                        tooltip.style.color = '#fff';
-                        tooltip.style.fontSize = '12px';
-                        tooltip.style.padding = '4px 8px';
-                        tooltip.style.borderRadius = '4px';
-                        tooltip.style.fontFamily = 'monospace';
-                        document.body.appendChild(tooltip);
+        fun updateInspectPickerUi(active: Boolean) {
+            isInspectActive = active
+            if (active) {
+                btnInspectPicker.setColorFilter(accentColor)
+                btnInspectPicker.background = GradientDrawable().apply {
+                    setColor(if (isDark) Color.parseColor("#331A73E8") else Color.parseColor("#D2E3FC"))
+                    cornerRadius = dpToPx(activity, 4).toFloat()
+                }
+            } else {
+                btnInspectPicker.setColorFilter(subTextColor)
+                btnInspectPicker.background = null
+            }
+        }
 
-                        function updateHighlight(e) {
-                            var x = e.clientX || (e.touches && e.touches.length > 0 ? e.touches[0].clientX : 0);
-                            var y = e.clientY || (e.touches && e.touches.length > 0 ? e.touches[0].clientY : 0);
-                            var el = document.elementFromPoint(x, y);
-                            if (el && el !== overlay && el !== tooltip) {
-                                var rect = el.getBoundingClientRect();
-                                overlay.style.top = rect.top + 'px';
-                                overlay.style.left = rect.left + 'px';
-                                overlay.style.width = rect.width + 'px';
-                                overlay.style.height = rect.height + 'px';
-                                
-                                var tag = el.tagName.toLowerCase();
-                                var cls = el.className ? '.' + el.className.toString().split(' ')[0] : '';
-                                var id = el.id ? '#' + el.id : '';
-                                tooltip.innerHTML = '<span style="color:#FF7B72">' + tag + '</span><span style="color:#79C0FF">' + id + '</span><span style="color:#D2A8FF">' + cls + '</span> ' + Math.round(rect.width) + '×' + Math.round(rect.height);
-                                
-                                var tooltipTop = rect.top - 26;
-                                if (tooltipTop < 0) tooltipTop = rect.bottom + 4;
-                                tooltip.style.top = tooltipTop + 'px';
-                                tooltip.style.left = rect.left + 'px';
-                                
-                                window.__hazeHoveredElement = el;
-                            }
-                        }
-
-                        function onTouchMove(e) { updateHighlight(e); }
-
-                        function onSelect(e) {
-                            e.preventDefault(); e.stopPropagation();
-                            window.removeEventListener('click', onSelect, true);
-                            window.removeEventListener('touchmove', onTouchMove, true);
-                            window.removeEventListener('mousemove', onTouchMove, true);
-                            
-                            var el = window.__hazeHoveredElement || e.target;
-                            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-                            if (tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
-                            window.__hazeInspectorActive = false;
-                            
-                            var tag = el.tagName.toLowerCase();
-                            var cls = el.className ? '.' + el.className.toString().split(' ')[0] : '';
-                            var id = el.id ? '#' + el.id : '';
-                            var selector = id ? id : (cls ? tag + cls : tag);
-                            
-                            if (window.Android && window.Android.onElementInspected) {
-                                window.Android.onElementInspected(selector);
-                            }
-                        }
-
-                        window.addEventListener('click', onSelect, true);
-                        window.addEventListener('touchmove', onTouchMove, true);
-                        window.addEventListener('mousemove', onTouchMove, true);
-                    })();
-                    """.trimIndent(),
-                    null
-                )
-                Toast.makeText(activity, "Tap or drag over an element on the webpage to inspect it", Toast.LENGTH_SHORT).show()
+        btnInspectPicker.setOnClickListener {
+            activity.triggerStrongHaptic()
+            val nextState = !isInspectActive
+            updateInspectPickerUi(nextState)
+            if (nextState) {
+                injectInspectPickerScript(webView)
+                Toast.makeText(activity, "Inspect Mode ON: Tap any element on the page", Toast.LENGTH_SHORT).show()
+            } else {
+                deactivateInspectPickerScript(webView)
+                Toast.makeText(activity, "Inspect Mode OFF", Toast.LENGTH_SHORT).show()
             }
         }
         topBar.addView(btnInspectPicker)
@@ -572,6 +779,7 @@ object HazeDevToolsManager {
                 updateWindowLayout()
             }
         }
+        btnFullscreenRef[0] = btnFullscreen
 
         val btnClose = ImageView(activity).apply {
             setImageResource(R.drawable.ic_close)
@@ -580,7 +788,8 @@ object HazeDevToolsManager {
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 28), dpToPx(activity, 28))
             setOnClickListener {
                 activity.triggerStrongHaptic()
-                dialog.dismiss()
+                updateInspectPickerUi(false)
+                hideDevTools(activity)
             }
         }
 
@@ -807,6 +1016,8 @@ object HazeDevToolsManager {
                 return boxRoot
             }
 
+            var focusElementBySelectorFn: ((String) -> Unit)? = null
+
             fun updateStylesDrawer(compObj: JSONObject?) {
                 drawerContent.removeAllViews()
                 if (compObj == null) {
@@ -862,28 +1073,28 @@ object HazeDevToolsManager {
                     stylesContainer.addView(row)
 
                     row.setOnClickListener {
+                        val inputEt = EditText(activity).apply {
+                            setText(compObj.optString(p, ""))
+                            setSelection(text.length)
+                        }
                         val editDialog = AlertDialog.Builder(activity)
                             .setTitle("Edit CSS: $p")
-                            .setView(EditText(activity).apply {
-                                id = View.generateViewId()
-                                setText(compObj.optString(p, ""))
-                                setSelection(text.length)
-                            })
-                            .setPositiveButton("Apply") { d, _ ->
-                                val input = (d as AlertDialog).findViewById<EditText>(View.generateViewId())
-                                val newVal = input?.text?.toString()?.trim() ?: ""
+                            .setView(inputEt)
+                            .setPositiveButton("Apply") { _, _ ->
+                                val newVal = inputEt.text.toString().trim()
                                 val camelProp = p.split("-").mapIndexed { idx, s -> if (idx == 0) s else s.replaceFirstChar { it.uppercase() } }.joinToString("")
                                 webView?.evaluateJavascript(
                                     """
                                     (function() {
                                         try {
-                                            var el = document.querySelector("${selectedSelector.replace("\"", "\\\"")}");
+                                            var el = window.__hazeInspectedElement || document.querySelector("${selectedSelector.replace("\"", "\\\"")}");
                                             if (el) el.style['$camelProp'] = "$newVal";
                                         } catch(e) {}
                                     })();
                                     """.trimIndent(), null
                                 )
                                 tvVal.text = "$newVal;"
+                                focusElementBySelectorFn?.invoke(selectedSelector)
                             }
                             .setNegativeButton("Cancel", null)
                             .create()
@@ -918,13 +1129,14 @@ object HazeDevToolsManager {
                                         """
                                         (function() {
                                             try {
-                                                var el = document.querySelector("${selectedSelector.replace("\"", "\\\"")}");
+                                                var el = window.__hazeInspectedElement || document.querySelector("${selectedSelector.replace("\"", "\\\"")}");
                                                 if (el) el.style.setProperty('$prop', '$v');
                                             } catch(e) {}
                                         })();
                                         """.trimIndent(), null
                                     )
                                     Toast.makeText(activity, "Rule applied to $selectedSelector", Toast.LENGTH_SHORT).show()
+                                    focusElementBySelectorFn?.invoke(selectedSelector)
                                 }
                             }
                             .setNegativeButton("Cancel", null)
@@ -1014,9 +1226,10 @@ object HazeDevToolsManager {
                 val jsInspect = """
                     (function() {
                         try {
-                            var el = document.querySelector("${selector.replace("\"", "\\\"")}");
+                            var el = window.__hazeInspectedElement || document.querySelector("${selector.replace("\"", "\\\"")}");
                             if (el) {
-                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                window.__hazeInspectedElement = el;
+                                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                                 var orig = el.style.outline;
                                 el.style.outline = '3px solid #1A73E8';
                                 setTimeout(function() { el.style.outline = orig; }, 2500);
@@ -1057,13 +1270,18 @@ object HazeDevToolsManager {
                     } else updateStylesDrawer(null)
                 }
             }
+            focusElementBySelectorFn = { s -> focusElementBySelector(s) }
 
             activeElementFocuser = { sel ->
                 currentSelectorToFocus = sel
-                currentTab = "ELEMENTS"
-                updateTabStyles()
-                contentContainer.removeAllViews()
-                contentContainer.addView(renderElementsPanel())
+                if (currentTab == "ELEMENTS") {
+                    focusElementBySelector(sel)
+                } else {
+                    currentTab = "ELEMENTS"
+                    updateTabStyles()
+                    contentContainer.removeAllViews()
+                    contentContainer.addView(renderElementsPanel())
+                }
             }
 
             fun loadDOM(filterSel: String = "") {
@@ -1592,8 +1810,27 @@ object HazeDevToolsManager {
                 consoleInput.setText("")
 
                 recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
-                webView?.evaluateJavascript(cmd) { res ->
-                    recordConsoleMessage(tabId, res ?: "undefined", level = ConsoleLogEntry.Level.INFO)
+                val evalWrapper = """
+                    (function() {
+                        try {
+                            window.${'$'}0 = window.__hazeInspectedElement || null;
+                            var __evalRes = eval(${JSONObject.quote(cmd)});
+                            if (__evalRes === undefined) return 'undefined';
+                            if (__evalRes === null) return 'null';
+                            if (typeof __evalRes === 'object') {
+                                if (__evalRes.outerHTML) return __evalRes.outerHTML.substring(0, 300);
+                                return JSON.stringify(__evalRes);
+                            }
+                            return String(__evalRes);
+                        } catch(e) {
+                            return 'Uncaught ' + e.name + ': ' + e.message;
+                        }
+                    })();
+                """.trimIndent()
+                webView?.evaluateJavascript(evalWrapper) { res ->
+                    val unescaped = res?.trim('"')?.replace("\\\"", "\"")?.replace("\\n", "\n") ?: "undefined"
+                    val isErr = unescaped.startsWith("Uncaught ")
+                    recordConsoleMessage(tabId, unescaped, level = if (isErr) ConsoleLogEntry.Level.ERROR else ConsoleLogEntry.Level.INFO)
                     populateLogs()
                 }
             }
@@ -3068,7 +3305,11 @@ object HazeDevToolsManager {
         }
 
         switchPanel()
-        dialog.setContentView(root)
-        dialog.show()
+        if (dockContainer != null) {
+            dockContainer.addView(root)
+        } else {
+            dialog?.setContentView(root)
+            dialog?.show()
+        }
     }
 }
