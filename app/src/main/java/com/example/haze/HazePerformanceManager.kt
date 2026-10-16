@@ -172,7 +172,17 @@ object HazePerformanceManager {
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(bgColor)
-            setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 24))
+            setPadding(0, dpToPx(activity, 20), 0, 0)
+        }
+
+        val scrollContent = NestedScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        
+        val innerContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(activity, 20), 0, dpToPx(activity, 20), dpToPx(activity, 48))
         }
 
         // Header with Main Toggle
@@ -207,6 +217,11 @@ object HazePerformanceManager {
 
         val mainSwitch = SwitchCompat(activity).apply {
             isChecked = isPerformanceModeEnabled(activity)
+            val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf(-android.R.attr.state_checked))
+            val colors = intArrayOf(Color.parseColor("#6750A4"), Color.parseColor("#E0E0E0"))
+            val trackColors = intArrayOf(Color.parseColor("#E8DEF8"), Color.parseColor("#F4F4F4"))
+            thumbTintList = ColorStateList(states, colors)
+            trackTintList = ColorStateList(states, trackColors)
             layoutParams = RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT).apply {
                 addRule(RelativeLayout.ALIGN_PARENT_END)
                 addRule(RelativeLayout.CENTER_VERTICAL)
@@ -214,7 +229,7 @@ object HazePerformanceManager {
         }
         header.addView(headerLeft)
         header.addView(mainSwitch)
-        root.addView(header)
+        innerContainer.addView(header)
 
         // Subtitle
         val subtitleTv = TextView(activity).apply {
@@ -226,19 +241,19 @@ object HazePerformanceManager {
                 bottomMargin = dpToPx(activity, 16)
             }
         }
-        root.addView(subtitleTv)
+        innerContainer.addView(subtitleTv)
 
         // Statistics Card
         val stats = getPerformanceStats(activity)
         val statsCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpToPx(activity, 14), dpToPx(activity, 14), dpToPx(activity, 14), dpToPx(activity, 14))
+            setPadding(dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16))
             background = GradientDrawable().apply {
                 setColor(cardBg)
-                cornerRadius = dpToPx(activity, 14).toFloat()
+                cornerRadius = dpToPx(activity, 16).toFloat()
             }
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dpToPx(activity, 18)
+                bottomMargin = dpToPx(activity, 24)
             }
         }
 
@@ -246,7 +261,7 @@ object HazePerformanceManager {
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dpToPx(activity, 4)
+                    bottomMargin = dpToPx(activity, 6)
                 }
             }
             val tvLabel = TextView(activity).apply {
@@ -266,17 +281,14 @@ object HazePerformanceManager {
             statsCard.addView(row)
         }
 
-        addStatRow("RAM saved:", stats.ramSavedFormatted)
-        addStatRow("Battery saved:", stats.batterySavedFormatted, isGreen = true)
-        addStatRow("Trackers blocked:", stats.trackersBlockedFormatted)
-        root.addView(statsCard)
+        addStatRow("RAM saved", stats.ramSavedFormatted)
+        addStatRow("Battery saved", stats.batterySavedFormatted, isGreen = true)
+        addStatRow("Trackers blocked", stats.trackersBlockedFormatted)
+        innerContainer.addView(statsCard)
 
-        // Performance Features ScrollView
-        val scroll = ScrollView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 240))
-        }
         val optionsContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
         fun addFeatureToggle(title: String, desc: String, prefKey: String, defaultValue: Boolean = true) {

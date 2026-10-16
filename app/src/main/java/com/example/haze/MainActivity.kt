@@ -916,6 +916,12 @@ class MainActivity : AppCompatActivity() {
 
         dimOverlay = findViewById(R.id.dimOverlay)
         clipboardContainer = findViewById(R.id.clipboardContainer)
+        clipboardContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (isSearchActive && ::searchSuggestionStrip.isInitialized && searchSuggestionStrip.visibility == View.VISIBLE) {
+                val hasClipboard = clipboardContainer.visibility == View.VISIBLE && clipboardContainer.childCount > 0
+                adjustSuggestionStripHeight(suggestionChipContainer.childCount, hasClipboard = hasClipboard)
+            }
+        }
         searchSuggestionStrip = findViewById(R.id.searchSuggestionStrip)
         searchSuggestionStrip.isNestedScrollingEnabled = true
         suggestionChipContainer = findViewById(R.id.suggestionChipContainer)
@@ -1085,6 +1091,10 @@ class MainActivity : AppCompatActivity() {
                             findBarContainer.translationY = 0f
                         }
                     }
+                    if (isSearchActive && ::searchSuggestionStrip.isInitialized && searchSuggestionStrip.visibility == View.VISIBLE) {
+                        val hasClipboard = ::clipboardContainer.isInitialized && clipboardContainer.visibility == View.VISIBLE && clipboardContainer.childCount > 0
+                        adjustSuggestionStripHeight(suggestionChipContainer.childCount, hasClipboard = hasClipboard)
+                    }
                 }
             }
         )
@@ -1117,6 +1127,11 @@ class MainActivity : AppCompatActivity() {
                         lp.bottomMargin = lift
                         devToolsDock.layoutParams = lp
                     }
+                }
+
+                if (isSearchActive && ::searchSuggestionStrip.isInitialized && searchSuggestionStrip.visibility == View.VISIBLE) {
+                    val hasClipboard = ::clipboardContainer.isInitialized && clipboardContainer.visibility == View.VISIBLE && clipboardContainer.childCount > 0
+                    adjustSuggestionStripHeight(suggestionChipContainer.childCount, hasClipboard = hasClipboard)
                 }
             }
             insets
@@ -1391,9 +1406,12 @@ class MainActivity : AppCompatActivity() {
         isSearchActive = true
         updatePrivacyShieldButton()
 
-        // 1. Show fully transparent dismiss overlay without dark dim
-        dimOverlay.setBackgroundColor(Color.TRANSPARENT)
+        // 1. Show solid search surface overlay covering the screen behind search
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val surfaceColor = if (isDark) Color.parseColor("#121212") else Color.WHITE
+        dimOverlay.setBackgroundColor(surfaceColor)
         dimOverlay.alpha = 1f
+        dimOverlay.elevation = dpToPx(25).toFloat()
         dimOverlay.visibility = View.VISIBLE
 
         dimOverlay.bringToFront()
@@ -1461,6 +1479,8 @@ class MainActivity : AppCompatActivity() {
         dimOverlay.animate().cancel()
         dimOverlay.animate().alpha(0f).setDuration(150L).withEndAction {
             dimOverlay.visibility = View.GONE
+            dimOverlay.setBackgroundColor(Color.TRANSPARENT)
+            dimOverlay.elevation = 0f
         }.start()
 
         // 4. Reset translation if keyboard is closed
@@ -1545,9 +1565,7 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun applySuggestionTheme(isDark: Boolean) {
-        val cardColor = if (isPrivateMode) {
-            Color.parseColor("#1E1E1E")
-        } else if (isDark) {
+        val cardColor = if (isPrivateMode || isDark) {
             Color.parseColor("#1E1E1E")
         } else {
             Color.WHITE
@@ -1565,27 +1583,56 @@ class MainActivity : AppCompatActivity() {
             setStroke(dpToPx(1f), strokeColor)
         }
         searchSuggestionStrip.background = bgCard
-        // Apply theme to the popup suggestion card wrapper
-        val cardBg = if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
-        searchSuggestionStrip.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(24).toFloat()
-            setColor(cardBg)
-        }
         searchSuggestionStrip.clipToOutline = true
-        searchSuggestionStrip.elevation = dpToPx(0f).toFloat()
+        searchSuggestionStrip.elevation = dpToPx(2f).toFloat()
+    }
+
+    private fun getAvailableSuggestionHeight(hasClipboard: Boolean = false): Int {
+        val root = findViewById<View>(R.id.main) ?: return dpToPx(380)
+        val totalHeight = if (root.height > 0) root.height else resources.displayMetrics.heightPixels
+
+        val insets = ViewCompat.getRootWindowInsets(root)
+        val imeBottom = insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        val navBottom = insets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+        val statusTop = insets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: dpToPx(24)
+
+        val lift = (imeBottom - navBottom).coerceAtLeast(0)
+
+        // Usable height inside root padding:
+        val maxContainerHeight = totalHeight - statusTop - navBottom - lift
+
+        // Height of elements inside addressBarContainer:
+        val innerBar = findViewById<View>(R.id.addressBarInner)
+        val addressBarInnerHeight = if (innerBar != null && innerBar.height > 0) {
+            innerBar.height
+        } else dpToPx(56)
+
+        val engineBarHeight = if (::searchEngineSelectorBar.isInitialized && searchEngineSelectorBar.visibility == View.VISIBLE) {
+            val h = searchEngineSelectorBar.height
+            if (h > 0) h + dpToPx(8) else dpToPx(44)
+        } else 0
+
+        val isClipboardVis = hasClipboard || (::clipboardContainer.isInitialized && clipboardContainer.visibility == View.VISIBLE && clipboardContainer.childCount > 0)
+        val clipboardHeight = if (isClipboardVis && ::clipboardContainer.isInitialized) {
+            val h = clipboardContainer.height
+            if (h > 0) h + dpToPx(8) else dpToPx(90)
+        } else 0
+
+        val containerPaddingAndMargins = dpToPx(28)
+
+        val available = maxContainerHeight - addressBarInnerHeight - engineBarHeight - clipboardHeight - containerPaddingAndMargins
+
+        return available.coerceAtLeast(dpToPx(160))
     }
 
     private fun adjustSuggestionStripHeight(itemCount: Int, hasClipboard: Boolean = false) {
-        val rowHeight = dpToPx(50)
-        val maxAllowedHeight = if (hasClipboard) dpToPx(160) else dpToPx(270)
-        val computedHeight = (itemCount * rowHeight) + dpToPx(12)
-        val params = searchSuggestionStrip.layoutParams
-        if (computedHeight > maxAllowedHeight) {
-            params.height = maxAllowedHeight
-        } else {
-            params.height = ViewGroup.LayoutParams.WRAP_CONTENT
+        if (itemCount <= 0) {
+            searchSuggestionStrip.visibility = View.GONE
+            return
         }
+        val maxAllowedHeight = getAvailableSuggestionHeight(hasClipboard)
+        val params = searchSuggestionStrip.layoutParams
+        params.height = maxAllowedHeight
         searchSuggestionStrip.layoutParams = params
     }
 
@@ -1967,6 +2014,42 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {}
 
+        try {
+            val db = HazeDatabase.getInstance(this)
+            val history = db.getAllHistory().take(25)
+            for (h in history) {
+                if (rowItems.none { it.target == h.url || it.title == h.title }) {
+                    val clean = cleanUrlForMatching(h.url)
+                    val title = h.title.ifBlank { clean }
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = title,
+                            subtitle = clean,
+                            iconRes = R.drawable.ic_history,
+                            target = h.url,
+                            isHistory = true
+                        )
+                    )
+                }
+            }
+            val bookmarks = db.getAllBookmarks().take(10)
+            for (b in bookmarks) {
+                if (rowItems.none { it.target == b.url || it.title == b.title }) {
+                    val clean = cleanUrlForMatching(b.url)
+                    val title = b.title.ifBlank { clean }
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = title,
+                            subtitle = clean,
+                            iconRes = R.drawable.ic_star_filled,
+                            target = b.url,
+                            isBookmark = true
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+
         val filteredItems = rowItems.filterNot {
             dismissedSuggestions.contains(it.target.lowercase(Locale.US)) ||
             dismissedSuggestions.contains(it.title.lowercase(Locale.US))
@@ -1977,7 +2060,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val itemsToDisplay = filteredItems.take(8)
+        val itemsToDisplay = filteredItems.take(30)
         adjustSuggestionStripHeight(itemsToDisplay.size, hasClipboard = hasClipboard)
 
         for (item in itemsToDisplay) {
@@ -1996,24 +2079,24 @@ class MainActivity : AppCompatActivity() {
             for (r in getRecentSearches()) {
                 if (r.lowercase(Locale.US).contains(lower)) {
                     local.add(r)
-                    if (local.size >= 3) break
+                    if (local.size >= 8) break
                 }
             }
             for (s in getCustomShortcuts()) {
                 if (s.name.lowercase(Locale.US).contains(lower) || s.url.lowercase(Locale.US).contains(lower)) {
                     local.add(s.url)
-                    if (local.size >= 5) break
+                    if (local.size >= 12) break
                 }
             }
             val db = HazeDatabase.getInstance(this)
-            for (b in db.searchBookmarks(trimmed).take(3)) {
+            for (b in db.searchBookmarks(trimmed).take(8)) {
                 local.add(b.url)
             }
-            for (h in db.searchHistory(trimmed).take(4)) {
+            for (h in db.searchHistory(trimmed).take(15)) {
                 local.add(h.url)
             }
         } catch (_: Exception) {}
-        return local.take(5)
+        return local.take(20)
     }
 
     private fun fetchSearchSuggestions(query: String, callback: (List<String>) -> Unit) {
@@ -2045,7 +2128,7 @@ class MainActivity : AppCompatActivity() {
                 combined.addAll(localMatches)
                 for (i in 0 until suggestionsArray.length()) {
                     combined.add(suggestionsArray.getString(i))
-                    if (combined.size >= 10) break
+                    if (combined.size >= 25) break
                 }
                 val result = combined.toList()
                 suggestionCache[trimmed] = result
@@ -2160,7 +2243,7 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
             }
-            for (h in db.searchHistory(query).take(3)) {
+            for (h in db.searchHistory(query).take(15)) {
                 val clean = cleanUrlForMatching(h.url)
                 val title = h.title.ifBlank { clean }
                 if (rowItems.none { it.target == h.url }) {
@@ -2210,8 +2293,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val itemsToDisplay = filteredItems.take(8)
-        adjustSuggestionStripHeight(itemsToDisplay.size)
+        val itemsToDisplay = filteredItems.take(30)
+        val hasClipboard = ::clipboardContainer.isInitialized && clipboardContainer.visibility == View.VISIBLE && clipboardContainer.childCount > 0
+        adjustSuggestionStripHeight(itemsToDisplay.size, hasClipboard = hasClipboard)
 
         for (item in itemsToDisplay) {
             val rowView = createSuggestionRowView(item, isDark)
