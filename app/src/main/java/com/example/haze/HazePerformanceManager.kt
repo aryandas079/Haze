@@ -142,23 +142,16 @@ object HazePerformanceManager {
             if (window.__hazePerfInjected) return;
             window.__hazePerfInjected = true;
 
-            // Battery Optimization: Throttle requestAnimationFrame when page is not visible
+            // Battery Optimization: Throttle requestAnimationFrame only when tab/document is completely hidden in background
             var originalRAF = window.requestAnimationFrame;
             if (originalRAF) {
                 window.requestAnimationFrame = function(callback) {
                     if (document.hidden) {
-                        return setTimeout(callback, 200);
+                        return setTimeout(callback, 500);
                     }
                     return originalRAF(callback);
                 };
             }
-
-            // Reduced JavaScript workload: throttle excessive interval timers (< 50ms) to 100ms
-            var originalSetInterval = window.setInterval;
-            window.setInterval = function(fn, delay) {
-                var safeDelay = (delay && delay < 60) ? 100 : delay;
-                return originalSetInterval(fn, safeDelay);
-            };
         })();
     """.trimIndent()
 

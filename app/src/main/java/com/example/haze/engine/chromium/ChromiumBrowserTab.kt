@@ -1267,26 +1267,7 @@ class ChromiumBrowserTab(
                     'button.ytm-ad-skip-button'
                 ];
 
-                function handleYtPlayerVisibility() {
-                    try {
-                        var isWatch = window.location.pathname.indexOf('/watch') !== -1 ||
-                                      window.location.pathname.indexOf('/shorts') !== -1 ||
-                                      window.location.search.indexOf('v=') !== -1;
-                        var containers = document.querySelectorAll('#player-container-id, .player-container');
-                        for (var k = 0; k < containers.length; k++) {
-                            var c = containers[k];
-                            var activeVideo = c.querySelector('video[src], video:not([src=""])');
-                            if (!isWatch && (!activeVideo || activeVideo.paused)) {
-                                c.style.setProperty('display', 'none', 'important');
-                            } else if (isWatch) {
-                                c.style.removeProperty('display');
-                            }
-                        }
-                    } catch(e) {}
-                }
-
                 function skipYouTubeAd() {
-                    handleYtPlayerVisibility();
                     var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing, [class*="ad-showing"], [class*="ad-interrupting"]');
                     var video = document.querySelector('video');
 
@@ -1326,14 +1307,11 @@ class ChromiumBrowserTab(
                     }
                 }
 
-                handleYtPlayerVisibility();
-                setInterval(skipYouTubeAd, 250);
-                window.addEventListener('popstate', handleYtPlayerVisibility);
-                document.addEventListener('yt-navigate-finish', function() { handleYtPlayerVisibility(); setTimeout(skipYouTubeAd, 50); });
-                document.addEventListener('yt-page-data-updated', function() { handleYtPlayerVisibility(); setTimeout(skipYouTubeAd, 50); });
+                setInterval(skipYouTubeAd, 500);
+                document.addEventListener('yt-navigate-finish', function() { setTimeout(skipYouTubeAd, 50); });
+                document.addEventListener('yt-page-data-updated', function() { setTimeout(skipYouTubeAd, 50); });
                 document.addEventListener('click', function() {
                     setTimeout(skipYouTubeAd, 0);
-                    setTimeout(handleYtPlayerVisibility, 150);
                 }, true);
 
                 var observer = new MutationObserver(function() {
@@ -1482,53 +1460,10 @@ class ChromiumBrowserTab(
                     } catch(_) {}
                 }
 
-                // 4. DOM Section Collapser: Finds "Advertisement", "Sponsored", "Anuncio", or "Ad" badges and collapses wrapper sections!
-                function collapseAdPlaceholdersAndSections() {
+                // 4. Safe Ad-Iframe collapsing without destructive DOM walking
+                function collapseAdIframes() {
                     try {
                         dismissAnnoyingOverlays();
-
-                        var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, null, false);
-                        var node;
-                        var labelNodes = [];
-                        while (node = walker.nextNode()) {
-                            var text = (node.nodeValue || '').trim().toLowerCase();
-                            if (text === 'advertisement' || text === 'sponsored' || text === 'anuncio' || text === 'publicité' || text === 'werbung' || text === 'advert' || text === 'ad') {
-                                if (node.parentElement && node.parentElement.tagName !== 'SCRIPT' && node.parentElement.tagName !== 'STYLE') {
-                                    labelNodes.push(node.parentElement);
-                                }
-                            }
-                        }
-
-                        for (var i = 0; i < labelNodes.length; i++) {
-                            var el = labelNodes[i];
-                            if (!el) continue;
-
-                            var container = el;
-                            for (var depth = 0; depth < 4; depth++) {
-                                if (container.parentElement && container.parentElement !== document.body && container.parentElement !== document.documentElement) {
-                                    var p = container.parentElement;
-                                    var pClass = (p.className || '').toString().toLowerCase();
-                                    var pId = (p.id || '').toString().toLowerCase();
-                                    if (p.children.length <= 4 || pClass.indexOf('ad') !== -1 || pId.indexOf('ad') !== -1 || p.tagName === 'SECTION' || p.tagName === 'ASIDE' || p.tagName === 'DIV') {
-                                        container = p;
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (container && container !== document.body && container !== document.documentElement) {
-                                container.style.setProperty('display', 'none', 'important');
-                                container.style.setProperty('height', '0px', 'important');
-                                container.style.setProperty('max-height', '0px', 'important');
-                                container.style.setProperty('min-height', '0px', 'important');
-                                container.style.setProperty('margin', '0px', 'important');
-                                container.style.setProperty('padding', '0px', 'important');
-                                container.style.setProperty('opacity', '0', 'important');
-                                container.style.setProperty('border', 'none', 'important');
-                            }
-                        }
-
                         var adIframes = document.querySelectorAll('iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[id*="google_ads"]');
                         for (var j = 0; j < adIframes.length; j++) {
                             var frame = adIframes[j];
@@ -1538,29 +1473,31 @@ class ChromiumBrowserTab(
                             frame.style.setProperty('margin', '0px', 'important');
                             frame.style.setProperty('padding', '0px', 'important');
                             var pFrame = frame.parentElement;
-                            if (pFrame && pFrame !== document.body) {
-                                pFrame.style.setProperty('display', 'none', 'important');
-                                pFrame.style.setProperty('height', '0px', 'important');
-                                pFrame.style.setProperty('margin', '0px', 'important');
-                                pFrame.style.setProperty('padding', '0px', 'important');
+                            if (pFrame && pFrame !== document.body && pFrame !== document.documentElement) {
+                                if (pFrame.children.length === 1) {
+                                    pFrame.style.setProperty('display', 'none', 'important');
+                                    pFrame.style.setProperty('height', '0px', 'important');
+                                    pFrame.style.setProperty('margin', '0px', 'important');
+                                    pFrame.style.setProperty('padding', '0px', 'important');
+                                }
                             }
                         }
                     } catch(_) {}
                 }
 
-                collapseAdPlaceholdersAndSections();
+                collapseAdIframes();
                 if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', collapseAdPlaceholdersAndSections);
+                    document.addEventListener('DOMContentLoaded', collapseAdIframes);
                 }
-                window.addEventListener('load', collapseAdPlaceholdersAndSections);
+                window.addEventListener('load', collapseAdIframes);
 
                 var collapseTimer = null;
                 var observer = new MutationObserver(function() {
                     if (!collapseTimer) {
                         collapseTimer = setTimeout(function() {
                             collapseTimer = null;
-                            collapseAdPlaceholdersAndSections();
-                        }, 300);
+                            collapseAdIframes();
+                        }, 500);
                     }
                 });
 

@@ -114,7 +114,9 @@ object HazeAntiTrackingEngine {
         "github.com", "gitlab.com", "auth0.com", "okta.com", "oktacdn.com",
         "paypal.com", "c.paypal.com", "paypalobjects.com", "stripe.com", "js.stripe.com", "api.stripe.com",
         "checkout.razorpay.com", "api.razorpay.com", "pay.google.com", "applepay.com",
-        "challenges.cloudflare.com", "turnstile.cloudflare.com", "recaptcha.net", "hcaptcha.com"
+        "challenges.cloudflare.com", "turnstile.cloudflare.com", "recaptcha.net", "hcaptcha.com",
+        // Search & News Portals (URLs contain essential session, routing & article tokens)
+        "msn.com", "bing.com", "news.google.com", "google.com", "yahoo.com", "duckduckgo.com"
     )
 
     fun isAuthOrPaymentUrl(url: String): Boolean {
@@ -243,12 +245,9 @@ object HazeAntiTrackingEngine {
         try {
             val host = extractHostFromUrl(url)
             val isKnownBounce = KNOWN_BOUNCE_DOMAINS.contains(host)
-            val isSearchRedirect = ((host == "google.com" || host.endsWith(".google.com")) && url.contains("/url?")) ||
-                ((host == "bing.com" || host.endsWith(".bing.com")) && url.contains("/ck/a?")) ||
-                ((host == "yandex.ru" || host.endsWith(".yandex.ru") || host.endsWith(".yandex.com")) && url.contains("/clck/"))
 
-            // Only unbounce confirmed bounce trackers or search click redirects
-            if (!isKnownBounce && !isSearchRedirect) {
+            // Never interfere with search engines, news portals, or signed click tokens (Bing, MSN, Google)
+            if (!isKnownBounce) {
                 return null
             }
 
@@ -264,7 +263,7 @@ object HazeAntiTrackingEngine {
                 val key = if (eqIdx != -1) pair.substring(0, eqIdx).lowercase() else pair.lowercase()
                 val value = if (eqIdx != -1) pair.substring(eqIdx + 1) else ""
 
-                if (BOUNCE_DEST_PARAMS.contains(key) || (isSearchRedirect && (key == "q" || key == "url" || key == "u"))) {
+                if (BOUNCE_DEST_PARAMS.contains(key)) {
                     val decoded = runCatching { URLDecoder.decode(value, "UTF-8") }.getOrDefault(value).trim()
 
                     if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
@@ -274,7 +273,7 @@ object HazeAntiTrackingEngine {
                         }
 
                         val destHost = extractHostFromUrl(decoded)
-                        if (destHost.isNotEmpty() && (destHost != host || isKnownBounce || isSearchRedirect)) {
+                        if (destHost.isNotEmpty() && destHost != host) {
                             sessionBounceTrackersBlocked.incrementAndGet()
                             context?.let { ctx ->
                                 HazePrivacyShieldEngine.recordBounceStopped(ctx)
