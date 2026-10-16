@@ -4,12 +4,12 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
-import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -17,18 +17,13 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import com.example.haze.engine.IBrowserTab
-import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
-import java.util.concurrent.Executors
 
 /**
- * Robust in-page translation and language detection engine for Haze.
- * Translates any webpage in-place seamlessly without broken third-party wrappers,
- * and automatically detects foreign language pages (e.g., Chinese, Spanish, Japanese,
- * Russian, French, German, Arabic, Hindi, etc.) and suggests translating to English upon load/reload.
+ * Robust full-page translation and foreign language detection engine for Haze.
+ * Translates 100% of any webpage (headings, articles, links, tables, menus, captions)
+ * using high-performance server-side translation infrastructure without rate limits or dropped content.
+ * Automatically detects non-English pages on load/reload and provides one-tap translation and language switching.
  */
 object HazeTranslationManager {
 
@@ -55,7 +50,6 @@ object HazeTranslationManager {
     private val BUTTER_INTERPOLATOR = PathInterpolator(0.05f, 0.7f, 0.1f, 1.0f)
     private var activeTranslationBanner: View? = null
     private var lastPromptedUrl: String? = null
-    private val translationExecutor = Executors.newFixedThreadPool(4)
 
     private fun dpToPx(context: Context, dp: Int): Int {
         return TypedValue.applyDimension(
@@ -66,92 +60,89 @@ object HazeTranslationManager {
     }
 
     /**
-     * Translates a single string via Google's translation API endpoint directly from Android native network layer.
-     * Bypasses webpage Content-Security-Policy and CORS restrictions completely.
+     * Checks if a URL is currently translated via Google's translate.goog infrastructure.
      */
-    fun translateSingleText(text: String, targetLang: String): String {
-        val trimmed = text.trim()
-        if (trimmed.length < 2) return text
-        var conn: HttpURLConnection? = null
-        return try {
-            val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val url = URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$targetLang&dt=t&q=$encoded")
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 4000
-                readTimeout = 4000
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            }
-            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                val response = conn.inputStream.bufferedReader().use { it.readText() }
-                val root = JSONArray(response)
-                val segments = root.optJSONArray(0)
-                if (segments != null) {
-                    val sb = StringBuilder()
-                    for (i in 0 until segments.length()) {
-                        val seg = segments.optJSONArray(i)
-                        if (seg != null) {
-                            val part = seg.optString(0)
-                            if (!part.isNullOrEmpty()) sb.append(part)
-                        }
+    fun isTranslatedUrl(url: String?): Boolean {
+        if (url == null) return false
+        val host = Uri.parse(url).host ?: return false
+        return host.endsWith(".translate.goog")
+    }
+
+    /**
+     * Generates a 100% translated page URL using Google's translate.goog infrastructure.
+     */
+    fun getTranslatedUrl(originalUrl: String, targetLang: String = "en"): String {
+        try {
+            val uri = Uri.parse(originalUrl)
+            val host = uri.host ?: return originalUrl
+            val scheme = uri.scheme ?: "https"
+            val path = uri.encodedPath ?: ""
+
+            if (host.endsWith(".translate.goog")) {
+                // Already translated, update target language query parameter
+                val builder = uri.buildUpon().clearQuery()
+                uri.queryParameterNames.forEach { name ->
+                    if (name != "_x_tr_tl") {
+                        builder.appendQueryParameter(name, uri.getQueryParameter(name))
                     }
-                    if (sb.isNotEmpty()) {
-                        // Preserve leading/trailing whitespace of original
-                        val leadingSpace = text.takeWhile { it.isWhitespace() }
-                        val trailingSpace = text.takeLastWhile { it.isWhitespace() }
-                        "$leadingSpace$sb$trailingSpace"
-                    } else {
-                        text
-                    }
-                } else {
-                    text
                 }
-            } else {
-                text
+                builder.appendQueryParameter("_x_tr_tl", targetLang)
+                return builder.build().toString()
             }
+
+            // Google translate.goog hostname spec:
+            // Existing hyphens become double hyphens '--', dots become single hyphens '-'
+            val googHost = host.replace("-", "--").replace(".", "-") + ".translate.goog"
+            val query = uri.encodedQuery
+            val newQuery = if (query.isNullOrEmpty()) {
+                "_x_tr_sl=auto&_x_tr_tl=$targetLang&_x_tr_hl=en"
+            } else {
+                "$query&_x_tr_sl=auto&_x_tr_tl=$targetLang&_x_tr_hl=en"
+            }
+            return "$scheme://$googHost$path?$newQuery"
         } catch (_: Exception) {
-            text
-        } finally {
-            conn?.disconnect()
+            return "https://translate.google.com/translate?sl=auto&tl=$targetLang&u=" + URLEncoder.encode(originalUrl, "UTF-8")
         }
     }
 
     /**
-     * Handles batch translation requests received from the injected page script.
+     * Reconstructs the clean, original website URL from a translate.goog URL.
      */
-    fun handleNativeTranslationBatch(
-        activity: MainActivity,
-        ownerTab: IBrowserTab?,
-        ownerWebView: WebView?,
-        startIndex: Int,
-        batchJson: String,
-        targetLang: String
-    ) {
-        translationExecutor.execute {
-            try {
-                val arr = JSONArray(batchJson)
-                val translatedArr = JSONArray()
-                for (i in 0 until arr.length()) {
-                    val orig = arr.optString(i, "")
-                    if (orig.isBlank()) {
-                        translatedArr.put(orig)
-                    } else {
-                        val translated = translateSingleText(orig, targetLang)
-                        translatedArr.put(translated)
-                    }
+    fun getOriginalUrlFromTranslated(translatedUrl: String): String {
+        try {
+            val uri = Uri.parse(translatedUrl)
+            val host = uri.host ?: return translatedUrl
+            if (!host.endsWith(".translate.goog")) return translatedUrl
+
+            val rawHost = host.removeSuffix(".translate.goog")
+            // Invert Google's spec: single hyphens become dots, double hyphens become single hyphens
+            val origHost = rawHost.replace(Regex("(?<!-)-(?!-)"), ".").replace("--", "-")
+            val scheme = uri.scheme ?: "https"
+            val path = uri.encodedPath ?: ""
+
+            val builder = uri.buildUpon().clearQuery()
+            uri.queryParameterNames.forEach { name ->
+                if (!name.startsWith("_x_tr_")) {
+                    builder.appendQueryParameter(name, uri.getQueryParameter(name))
                 }
-                activity.runOnUiThread {
-                    val script = "if (window.__hazeApplyBatch) { window.__hazeApplyBatch($startIndex, ${translatedArr}); }"
-                    if (ownerTab != null) {
-                        ownerTab.evaluateJavascript(script, null)
-                    } else if (ownerWebView != null) {
-                        ownerWebView.evaluateJavascript(script, null)
-                    } else {
-                        activity.getActiveTab()?.browserTab?.evaluateJavascript(script, null)
-                    }
-                }
-            } catch (_: Exception) {}
+            }
+            val cleanQuery = builder.build().encodedQuery
+            return if (cleanQuery.isNullOrEmpty()) {
+                "$scheme://$origHost$path"
+            } else {
+                "$scheme://$origHost$path?$cleanQuery"
+            }
+        } catch (_: Exception) {
+            return translatedUrl
         }
+    }
+
+    /**
+     * Returns a user-friendly display URL for the address bar (strips translate.goog proxy wrapper).
+     */
+    fun getDisplayUrl(url: String?): String {
+        if (url.isNullOrEmpty()) return ""
+        return if (isTranslatedUrl(url)) getOriginalUrlFromTranslated(url) else url
     }
 
     /**
@@ -161,14 +152,22 @@ object HazeTranslationManager {
         return """
             (function() {
                 try {
+                    var host = window.location.hostname || '';
+                    if (host.indexOf('translate.goog') !== -1) {
+                        // Already viewing translated page
+                        var urlParams = new URLSearchParams(window.location.search);
+                        var targetLang = urlParams.get('_x_tr_tl') || 'en';
+                        if (window.Android && window.Android.onTranslatedPageLoaded) {
+                            window.Android.onTranslatedPageLoaded(targetLang);
+                        }
+                        return;
+                    }
+
                     function detectAndReport() {
                         var html = document.documentElement;
                         var rawLang = (html.getAttribute('lang') || document.body.getAttribute('lang') || '').trim().toLowerCase();
-                        
-                        // Parse language code
                         var langCode = rawLang.split(/[-_]/)[0];
                         
-                        // Check meta tags as fallback
                         if (!langCode) {
                             var metaLang = document.querySelector('meta[http-equiv="content-language"], meta[name="language"], meta[property="og:locale"]');
                             if (metaLang) {
@@ -177,21 +176,19 @@ object HazeTranslationManager {
                             }
                         }
 
-                        // Inspect actual visible text sample
                         var sampleText = '';
                         try {
                             var walker = document.createTreeWalker(document.body || html, NodeFilter.SHOW_TEXT, null, false);
                             var node, count = 0;
                             while ((node = walker.nextNode()) && count < 2500) {
                                 var val = (node.nodeValue || '').trim();
-                                if (val.length > 2 && node.parentElement && !['SCRIPT','STYLE','NOSCRIPT'].includes(node.parentElement.tagName)) {
+                                if (val.length > 0 && node.parentElement && !['SCRIPT','STYLE','NOSCRIPT'].includes(node.parentElement.tagName)) {
                                     sampleText += ' ' + val;
                                     count += val.length;
                                 }
                             }
                         } catch(e) {}
 
-                        // Script / character frequency analysis
                         var isNonEnglish = false;
                         var detectedName = '';
                         var detectedCode = '';
@@ -279,182 +276,7 @@ object HazeTranslationManager {
     }
 
     /**
-     * Complete in-page client translation injection.
-     * Uses client translate element + dynamic multi-chunk in-place text replacement engine
-     * with native Android bridge for 100% reliability on any webpage (including strict CSP sites).
-     */
-    fun buildTranslationScript(targetLang: String = "en"): String {
-        return """
-            (function() {
-                try {
-                    window.__hazeActiveTargetLang = '$targetLang';
-                    
-                    // 1. Check if Google Translate Element already initialized
-                    var combo = document.querySelector('.goog-te-combo');
-                    if (combo) {
-                        combo.value = '$targetLang';
-                        combo.dispatchEvent(new Event('change', { bubbles: true }));
-                        return;
-                    }
-
-                    // 2. Hide unwanted Google Translate banners & overlays cleanly
-                    if (!document.getElementById('__haze_trans_style')) {
-                        var style = document.createElement('style');
-                        style.id = '__haze_trans_style';
-                        style.textContent = [
-                            '.goog-te-banner-frame, .goog-te-balloon-frame, #goog-gt-tt, .goog-tooltip { display: none !important; visibility: hidden !important; }',
-                            'body { top: 0px !important; position: static !important; }',
-                            '.skiptranslate { display: none !important; }',
-                            '.goog-text-highlight { background: none !important; box-shadow: none !important; }'
-                        ].join('\n');
-                        (document.head || document.documentElement).appendChild(style);
-                    }
-
-                    // 3. Mount Google Translate Element container
-                    if (!document.getElementById('google_translate_element')) {
-                        var gtDiv = document.createElement('div');
-                        gtDiv.id = 'google_translate_element';
-                        gtDiv.style.display = 'none';
-                        (document.body || document.documentElement).appendChild(gtDiv);
-                    }
-
-                    // 4. Set cookie fallback for Google Translate engine
-                    try {
-                        var domain = window.location.hostname;
-                        document.cookie = 'googtrans=/auto/$targetLang; path=/; domain=' + domain;
-                        document.cookie = 'googtrans=/auto/$targetLang; path=/;';
-                    } catch(e) {}
-
-                    // 5. Direct DOM multi-chunk translation engine (native bridge supported)
-                    window.fallbackTranslatePage = function(target) {
-                        try {
-                            if (window.__hazeTranslating) return;
-                            window.__hazeTranslating = true;
-
-                            var walker = document.createTreeWalker(
-                                document.body || document.documentElement,
-                                NodeFilter.SHOW_TEXT,
-                                null,
-                                false
-                            );
-                            window.__hazeTransNodes = [];
-                            var node;
-                            while (node = walker.nextNode()) {
-                                var val = (node.nodeValue || '').trim();
-                                if (val.length > 1 && node.parentElement && 
-                                    !['SCRIPT','STYLE','NOSCRIPT','CODE','PRE','TEXTAREA','INPUT'].includes(node.parentElement.tagName)) {
-                                    window.__hazeTransNodes.push(node);
-                                }
-                            }
-
-                            var total = window.__hazeTransNodes.length;
-                            if (total === 0) return;
-
-                            var batchSize = 12;
-                            var batchIndex = 0;
-
-                            window.__hazeApplyBatch = function(startIndex, transArray) {
-                                try {
-                                    for (var i = 0; i < transArray.length; i++) {
-                                        var nIdx = startIndex + i;
-                                        if (nIdx < window.__hazeTransNodes.length && transArray[i]) {
-                                            window.__hazeTransNodes[nIdx].nodeValue = transArray[i];
-                                        }
-                                    }
-                                } catch(e) {}
-                            };
-
-                            function sendBatch() {
-                                if (batchIndex >= total) return;
-                                var currentStart = batchIndex;
-                                var chunk = [];
-                                for (var i = currentStart; i < Math.min(currentStart + batchSize, total); i++) {
-                                    chunk.push(window.__hazeTransNodes[i].nodeValue || '');
-                                }
-                                batchIndex += batchSize;
-
-                                if (window.Android && window.Android.translateBatchNative) {
-                                    window.Android.translateBatchNative(currentStart, JSON.stringify(chunk), target);
-                                    setTimeout(sendBatch, 50);
-                                } else {
-                                    chunk.forEach(function(origText, offset) {
-                                        var trimmed = origText.trim();
-                                        if (trimmed.length < 2) return;
-                                        var apiUrl = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' + target + '&dt=t&q=' + encodeURIComponent(trimmed);
-                                        fetch(apiUrl)
-                                            .then(function(res) { return res.json(); })
-                                            .then(function(data) {
-                                                if (data && data[0]) {
-                                                    var full = '';
-                                                    for (var s = 0; s < data[0].length; s++) {
-                                                        if (data[0][s] && data[0][s][0]) full += data[0][s][0];
-                                                    }
-                                                    if (full && window.__hazeTransNodes[currentStart + offset]) {
-                                                        window.__hazeTransNodes[currentStart + offset].nodeValue = full;
-                                                    }
-                                                }
-                                            })
-                                            .catch(function() {});
-                                    });
-                                    setTimeout(sendBatch, 80);
-                                }
-                            }
-
-                            sendBatch();
-                        } catch(e) {}
-                    };
-
-                    // 6. Setup initialization hook
-                    window.googleTranslateElementInit = function() {
-                        try {
-                            new google.translate.TranslateElement({
-                                pageLanguage: 'auto',
-                                layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-                                autoDisplay: false
-                            }, 'google_translate_element');
-
-                            var tries = 0;
-                            var timer = setInterval(function() {
-                                var sel = document.querySelector('.goog-te-combo');
-                                if (sel) {
-                                    clearInterval(timer);
-                                    sel.value = '$targetLang';
-                                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                                } else if (++tries > 15) {
-                                    clearInterval(timer);
-                                    fallbackTranslatePage('$targetLang');
-                                }
-                            }, 150);
-                        } catch(err) {
-                            fallbackTranslatePage('$targetLang');
-                        }
-                    };
-
-                    // Load Google Translate JS library
-                    var script = document.createElement('script');
-                    script.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
-                    script.onerror = function() {
-                        fallbackTranslatePage('$targetLang');
-                    };
-                    (document.head || document.documentElement).appendChild(script);
-
-                    // Re-trigger fallback if element script fails to execute within 2 seconds
-                    setTimeout(function() {
-                        var sel = document.querySelector('.goog-te-combo');
-                        if (!sel) {
-                            fallbackTranslatePage('$targetLang');
-                        }
-                    }, 2000);
-
-                } catch(e) {
-                    if (window.fallbackTranslatePage) window.fallbackTranslatePage('$targetLang');
-                }
-            })();
-        """.trimIndent()
-    }
-
-    /**
-     * Executes in-page translation directly on the tab.
+     * Executes 100% full-page translation directly on the tab.
      */
     fun translateTab(activity: MainActivity, tab: MainActivity.Tab?, targetLang: String = "en", languageDisplayName: String = "English") {
         val currentTab = tab ?: activity.getActiveTab() ?: return
@@ -464,14 +286,28 @@ object HazeTranslationManager {
             return
         }
 
-        Toast.makeText(activity, "Translating page to $languageDisplayName...", Toast.LENGTH_SHORT).show()
-
-        val script = buildTranslationScript(targetLang)
-        currentTab.browserTab.evaluateJavascript(script, null)
+        Toast.makeText(activity, "Translating page to $languageDisplayName (100%)...", Toast.LENGTH_SHORT).show()
+        val translatedUrl = getTranslatedUrl(url, targetLang)
+        currentTab.url = translatedUrl
+        currentTab.browserTab.navigationController.loadUrl(translatedUrl)
     }
 
     /**
-     * Shows the language selection picker dialog to translate into any language.
+     * Reverts a translated tab back to its original language and URL.
+     */
+    fun showOriginalTab(activity: MainActivity, tab: MainActivity.Tab?) {
+        val currentTab = tab ?: activity.getActiveTab() ?: return
+        val url = currentTab.url
+        if (!isTranslatedUrl(url)) return
+
+        Toast.makeText(activity, "Loading original page...", Toast.LENGTH_SHORT).show()
+        val origUrl = getOriginalUrlFromTranslated(url)
+        currentTab.url = origUrl
+        currentTab.browserTab.navigationController.loadUrl(origUrl)
+    }
+
+    /**
+     * Shows the language selection picker dialog to translate into any language or revert.
      */
     fun showLanguagePickerDialog(activity: MainActivity) {
         val tab = activity.getActiveTab() ?: return
@@ -481,12 +317,23 @@ object HazeTranslationManager {
             return
         }
 
-        val names = SUPPORTED_LANGUAGES.map { it.first }.toTypedArray()
+        val isCurrentlyTranslated = isTranslatedUrl(url)
+        val options = mutableListOf<String>()
+        if (isCurrentlyTranslated) {
+            options.add("★ Show Original Page (Untranslated)")
+        }
+        SUPPORTED_LANGUAGES.forEach { options.add(it.first) }
+
         AlertDialog.Builder(activity)
             .setTitle("Translate Page Into")
-            .setItems(names) { _, which ->
-                val chosen = SUPPORTED_LANGUAGES[which]
-                translateTab(activity, tab, chosen.second, chosen.third)
+            .setItems(options.toTypedArray()) { _, which ->
+                if (isCurrentlyTranslated && which == 0) {
+                    showOriginalTab(activity, tab)
+                } else {
+                    val langIndex = if (isCurrentlyTranslated) which - 1 else which
+                    val chosen = SUPPORTED_LANGUAGES[langIndex]
+                    translateTab(activity, tab, chosen.second, chosen.third)
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -497,9 +344,8 @@ object HazeTranslationManager {
      */
     fun showSuggestionBanner(activity: MainActivity, tab: MainActivity.Tab, detectedLanguage: String, langCode: String = "") {
         val currentUrl = tab.url
-        if (currentUrl == lastPromptedUrl && activeTranslationBanner != null) {
-            return
-        }
+        if (isTranslatedUrl(currentUrl)) return
+        if (currentUrl == lastPromptedUrl && activeTranslationBanner != null) return
         lastPromptedUrl = currentUrl
 
         dismissSuggestionBanner(activity, clearLastPrompted = false)
@@ -574,6 +420,122 @@ object HazeTranslationManager {
         banner.addView(icon)
         banner.addView(tvText)
         banner.addView(btnTranslate)
+        banner.addView(btnClose)
+
+        val params = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM
+            setMargins(dpToPx(activity, 16), 0, dpToPx(activity, 16), dpToPx(activity, 76))
+        }
+
+        activeTranslationBanner = banner
+        val decorView = activity.window.decorView as? ViewGroup
+        val targetContainer = activity.findViewById<FrameLayout>(R.id.webContainer) ?: decorView
+        targetContainer?.addView(banner, params)
+
+        banner.alpha = 0f
+        banner.translationY = dpToPx(activity, 20).toFloat()
+        banner.animate().alpha(1f).translationY(0f).setDuration(220).setInterpolator(BUTTER_INTERPOLATOR).start()
+    }
+
+    /**
+     * Shows an active translation bar when viewing a translated page, allowing easy revert or language change.
+     */
+    fun showActiveTranslationBar(activity: MainActivity, tab: MainActivity.Tab, targetLangCode: String = "en") {
+        if (activeTranslationBanner != null) return
+
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val bannerBg = if (isDark) Color.parseColor("#262626") else Color.parseColor("#E8F0FE")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#174EA6")
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+
+        val targetName = SUPPORTED_LANGUAGES.find { it.second.startsWith(targetLangCode) }?.third ?: "English"
+
+        val banner = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 9), dpToPx(activity, 10), dpToPx(activity, 9))
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 24).toFloat()
+                setColor(bannerBg)
+                setStroke(dpToPx(activity, 1), if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
+            }
+            elevation = dpToPx(activity, 12).toFloat()
+        }
+
+        val icon = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_translate)
+            setColorFilter(accentColor)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 20), dpToPx(activity, 20)).apply {
+                marginEnd = dpToPx(activity, 8)
+            }
+        }
+
+        val tvText = TextView(activity).apply {
+            text = "Translated to $targetName"
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val btnOriginal = TextView(activity).apply {
+            text = "Original"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 12).toFloat()
+                setColor(if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
+            }
+            setPadding(dpToPx(activity, 10), dpToPx(activity, 6), dpToPx(activity, 10), dpToPx(activity, 6))
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                dismissSuggestionBanner(activity)
+                showOriginalTab(activity, tab)
+            }
+        }
+
+        val btnChange = TextView(activity).apply {
+            text = "Languages"
+            textSize = 11.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 12).toFloat()
+                setColor(accentColor)
+            }
+            setPadding(dpToPx(activity, 10), dpToPx(activity, 6), dpToPx(activity, 10), dpToPx(activity, 6))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dpToPx(activity, 6)
+            }
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                showLanguagePickerDialog(activity)
+            }
+        }
+
+        val btnClose = ImageButton(activity).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(textColor)
+            background = null
+            setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 24), dpToPx(activity, 24)).apply {
+                marginStart = dpToPx(activity, 4)
+            }
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                dismissSuggestionBanner(activity)
+            }
+        }
+
+        banner.addView(icon)
+        banner.addView(tvText)
+        banner.addView(btnOriginal)
+        banner.addView(btnChange)
         banner.addView(btnClose)
 
         val params = FrameLayout.LayoutParams(

@@ -640,15 +640,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun translateBatchNative(startIndex: Int, batchJson: String, targetLang: String) {
-            HazeTranslationManager.handleNativeTranslationBatch(
-                this@MainActivity,
-                ownerTab,
-                ownerWebView,
-                startIndex,
-                batchJson,
-                targetLang
-            )
+        fun onTranslatedPageLoaded(targetLang: String) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                if (!isHomeTab(tab)) {
+                    HazeTranslationManager.showActiveTranslationBar(this@MainActivity, tab, targetLang)
+                }
+            }
         }
 
         @JavascriptInterface
@@ -1970,6 +1968,10 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putString("accent_color", newColor).apply()
             changed = true
         }
+        val triggerTranslate = intent.getStringExtra("trigger_translate")
+        if (triggerTranslate != null) {
+            executeInPageTranslation(triggerTranslate)
+        }
         if (intent.hasExtra("set_dark_mode")) {
             val dark = intent.getBooleanExtra("set_dark_mode", false)
             prefs.edit().putBoolean("is_dark", dark).apply()
@@ -3285,7 +3287,7 @@ class MainActivity : AppCompatActivity() {
                         if (isHome) {
                             addressBar.setText("")
                         } else if (!isSearchActive) {
-                            addressBar.setText(url)
+                            addressBar.setText(HazeTranslationManager.getDisplayUrl(url))
                         }
                     }
 
@@ -3960,7 +3962,7 @@ class MainActivity : AppCompatActivity() {
                         if (isHome) {
                             addressBar.setText("")
                         } else {
-                            addressBar.setText(url)
+                            addressBar.setText(HazeTranslationManager.getDisplayUrl(url))
                         }
                     }
 
