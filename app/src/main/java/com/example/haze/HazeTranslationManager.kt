@@ -145,6 +145,8 @@ object HazeTranslationManager {
         return if (isTranslatedUrl(url)) getOriginalUrlFromTranslated(url) else url
     }
 
+    private val dismissedUrls = mutableSetOf<String>()
+
     /**
      * Checks if a page is in a foreign language and notifies the Android interface.
      */
@@ -176,87 +178,108 @@ object HazeTranslationManager {
                             }
                         }
 
+                        // Collect a representative sample of readable body text
                         var sampleText = '';
                         try {
                             var walker = document.createTreeWalker(document.body || html, NodeFilter.SHOW_TEXT, null, false);
                             var node, count = 0;
-                            while ((node = walker.nextNode()) && count < 2500) {
+                            while ((node = walker.nextNode()) && count < 3500) {
                                 var val = (node.nodeValue || '').trim();
-                                if (val.length > 0 && node.parentElement && !['SCRIPT','STYLE','NOSCRIPT'].includes(node.parentElement.tagName)) {
+                                if (val.length > 0 && node.parentElement && !['SCRIPT','STYLE','NOSCRIPT','SVG'].includes(node.parentElement.tagName)) {
                                     sampleText += ' ' + val;
                                     count += val.length;
                                 }
                             }
                         } catch(e) {}
 
+                        var totalChars = sampleText.replace(/\s+/g, '').length;
+                        if (totalChars < 15) return;
+
+                        // Script character counter
+                        function countMatches(regex) {
+                            var m = sampleText.match(regex);
+                            return m ? m.length : 0;
+                        }
+
+                        var cHanzi = countMatches(/[\u4e00-\u9fa5]/g);
+                        var cKana = countMatches(/[\u3040-\u309f\u30a0-\u30ff]/g);
+                        var cHangul = countMatches(/[\uac00-\ud7af]/g);
+                        var cCyrillic = countMatches(/[\u0400-\u04ff]/g);
+                        var cArabic = countMatches(/[\u0600-\u06ff]/g);
+                        var cHindi = countMatches(/[\u0900-\u097f]/g);
+                        var cThai = countMatches(/[\u0e00-\u0e7f]/g);
+                        var cBengali = countMatches(/[\u0980-\u09ff]/g);
+
+                        // If the page is explicitly marked lang="en", it is English unless overwhelming foreign script exists
+                        if (langCode === 'en') {
+                            var maxForeignScript = Math.max(cHanzi, cKana, cHangul, cCyrillic, cArabic, cHindi, cThai, cBengali);
+                            if (maxForeignScript < 60 || (maxForeignScript / totalChars) < 0.35) {
+                                return; // Safely confirm as English page!
+                            }
+                        }
+
                         var isNonEnglish = false;
                         var detectedName = '';
                         var detectedCode = '';
 
-                        // Chinese (Hanzi)
-                        if (/[\u4e00-\u9fa5]/.test(sampleText)) {
+                        // Minimum script threshold: at least 25 characters and >= 15% density
+                        function isDominantScript(count) {
+                            return count >= 25 && ((count / totalChars) >= 0.15 || count >= 120);
+                        }
+
+                        if (isDominantScript(cHanzi)) {
                             isNonEnglish = true;
                             detectedName = 'Chinese';
                             detectedCode = 'zh-CN';
-                        }
-                        // Japanese (Hiragana / Katakana)
-                        else if (/[\u3040-\u309f\u30a0-\u30ff]/.test(sampleText)) {
+                        } else if (isDominantScript(cKana)) {
                             isNonEnglish = true;
                             detectedName = 'Japanese';
                             detectedCode = 'ja';
-                        }
-                        // Korean (Hangul)
-                        else if (/[\uac00-\ud7af]/.test(sampleText)) {
+                        } else if (isDominantScript(cHangul)) {
                             isNonEnglish = true;
                             detectedName = 'Korean';
                             detectedCode = 'ko';
-                        }
-                        // Cyrillic (Russian, Ukrainian, etc.)
-                        else if (/[\u0400-\u04ff]/.test(sampleText)) {
+                        } else if (isDominantScript(cCyrillic)) {
                             isNonEnglish = true;
                             detectedName = 'Russian';
                             detectedCode = 'ru';
-                        }
-                        // Arabic
-                        else if (/[\u0600-\u06ff]/.test(sampleText)) {
+                        } else if (isDominantScript(cArabic)) {
                             isNonEnglish = true;
                             detectedName = 'Arabic';
                             detectedCode = 'ar';
-                        }
-                        // Devanagari (Hindi)
-                        else if (/[\u0900-\u097f]/.test(sampleText)) {
+                        } else if (isDominantScript(cHindi)) {
                             isNonEnglish = true;
                             detectedName = 'Hindi';
                             detectedCode = 'hi';
-                        }
-                        // Thai
-                        else if (/[\u0e00-\u0e7f]/.test(sampleText)) {
+                        } else if (isDominantScript(cThai)) {
                             isNonEnglish = true;
                             detectedName = 'Thai';
                             detectedCode = 'th';
-                        }
-                        // Bengali
-                        else if (/[\u0980-\u09ff]/.test(sampleText)) {
+                        } else if (isDominantScript(cBengali)) {
                             isNonEnglish = true;
                             detectedName = 'Bengali';
                             detectedCode = 'bn';
-                        }
-                        // Latin-based non-English via HTML lang attribute
-                        else if (langCode && langCode !== 'en') {
-                            isNonEnglish = true;
-                            detectedCode = langCode;
-                            switch(langCode) {
-                                case 'es': detectedName = 'Spanish'; break;
-                                case 'fr': detectedName = 'French'; break;
-                                case 'de': detectedName = 'German'; break;
-                                case 'pt': detectedName = 'Portuguese'; break;
-                                case 'it': detectedName = 'Italian'; break;
-                                case 'nl': detectedName = 'Dutch'; break;
-                                case 'tr': detectedName = 'Turkish'; break;
-                                case 'vi': detectedName = 'Vietnamese'; break;
-                                case 'id': detectedName = 'Indonesian'; break;
-                                case 'pl': detectedName = 'Polish'; break;
-                                default: detectedName = langCode.toUpperCase(); break;
+                        } else if (langCode && langCode !== 'en' && langCode !== 'und') {
+                            // Check that it's genuinely not an English page mislabeled or with English content
+                            var enStopwords = sampleText.match(/\b(the|and|of|to|in|is|that|for|it|with|as|was|on|are|by|this|from|at|be)\b/gi) || [];
+                            if (enStopwords.length < 15) {
+                                isNonEnglish = true;
+                                detectedCode = langCode;
+                                switch(langCode) {
+                                    case 'es': detectedName = 'Spanish'; break;
+                                    case 'fr': detectedName = 'French'; break;
+                                    case 'de': detectedName = 'German'; break;
+                                    case 'pt': detectedName = 'Portuguese'; break;
+                                    case 'it': detectedName = 'Italian'; break;
+                                    case 'nl': detectedName = 'Dutch'; break;
+                                    case 'tr': detectedName = 'Turkish'; break;
+                                    case 'vi': detectedName = 'Vietnamese'; break;
+                                    case 'id': detectedName = 'Indonesian'; break;
+                                    case 'pl': detectedName = 'Polish'; break;
+                                    case 'ru': detectedName = 'Russian'; break;
+                                    case 'uk': detectedName = 'Ukrainian'; break;
+                                    default: detectedName = langCode.toUpperCase(); break;
+                                }
                             }
                         }
 
@@ -343,8 +366,17 @@ object HazeTranslationManager {
      * Shows a clean bottom banner proposing translation to English when a foreign page is loaded or reloaded.
      */
     fun showSuggestionBanner(activity: MainActivity, tab: MainActivity.Tab, detectedLanguage: String, langCode: String = "") {
+        // Strict guard: Never prompt translation if detected as English or langCode is en
+        if (langCode.equals("en", ignoreCase = true) || detectedLanguage.equals("English", ignoreCase = true)) {
+            return
+        }
+
         val currentUrl = tab.url
+        if (activity.isHomeTab(tab) || currentUrl.startsWith("haze://") || currentUrl.startsWith("about:") || currentUrl.startsWith("file:") || currentUrl.startsWith("chrome://")) {
+            return
+        }
         if (isTranslatedUrl(currentUrl)) return
+        if (dismissedUrls.contains(currentUrl)) return
         if (currentUrl == lastPromptedUrl && activeTranslationBanner != null) return
         lastPromptedUrl = currentUrl
 
@@ -412,6 +444,7 @@ object HazeTranslationManager {
             }
             setOnClickListener {
                 activity.triggerStrongHaptic()
+                dismissedUrls.add(tab.url)
                 dismissSuggestionBanner(activity, clearLastPrompted = false)
                 lastPromptedUrl = tab.url
             }
