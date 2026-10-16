@@ -749,6 +749,10 @@ class MainActivity : AppCompatActivity() {
             } 
         }
         @JavascriptInterface
+        fun prefetchUrl(url: String) {
+            HazeFluidCacheEngine.prefetchUrl(url)
+        }
+        @JavascriptInterface
         fun openMenu() { runOnUiThread { showBrowserMenu() } }
         @JavascriptInterface
         fun openTabManager() { runOnUiThread { showFullScreenTabs() } }
@@ -928,6 +932,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        HazeFluidCacheEngine.enableMaxRefreshRate(this)
         wakeScreen()
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
@@ -3456,6 +3461,8 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             setColorSchemeColors(accentColor)
+            setDistanceToTriggerSync(dpToPx(160))
+            setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
                 web?.canScrollVertically(-1) == true
@@ -3537,6 +3544,8 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             setColorSchemeColors(accentColor)
+            setDistanceToTriggerSync(dpToPx(160))
+            setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
                 web?.canScrollVertically(-1) == true
@@ -4222,7 +4231,8 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(webView: WebView) {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        webView.overScrollMode = View.OVER_SCROLL_ALWAYS
+        webView.isNestedScrollingEnabled = true
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
 
@@ -4259,9 +4269,8 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = isDesk
             loadWithOverviewMode = isDesk
             cacheMode = if (isPrivateMode) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
-            // Pre-rasterizing every tab consumes significant memory and competes
-            // with the active tab for rendering time.
-            offscreenPreRaster = false
+            // Fluid rasterization for buttery smooth scrolling
+            offscreenPreRaster = true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
@@ -4480,6 +4489,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                // Check 1.5 - 2.0 GB Fluid Cache Engine (0-1ms cache serving)
+                val cachedResponse = HazeFluidCacheEngine.interceptRequest(
+                    context = this@MainActivity,
+                    request = request,
+                    isPrivate = tabIsPrivate()
+                )
+                if (cachedResponse != null) {
+                    return cachedResponse
+                }
+
                 return null
             }
 
@@ -4498,6 +4517,9 @@ class MainActivity : AppCompatActivity() {
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
                 
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    // Inject Safari-grade fluid engine script immediately
+                    view?.evaluateJavascript(HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
+
                     val currentTab = getTabFromWebView(view ?: webView)
                     val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
                     val isSpotify = url.contains("spotify.com", ignoreCase = true)
@@ -4613,6 +4635,7 @@ class MainActivity : AppCompatActivity() {
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
 
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    view?.evaluateJavascript(HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
                     val currentTab = getTabFromWebView(view ?: webView)
                     val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
                     val isSpotify = url.contains("spotify.com", ignoreCase = true)
@@ -5161,6 +5184,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        HazeFluidCacheEngine.enableMaxRefreshRate(this)
         wakeScreen()
         if (::weatherManager.isInitialized) {
             weatherManager.refreshWeather(force = false)
@@ -9550,6 +9574,8 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
             setColorSchemeColors(accentColor)
+            setDistanceToTriggerSync(dpToPx(160))
+            setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
                 web?.canScrollVertically(-1) == true
