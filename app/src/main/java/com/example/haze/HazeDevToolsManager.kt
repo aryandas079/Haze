@@ -115,6 +115,7 @@ object HazeDevToolsManager {
     data class NetworkRequestEntry(
         val id: String = UUID.randomUUID().toString(),
         val url: String,
+        val fullUrl: String = "",
         val method: String = "GET",
         val type: String = "Fetch",
         val statusCode: Int = 200,
@@ -192,12 +193,13 @@ object HazeDevToolsManager {
 
         val entry = NetworkRequestEntry(
             url = if (name.isNotEmpty()) name else url,
+            fullUrl = url,
             method = method,
             type = type,
             statusCode = if (isBlocked) 0 else 200,
             initiator = if (type == "Document") "navigation" else "script",
-            sizeBytes = (url.length * 3L + 120L),
-            durationMs = (5..45).random().toLong(),
+            sizeBytes = if (isBlocked) 0L else (url.length * 4L + 340L),
+            durationMs = if (isBlocked) 1L else (8..65).random().toLong(),
             headers = headers,
             isBlocked = isBlocked
         )
@@ -575,14 +577,14 @@ object HazeDevToolsManager {
         val dragHandleContainer = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 14))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 22))
             setBackgroundColor(topBarColor)
         }
         val dragPill = View(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 38), dpToPx(activity, 4))
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 48), dpToPx(activity, 5))
             background = GradientDrawable().apply {
-                setColor(if (isDark) Color.parseColor("#5F6368") else Color.parseColor("#BCC1C6"))
-                cornerRadius = dpToPx(activity, 2).toFloat()
+                setColor(if (isDark) Color.parseColor("#70757A") else Color.parseColor("#9AA0A6"))
+                cornerRadius = dpToPx(activity, 3).toFloat()
             }
         }
         dragHandleContainer.addView(dragPill)
@@ -598,7 +600,7 @@ object HazeDevToolsManager {
                         currentDockHeight = (screenHeight * 0.35).toInt()
                     }
                     currentDockHeight < (screenHeight * 0.48) -> {
-                        currentDockHeight = (screenHeight * 0.58).toInt()
+                        currentDockHeight = (screenHeight * 0.60).toInt()
                     }
                     else -> {
                         isFullScreen = true
@@ -613,15 +615,21 @@ object HazeDevToolsManager {
 
         var dragStartY = 0f
         var heightAtDragStart = 0
-        dragHandleContainer.setOnTouchListener { _, event ->
+        dragHandleContainer.setOnTouchListener { v, event ->
             gestureDetector.onTouchEvent(event)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
                     dragStartY = event.rawY
                     heightAtDragStart = if (isFullScreen) screenHeight else currentDockHeight
+                    dragPill.background = GradientDrawable().apply {
+                        setColor(accentColor)
+                        cornerRadius = dpToPx(activity, 3).toFloat()
+                    }
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
                     val dy = event.rawY - dragStartY
                     val newHeight = (heightAtDragStart - dy).toInt().coerceIn(minHeight, maxHeight)
                     isFullScreen = false
@@ -643,6 +651,11 @@ object HazeDevToolsManager {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.parent?.requestDisallowInterceptTouchEvent(false)
+                    dragPill.background = GradientDrawable().apply {
+                        setColor(if (isDark) Color.parseColor("#70757A") else Color.parseColor("#9AA0A6"))
+                        cornerRadius = dpToPx(activity, 3).toFloat()
+                    }
                     prefs.edit().putInt("devtools_dock_height", currentDockHeight).apply()
                     true
                 }
@@ -1047,7 +1060,12 @@ object HazeDevToolsManager {
                 }
                 stylesContainer.addView(headerLine)
 
-                val props = listOf("display", "position", "color", "background-color", "margin", "padding", "font-size", "width", "height")
+                val props = listOf(
+                    "color", "background-color", "font-size", "display", "position",
+                    "margin", "padding", "width", "height", "border", "opacity",
+                    "font-family", "font-weight", "line-height", "text-align",
+                    "z-index", "visibility", "overflow", "cursor"
+                )
                 for (p in props) {
                     val row = LinearLayout(activity).apply {
                         orientation = LinearLayout.HORIZONTAL
@@ -1293,6 +1311,46 @@ object HazeDevToolsManager {
                             var root = sel ? document.querySelector(sel) : document.documentElement;
                             if (!root) root = document.documentElement;
 
+                            function getPath(el) {
+                                if (!el || el.nodeType !== 1) return '';
+                                if (el.id && typeof el.id === 'string' && el.id.trim()) {
+                                    try {
+                                        var esc = '#' + CSS.escape(el.id.trim());
+                                        if (document.querySelectorAll(esc).length === 1) return esc;
+                                    } catch(_) {}
+                                }
+                                var path = [];
+                                var curr = el;
+                                while (curr && curr.nodeType === 1 && curr !== document.documentElement) {
+                                    var tag = curr.tagName.toLowerCase();
+                                    if (curr.id && typeof curr.id === 'string' && curr.id.trim()) {
+                                        try {
+                                            var esc = '#' + CSS.escape(curr.id.trim());
+                                            if (document.querySelectorAll(esc).length === 1) {
+                                                path.unshift(esc);
+                                                break;
+                                            }
+                                        } catch(_) {}
+                                    }
+                                    var parent = curr.parentNode;
+                                    if (!parent || parent.nodeType !== 1) {
+                                        path.unshift(tag);
+                                        break;
+                                    }
+                                    var siblings = Array.from(parent.children).filter(function(c) {
+                                        return c.tagName.toLowerCase() === tag;
+                                    });
+                                    if (siblings.length > 1) {
+                                        var index = siblings.indexOf(curr) + 1;
+                                        path.unshift(tag + ':nth-of-type(' + index + ')');
+                                    } else {
+                                        path.unshift(tag);
+                                    }
+                                    curr = parent;
+                                }
+                                return path.join(' > ');
+                            }
+
                             function build(el, depth) {
                                 if (!el || depth > 8) return null;
                                 if (el.nodeType === 3) {
@@ -1302,6 +1360,16 @@ object HazeDevToolsManager {
                                 if (el.nodeType !== 1) return null;
                                 var tag = el.tagName.toLowerCase();
                                 if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'path') return null;
+
+                                var attrs = {};
+                                if (el.attributes) {
+                                    for (var a = 0; a < el.attributes.length; a++) {
+                                        var at = el.attributes[a];
+                                        if (at.name !== 'id' && at.name !== 'class' && !at.name.startsWith('style')) {
+                                            attrs[at.name] = (at.value || '').substring(0, 60);
+                                        }
+                                    }
+                                }
 
                                 var children = [];
                                 for (var i = 0; i < el.childNodes.length; i++) {
@@ -1314,6 +1382,8 @@ object HazeDevToolsManager {
                                     tag: tag,
                                     id: el.id || '',
                                     cls: (el.className || '').toString().trim(),
+                                    path: getPath(el),
+                                    attrs: attrs,
                                     children: children
                                 };
                             }
@@ -1378,17 +1448,57 @@ object HazeDevToolsManager {
 
                             val type = obj.optString("type")
                             if (type == "text") {
+                                val textVal = obj.optString("val")
                                 val tv = TextView(activity).apply {
-                                    text = "\"${obj.optString("val")}\""
+                                    text = "\"$textVal\""
                                     textSize = 11.5f
                                     setTextColor(syntaxStrColor)
                                     setTypeface(Typeface.MONOSPACE)
                                 }
                                 row.addView(tv)
+
+                                row.setOnLongClickListener {
+                                    activity.triggerStrongHaptic(isHeavy = true)
+                                    val et = EditText(activity).apply {
+                                        setText(textVal)
+                                        textSize = 12f
+                                        setTypeface(Typeface.MONOSPACE)
+                                    }
+                                    AlertDialog.Builder(activity)
+                                        .setTitle("Edit Text Node")
+                                        .setView(et)
+                                        .setPositiveButton("Apply") { _, _ ->
+                                            val newT = et.text.toString()
+                                            val jsEditText = """
+                                                (function() {
+                                                    try {
+                                                        var targetEl = window.__hazeInspectedElement;
+                                                        if (targetEl) {
+                                                            for (var n = 0; n < targetEl.childNodes.length; n++) {
+                                                                var node = targetEl.childNodes[n];
+                                                                if (node.nodeType === 3 && node.nodeValue.trim() === ${JSONObject.quote(textVal)}.trim()) {
+                                                                    node.nodeValue = ${JSONObject.quote(newT)};
+                                                                    return true;
+                                                                }
+                                                            }
+                                                            targetEl.textContent = ${JSONObject.quote(newT)};
+                                                        }
+                                                    } catch(_) {}
+                                                })();
+                                            """.trimIndent()
+                                            webView?.evaluateJavascript(jsEditText, null)
+                                            loadDOM(filterInput.text.toString().trim())
+                                        }
+                                        .setNegativeButton("Cancel", null)
+                                        .show()
+                                    true
+                                }
                             } else {
                                 val tag = obj.optString("tag")
                                 val id = obj.optString("id")
                                 val cls = obj.optString("cls")
+                                val path = obj.optString("path")
+                                val attrsObj = obj.optJSONObject("attrs")
 
                                 val tvTagStart = TextView(activity).apply {
                                     text = "<"
@@ -1439,6 +1549,28 @@ object HazeDevToolsManager {
                                     row.addView(tvClsVal)
                                 }
 
+                                if (attrsObj != null) {
+                                    val attrKeys = attrsObj.keys()
+                                    while (attrKeys.hasNext()) {
+                                        val ak = attrKeys.next()
+                                        val av = attrsObj.optString(ak)
+                                        val tvAName = TextView(activity).apply {
+                                            text = " $ak="
+                                            textSize = 11.5f
+                                            setTextColor(syntaxAttrColor)
+                                            setTypeface(Typeface.MONOSPACE)
+                                        }
+                                        val tvAVal = TextView(activity).apply {
+                                            text = "\"${if (av.length > 20) av.substring(0, 20) + "…" else av}\""
+                                            textSize = 11.5f
+                                            setTextColor(syntaxStrColor)
+                                            setTypeface(Typeface.MONOSPACE)
+                                        }
+                                        row.addView(tvAName)
+                                        row.addView(tvAVal)
+                                    }
+                                }
+
                                 val tvEnd = TextView(activity).apply {
                                     text = ">"
                                     textSize = 11.5f
@@ -1448,6 +1580,7 @@ object HazeDevToolsManager {
                                 row.addView(tvEnd)
 
                                 val targetSel = when {
+                                    path.isNotEmpty() -> path
                                     id.isNotEmpty() -> "#$id"
                                     cls.isNotEmpty() -> "$tag.${cls.split(" ").first()}"
                                     else -> tag
@@ -1460,13 +1593,19 @@ object HazeDevToolsManager {
 
                                 row.setOnLongClickListener {
                                     activity.triggerStrongHaptic(isHeavy = true)
-                                    val opts = arrayOf("Edit as HTML", "Delete Element", "Copy CSS Selector", "Copy Outer HTML")
+                                    val opts = arrayOf("Edit as HTML", "Edit Attribute", "Delete Element", "Copy CSS Selector", "Copy Outer HTML")
                                     AlertDialog.Builder(activity)
                                         .setTitle("<$tag>")
                                         .setItems(opts) { _, which ->
                                             when (which) {
                                                 0 -> { // Edit HTML
-                                                    webView?.evaluateJavascript("document.querySelector('${targetSel.replace("'", "\\'")}').outerHTML") { htmlRes ->
+                                                    val jsGetHtml = """
+                                                        (function() {
+                                                            var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                            return el ? el.outerHTML : '';
+                                                        })();
+                                                    """.trimIndent()
+                                                    webView?.evaluateJavascript(jsGetHtml) { htmlRes ->
                                                         val rawHtml = if (htmlRes != null && htmlRes.startsWith("\"")) {
                                                             htmlRes.substring(1, htmlRes.length - 1).replace("\\\"", "\"").replace("\\n", "\n")
                                                         } else htmlRes ?: ""
@@ -1479,28 +1618,79 @@ object HazeDevToolsManager {
                                                             .setTitle("Edit Outer HTML")
                                                             .setView(et)
                                                             .setPositiveButton("Apply") { _, _ ->
-                                                                val edited = et.text.toString().replace("\"", "\\\"").replace("\n", " ")
-                                                                webView.evaluateJavascript("document.querySelector('${targetSel.replace("'", "\\'")}').outerHTML = \"$edited\";", null)
+                                                                val edited = et.text.toString()
+                                                                val jsSetHtml = """
+                                                                    (function() {
+                                                                        var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                                        if (el) el.outerHTML = ${JSONObject.quote(edited)};
+                                                                    })();
+                                                                """.trimIndent()
+                                                                webView?.evaluateJavascript(jsSetHtml, null)
                                                                 loadDOM(filterInput.text.toString().trim())
                                                             }
                                                             .setNegativeButton("Cancel", null)
                                                             .show()
                                                     }
                                                 }
-                                                1 -> { // Delete element
-                                                    webView?.evaluateJavascript("document.querySelector('${targetSel.replace("'", "\\'")}').remove();", null)
+                                                1 -> { // Edit Attribute
+                                                    val lay = LinearLayout(activity).apply {
+                                                        orientation = LinearLayout.VERTICAL
+                                                        setPadding(dpToPx(activity, 20), dpToPx(activity, 10), dpToPx(activity, 20), dpToPx(activity, 10))
+                                                    }
+                                                    val etName = EditText(activity).apply { hint = "Attribute Name (e.g. style, src, href)" }
+                                                    val etVal = EditText(activity).apply { hint = "Attribute Value" }
+                                                    lay.addView(etName)
+                                                    lay.addView(etVal)
+                                                    AlertDialog.Builder(activity)
+                                                        .setTitle("Set Element Attribute")
+                                                        .setView(lay)
+                                                        .setPositiveButton("Apply") { _, _ ->
+                                                            val an = etName.text.toString().trim()
+                                                            val av = etVal.text.toString().trim()
+                                                            if (an.isNotEmpty()) {
+                                                                val jsSetAttr = """
+                                                                    (function() {
+                                                                        var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                                        if (el) el.setAttribute(${JSONObject.quote(an)}, ${JSONObject.quote(av)});
+                                                                    })();
+                                                                """.trimIndent()
+                                                                webView?.evaluateJavascript(jsSetAttr, null)
+                                                                loadDOM(filterInput.text.toString().trim())
+                                                                focusElementBySelectorFn?.invoke(targetSel)
+                                                            }
+                                                        }
+                                                        .setNegativeButton("Cancel", null)
+                                                        .show()
+                                                }
+                                                2 -> { // Delete element
+                                                    val jsRemove = """
+                                                        (function() {
+                                                            var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                            if (el) el.remove();
+                                                        })();
+                                                    """.trimIndent()
+                                                    webView?.evaluateJavascript(jsRemove, null)
                                                     loadDOM(filterInput.text.toString().trim())
                                                     Toast.makeText(activity, "Element removed", Toast.LENGTH_SHORT).show()
                                                 }
-                                                2 -> { // Copy Selector
+                                                3 -> { // Copy Selector
                                                     val cb = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                                     cb.setPrimaryClip(ClipData.newPlainText("CSS Selector", targetSel))
                                                     Toast.makeText(activity, "Selector copied", Toast.LENGTH_SHORT).show()
                                                 }
-                                                3 -> { // Copy Outer HTML
-                                                    webView?.evaluateJavascript("document.querySelector('${targetSel.replace("'", "\\'")}').outerHTML") { htmlRes ->
+                                                4 -> { // Copy Outer HTML
+                                                    val jsGetOuter = """
+                                                        (function() {
+                                                            var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                            return el ? el.outerHTML : '';
+                                                        })();
+                                                    """.trimIndent()
+                                                    webView?.evaluateJavascript(jsGetOuter) { htmlRes ->
                                                         val cb = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                        cb.setPrimaryClip(ClipData.newPlainText("Outer HTML", htmlRes ?: ""))
+                                                        val resClean = if (htmlRes != null && htmlRes.startsWith("\"")) {
+                                                            htmlRes.substring(1, htmlRes.length - 1).replace("\\\"", "\"").replace("\\n", "\n")
+                                                        } else htmlRes ?: ""
+                                                        cb.setPrimaryClip(ClipData.newPlainText("Outer HTML", resClean))
                                                         Toast.makeText(activity, "HTML copied", Toast.LENGTH_SHORT).show()
                                                     }
                                                 }
@@ -1803,36 +1993,62 @@ object HazeDevToolsManager {
 
             activeTabUpdateListener = { populateLogs() }
 
-            btnRunPrompt.setOnClickListener {
-                val cmd = consoleInput.text.toString().trim()
-                if (cmd.isEmpty()) return@setOnClickListener
-                activity.triggerStrongHaptic()
-                consoleInput.setText("")
+            val commandHistory = mutableListOf<String>()
+            var historyIndex = -1
 
-                recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
-                val evalWrapper = """
-                    (function() {
-                        try {
-                            window.${'$'}0 = window.__hazeInspectedElement || null;
-                            var __evalRes = eval(${JSONObject.quote(cmd)});
-                            if (__evalRes === undefined) return 'undefined';
-                            if (__evalRes === null) return 'null';
-                            if (typeof __evalRes === 'object') {
-                                if (__evalRes.outerHTML) return __evalRes.outerHTML.substring(0, 300);
-                                return JSON.stringify(__evalRes);
+            val executeCommand = {
+                val cmd = consoleInput.text.toString().trim()
+                if (cmd.isNotEmpty()) {
+                    activity.triggerStrongHaptic()
+                    if (commandHistory.isEmpty() || commandHistory.last() != cmd) {
+                        commandHistory.add(cmd)
+                    }
+                    historyIndex = commandHistory.size
+                    consoleInput.setText("")
+
+                    recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
+                    val evalWrapper = """
+                        (function() {
+                            try {
+                                window.${'$'}0 = window.__hazeInspectedElement || null;
+                                var __evalRes = eval(${JSONObject.quote(cmd)});
+                                if (__evalRes === undefined) return 'undefined';
+                                if (__evalRes === null) return 'null';
+                                if (typeof __evalRes === 'function') return __evalRes.toString();
+                                if (typeof __evalRes === 'object') {
+                                    if (__evalRes.nodeType === 1) return __evalRes.outerHTML.substring(0, 400);
+                                    try {
+                                        return JSON.stringify(__evalRes, null, 2);
+                                    } catch(_) {
+                                        return String(__evalRes);
+                                    }
+                                }
+                                return String(__evalRes);
+                            } catch(e) {
+                                return 'Uncaught ' + (e.name ? e.name + ': ' : '') + (e.message || String(e));
                             }
-                            return String(__evalRes);
-                        } catch(e) {
-                            return 'Uncaught ' + e.name + ': ' + e.message;
-                        }
-                    })();
-                """.trimIndent()
-                webView?.evaluateJavascript(evalWrapper) { res ->
-                    val unescaped = res?.trim('"')?.replace("\\\"", "\"")?.replace("\\n", "\n") ?: "undefined"
-                    val isErr = unescaped.startsWith("Uncaught ")
-                    recordConsoleMessage(tabId, unescaped, level = if (isErr) ConsoleLogEntry.Level.ERROR else ConsoleLogEntry.Level.INFO)
-                    populateLogs()
+                        })();
+                    """.trimIndent()
+                    webView?.evaluateJavascript(evalWrapper) { res ->
+                        val unescaped = res?.trim('"')?.replace("\\\"", "\"")?.replace("\\n", "\n") ?: "undefined"
+                        val isErr = unescaped.startsWith("Uncaught ")
+                        recordConsoleMessage(tabId, unescaped, level = if (isErr) ConsoleLogEntry.Level.ERROR else ConsoleLogEntry.Level.INFO)
+                        populateLogs()
+                    }
                 }
+            }
+
+            consoleInput.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO ||
+                    actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE ||
+                    actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                    executeCommand()
+                    true
+                } else false
+            }
+
+            btnRunPrompt.setOnClickListener {
+                executeCommand()
             }
 
             filterConsole.addTextChangedListener(object : TextWatcher {
@@ -2274,12 +2490,18 @@ object HazeDevToolsManager {
                     content.addView(tvB)
                 }
 
-                addSection("General", "Request URL: ${req.url}\nRequest Method: ${req.method}\nStatus Code: ${req.statusCode}\nResource Type: ${req.type}\nDuration: ${req.durationMs} ms")
+                val targetFullUrl = if (req.fullUrl.isNotEmpty()) req.fullUrl else req.url
+                addSection("General", "Request URL: $targetFullUrl\nRequest Method: ${req.method}\nStatus Code: ${req.statusCode}\nResource Type: ${req.type}\nSize: ${req.sizeBytes} B\nDuration: ${req.durationMs} ms")
 
                 val hStr = if (req.headers.isEmpty()) "No custom headers intercepted." else req.headers.entries.joinToString("\n") { "${it.key}: ${it.value}" }
                 addSection("Request Headers", hStr)
 
                 addSection("Waterfall Timing Breakdown", "Queueing: 1.2 ms\nDNS Lookup: 2.4 ms\nInitial Connection: 4.1 ms\nSSL Handshake: 3.8 ms\nWaiting (TTFB): ${(req.durationMs * 0.6).toInt()} ms\nContent Download: ${(req.durationMs * 0.4).toInt()} ms")
+
+                val btnRow = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, dpToPx(activity, 8), 0, dpToPx(activity, 8))
+                }
 
                 val btnCopyCurl = Button(activity).apply {
                     text = "Copy as cURL"
@@ -2288,13 +2510,36 @@ object HazeDevToolsManager {
                         cornerRadius = dpToPx(activity, 8).toFloat()
                         setColor(accentColor)
                     }
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dpToPx(activity, 6)
+                    }
                     setOnClickListener {
                         val cb = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        cb.setPrimaryClip(ClipData.newPlainText("cURL", "curl '${req.url}' -X ${req.method}"))
+                        cb.setPrimaryClip(ClipData.newPlainText("cURL", "curl '$targetFullUrl' -X ${req.method}"))
                         Toast.makeText(activity, "cURL command copied", Toast.LENGTH_SHORT).show()
                     }
                 }
-                content.addView(btnCopyCurl)
+                btnRow.addView(btnCopyCurl)
+
+                val btnCopyUrl = Button(activity).apply {
+                    text = "Copy URL"
+                    setTextColor(textColor)
+                    background = GradientDrawable().apply {
+                        cornerRadius = dpToPx(activity, 8).toFloat()
+                        setColor(if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dpToPx(activity, 6)
+                    }
+                    setOnClickListener {
+                        val cb = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cb.setPrimaryClip(ClipData.newPlainText("URL", targetFullUrl))
+                        Toast.makeText(activity, "URL copied", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                btnRow.addView(btnCopyUrl)
+
+                content.addView(btnRow)
 
                 scroll.addView(content)
                 pRoot.addView(scroll)
