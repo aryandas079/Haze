@@ -678,6 +678,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        @JavascriptInterface
+        fun clearConsoleLogs() {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                HazeDevToolsManager.clearConsoleLogsOnly(tab.id)
+            }
+        }
+
+        @JavascriptInterface
+        fun onDevToolsConsoleResult(result: String, isError: Boolean) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
+                HazeDevToolsManager.recordConsoleMessage(
+                    tabId = tab.id,
+                    message = result,
+                    level = if (isError) HazeDevToolsManager.ConsoleLogEntry.Level.ERROR else HazeDevToolsManager.ConsoleLogEntry.Level.INFO
+                )
+            }
+        }
         
         @JavascriptInterface
         fun launchMiniPlayer() { 
@@ -1053,6 +1073,15 @@ class MainActivity : AppCompatActivity() {
                     addressBarContainer.translationY = 0f
                     if (::findBarContainer.isInitialized) {
                         findBarContainer.translationY = 0f
+                    }
+                }
+
+                val devToolsDock = findViewById<FrameLayout>(R.id.devToolsDockContainer)
+                if (devToolsDock != null && devToolsDock.visibility == View.VISIBLE) {
+                    val lp = devToolsDock.layoutParams as? androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                    if (lp != null && lp.bottomMargin != lift) {
+                        lp.bottomMargin = lift
+                        devToolsDock.layoutParams = lp
                     }
                 }
             }
@@ -4314,6 +4343,10 @@ class MainActivity : AppCompatActivity() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
                 if (consoleMessage != null) {
                     val tabId = getTabFromWebView(webView)?.id ?: 0L
+                    val msg = consoleMessage.message()
+                    if (msg.equals("Console was cleared", ignoreCase = true)) {
+                        HazeDevToolsManager.clearConsoleLogsOnly(tabId)
+                    }
                     val level = when (consoleMessage.messageLevel()) {
                         ConsoleMessage.MessageLevel.ERROR -> HazeDevToolsManager.ConsoleLogEntry.Level.ERROR
                         ConsoleMessage.MessageLevel.WARNING -> HazeDevToolsManager.ConsoleLogEntry.Level.WARNING
@@ -4323,7 +4356,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     HazeDevToolsManager.recordConsoleMessage(
                         tabId = tabId,
-                        message = consoleMessage.message(),
+                        message = msg,
                         sourceId = consoleMessage.sourceId(),
                         lineNumber = consoleMessage.lineNumber(),
                         level = level

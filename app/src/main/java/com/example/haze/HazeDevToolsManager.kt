@@ -31,6 +31,9 @@ import androidx.core.widget.NestedScrollView
 import com.example.haze.engine.IBrowserTab
 import org.json.JSONArray
 import org.json.JSONObject
+import android.graphics.BitmapFactory
+import android.media.MediaPlayer
+import java.net.URL
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -209,7 +212,16 @@ object HazeDevToolsManager {
     }
 
     fun clearTabLogs(tabId: Long) {
+        clearConsoleLogsOnly(tabId)
+        clearNetworkRequestsOnly(tabId)
+    }
+
+    fun clearConsoleLogsOnly(tabId: Long) {
         consoleLogsMap[tabId]?.clear()
+        triggerLiveUpdate()
+    }
+
+    fun clearNetworkRequestsOnly(tabId: Long) {
         networkRequestsMap[tabId]?.clear()
         triggerLiveUpdate()
     }
@@ -247,6 +259,7 @@ object HazeDevToolsManager {
             dock.visibility = View.GONE
             dock.removeAllViews()
         }
+        activity.findViewById<View>(R.id.addressBarContainer)?.visibility = View.VISIBLE
         activeDialog?.dismiss()
         activeDialog = null
         activeTabUpdateListener = null
@@ -281,13 +294,30 @@ object HazeDevToolsManager {
                 if (window.__hazeInspectorActive) return;
                 window.__hazeInspectorActive = true;
 
+                // 1. Visible Screen Arrow Pointer Cursor
+                var cursor = document.getElementById('__haze_inspect_cursor');
+                if (!cursor) {
+                    cursor = document.createElement('div');
+                    cursor.id = '__haze_inspect_cursor';
+                    cursor.style.position = 'fixed';
+                    cursor.style.pointerEvents = 'none';
+                    cursor.style.zIndex = '2147483647';
+                    cursor.style.width = '28px';
+                    cursor.style.height = '28px';
+                    cursor.style.filter = 'drop-shadow(0 2px 5px rgba(0,0,0,0.5))';
+                    cursor.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24"><path d="M3 2 L20 10 L12 13 L9 21 Z" fill="#1A73E8" stroke="#FFFFFF" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+                    document.documentElement.appendChild(cursor);
+                }
+                cursor.style.display = 'none';
+
+                // 2. Highlighting Box Overlay
                 var overlay = document.getElementById('__haze_dev_overlay');
                 if (!overlay) {
                     overlay = document.createElement('div');
                     overlay.id = '__haze_dev_overlay';
                     overlay.style.position = 'fixed';
                     overlay.style.pointerEvents = 'none';
-                    overlay.style.zIndex = '2147483647';
+                    overlay.style.zIndex = '2147483646';
                     overlay.style.border = '2px solid #1A73E8';
                     overlay.style.backgroundColor = 'rgba(26, 115, 232, 0.22)';
                     overlay.style.boxSizing = 'border-box';
@@ -295,6 +325,7 @@ object HazeDevToolsManager {
                 }
                 overlay.style.display = 'none';
 
+                // 3. Floating Live Properties Preview Badge
                 var tooltip = document.getElementById('__haze_dev_tooltip');
                 if (!tooltip) {
                     tooltip = document.createElement('div');
@@ -302,13 +333,17 @@ object HazeDevToolsManager {
                     tooltip.style.position = 'fixed';
                     tooltip.style.pointerEvents = 'none';
                     tooltip.style.zIndex = '2147483647';
-                    tooltip.style.backgroundColor = '#202124';
+                    tooltip.style.backgroundColor = 'rgba(32, 33, 36, 0.96)';
+                    tooltip.style.backdropFilter = 'blur(8px)';
                     tooltip.style.color = '#FFFFFF';
                     tooltip.style.fontSize = '11px';
-                    tooltip.style.padding = '3px 7px';
-                    tooltip.style.borderRadius = '3px';
+                    tooltip.style.padding = '6px 10px';
+                    tooltip.style.borderRadius = '6px';
                     tooltip.style.fontFamily = 'monospace';
-                    tooltip.style.boxShadow = '0 2px 6px rgba(0,0,0,0.35)';
+                    tooltip.style.boxShadow = '0 4px 14px rgba(0,0,0,0.45)';
+                    tooltip.style.border = '1px solid rgba(255,255,255,0.18)';
+                    tooltip.style.maxWidth = '280px';
+                    tooltip.style.lineHeight = '1.35';
                     document.documentElement.appendChild(tooltip);
                 }
                 tooltip.style.display = 'none';
@@ -360,7 +395,7 @@ object HazeDevToolsManager {
 
                 function getDisplayLabel(el) {
                     var tag = el.tagName.toLowerCase();
-                    var id = (el.id && typeof el.id === 'string') ? '#' + el.id : '';
+                    var id = (el.id && typeof el.id === 'string' && el.id.trim()) ? '#' + el.id.trim() : '';
                     var cls = '';
                     if (typeof el.className === 'string' && el.className.trim()) {
                         cls = '.' + el.className.trim().split(/\s+/)[0];
@@ -368,8 +403,8 @@ object HazeDevToolsManager {
                     return { tag: tag, id: id, cls: cls };
                 }
 
-                function highlightElement(el) {
-                    if (!el || el === overlay || el === tooltip || el === document.documentElement) return;
+                function highlightElement(el, cursorX, cursorY) {
+                    if (!el || el === overlay || el === tooltip || el === cursor || el === document.documentElement) return;
                     var rect = el.getBoundingClientRect();
                     overlay.style.display = 'block';
                     overlay.style.top = rect.top + 'px';
@@ -377,17 +412,50 @@ object HazeDevToolsManager {
                     overlay.style.width = rect.width + 'px';
                     overlay.style.height = rect.height + 'px';
 
-                    var label = getDisplayLabel(el);
-                    tooltip.style.display = 'block';
-                    tooltip.innerHTML = '<span style="color:#FF7B72">' + label.tag + '</span>' +
-                                        '<span style="color:#79C0FF">' + label.id + '</span>' +
-                                        '<span style="color:#D2A8FF">' + label.cls + '</span> ' +
-                                        Math.round(rect.width) + '×' + Math.round(rect.height);
+                    if (cursorX !== undefined && cursorY !== undefined) {
+                        cursor.style.display = 'block';
+                        cursor.style.left = (cursorX - 2) + 'px';
+                        cursor.style.top = (cursorY - 2) + 'px';
+                    }
 
-                    var tooltipTop = rect.top - 26;
-                    if (tooltipTop < 0) tooltipTop = rect.bottom + 4;
-                    tooltip.style.top = tooltipTop + 'px';
-                    tooltip.style.left = Math.max(0, rect.left) + 'px';
+                    var cs = window.getComputedStyle(el);
+                    var label = getDisplayLabel(el);
+                    var color = cs.color || '#000000';
+                    var bg = cs.backgroundColor || 'transparent';
+                    var font = cs.fontSize + ' ' + (cs.fontFamily ? cs.fontFamily.split(',')[0].trim() : 'sans-serif');
+                    var margin = cs.margin || '0px';
+                    var padding = cs.padding || '0px';
+                    var display = cs.display || 'block';
+
+                    tooltip.style.display = 'block';
+                    var bgBadge = (bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') ? 
+                        '<span style="display:inline-flex;align-items:center;margin-left:8px;"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + bg + ';border:1px solid #FFF;margin-right:3px;"></span>' + bg + '</span>' : '';
+
+                    tooltip.innerHTML = 
+                        '<div style="font-weight:bold;margin-bottom:3px;font-size:12px;">' +
+                            '<span style="color:#FF7B72">&lt;' + label.tag + '&gt;</span>' +
+                            '<span style="color:#79C0FF">' + label.id + '</span>' +
+                            '<span style="color:#D2A8FF">' + label.cls + '</span> ' +
+                            '<span style="color:#8B949E;font-size:10px;">(' + display + ')</span>' +
+                        '</div>' +
+                        '<div style="color:#E6EDF3;font-size:11px;margin-bottom:3px;">' +
+                            '<b>Size:</b> ' + Math.round(rect.width) + ' × ' + Math.round(rect.height) + 'px' +
+                        '</div>' +
+                        '<div style="display:flex;align-items:center;font-size:10.5px;color:#C9D1D9;margin-bottom:3px;">' +
+                            '<span style="display:inline-flex;align-items:center;"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:' + color + ';border:1px solid #FFF;margin-right:3px;"></span>' + color + '</span>' +
+                            bgBadge +
+                        '</div>' +
+                        '<div style="color:#8B949E;font-size:10px;">' +
+                            '<b>Font:</b> ' + font + '<br/><b>Pad:</b> ' + padding + ' | <b>Marg:</b> ' + margin +
+                        '</div>';
+
+                    var tipX = (cursorX !== undefined ? cursorX + 16 : rect.left);
+                    var tipY = (cursorY !== undefined ? cursorY - 95 : rect.top - 95);
+                    if (tipY < 10) tipY = (cursorY !== undefined ? cursorY + 30 : rect.bottom + 8);
+                    if (tipX + 270 > window.innerWidth) tipX = window.innerWidth - 280;
+                    if (tipX < 8) tipX = 8;
+                    tooltip.style.left = tipX + 'px';
+                    tooltip.style.top = tipY + 'px';
                 }
 
                 var lastHovered = null;
@@ -397,10 +465,11 @@ object HazeDevToolsManager {
                     var y = e.clientY || (e.touches && e.touches.length > 0 ? e.touches[0].clientY : 0);
                     overlay.style.display = 'none';
                     tooltip.style.display = 'none';
+                    cursor.style.display = 'none';
                     var el = document.elementFromPoint(x, y);
-                    if (el && el !== overlay && el !== tooltip) {
+                    if (el && el !== overlay && el !== tooltip && el !== cursor) {
                         lastHovered = el;
-                        highlightElement(el);
+                        highlightElement(el, x, y);
                     }
                 }
 
@@ -410,15 +479,15 @@ object HazeDevToolsManager {
                     
                     overlay.style.display = 'none';
                     tooltip.style.display = 'none';
+                    cursor.style.display = 'none';
                     var el = (x && y) ? document.elementFromPoint(x, y) : null;
-                    if (!el || el === overlay || el === tooltip) el = lastHovered || e.target;
+                    if (!el || el === overlay || el === tooltip || el === cursor) el = lastHovered || e.target;
                     if (!el || el === document.documentElement) return;
 
                     e.preventDefault();
                     e.stopPropagation();
 
                     window.__hazeInspectedElement = el;
-                    highlightElement(el);
 
                     var prevOutline = el.style.outline;
                     el.style.outline = '3px solid #1A73E8';
@@ -427,6 +496,9 @@ object HazeDevToolsManager {
                     var selector = getUniqueSelector(el);
                     if (window.Android && window.Android.onElementInspected) {
                         window.Android.onElementInspected(selector);
+                    }
+                    if (window.__hazeDeactivateInspector) {
+                        window.__hazeDeactivateInspector();
                     }
                 }
 
@@ -442,6 +514,7 @@ object HazeDevToolsManager {
                     window.removeEventListener('touchend', onPointerSelect, { capture: true, passive: false });
                     window.removeEventListener('mousemove', onPointerMove, { capture: true, passive: true });
                     window.removeEventListener('click', onPointerSelect, { capture: true, passive: false });
+                    if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor);
                     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
                     if (tooltip && tooltip.parentNode) tooltip.parentNode.removeChild(tooltip);
                     window.__hazeInspectorActive = false;
@@ -515,6 +588,8 @@ object HazeDevToolsManager {
         if (dockContainer != null) {
             dockContainer.visibility = View.VISIBLE
             dockContainer.removeAllViews()
+            activity.findViewById<View>(R.id.addressBarContainer)?.visibility = View.GONE
+            activity.findViewById<View>(R.id.findBarContainer)?.visibility = View.GONE
         }
 
         var savedHeight = prefs.getInt("devtools_dock_height", defaultDockHeight)
@@ -548,8 +623,8 @@ object HazeDevToolsManager {
                 } else {
                     lp.height = currentDockHeight
                     lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-                    lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-                    lp.bottomToTop = R.id.findBarContainer
+                    lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    lp.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
                 }
                 dockContainer.layoutParams = lp
                 dockContainer.requestLayout()
@@ -640,8 +715,8 @@ object HazeDevToolsManager {
                         if (lp != null) {
                             lp.height = currentDockHeight
                             lp.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-                            lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-                            lp.bottomToTop = R.id.findBarContainer
+                            lp.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            lp.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
                             dockContainer.layoutParams = lp
                             dockContainer.requestLayout()
                         }
@@ -905,19 +980,178 @@ object HazeDevToolsManager {
                 setBackgroundColor(topBarColor)
             }
             domArea.addView(breadcrumbBar)
+
+            var selectedSelector = initialSelector ?: "body"
+
+            // Quick Live Edit Action Strip for currently selected element
+            val quickActionBar = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dpToPx(activity, 8), dpToPx(activity, 4), dpToPx(activity, 8), dpToPx(activity, 4))
+                setBackgroundColor(if (isDark) Color.parseColor("#252525") else Color.parseColor("#EAEAEA"))
+            }
+
+            var openOuterHtmlEditorFn: ((String) -> Unit)? = null
+            var openAddAttributeDialogFn: ((String) -> Unit)? = null
+            var deleteElementFn: ((String) -> Unit)? = null
+            var loadDOMFn: ((String) -> Unit)? = null
+
+            fun createQuickBtn(title: String, onClick: () -> Unit): TextView {
+                return TextView(activity).apply {
+                    text = title
+                    textSize = 10.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(accentColor)
+                    setPadding(dpToPx(activity, 8), dpToPx(activity, 3), dpToPx(activity, 8), dpToPx(activity, 3))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dpToPx(activity, 4).toFloat()
+                        setColor(if (isDark) Color.parseColor("#333333") else Color.WHITE)
+                        setStroke(1, borderColor)
+                    }
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginEnd = dpToPx(activity, 6)
+                    }
+                    setOnClickListener {
+                        activity.triggerStrongHaptic()
+                        onClick()
+                    }
+                }
+            }
+
+            quickActionBar.addView(createQuickBtn("✏️ Edit HTML") { openOuterHtmlEditorFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("＋ Attribute") { openAddAttributeDialogFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("🗑️ Delete") { deleteElementFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("📋 Copy HTML") {
+                val jsGetOuter = """
+                    (function() {
+                        var el = document.querySelector(${JSONObject.quote(selectedSelector)}) || window.__hazeInspectedElement;
+                        return el ? el.outerHTML : '';
+                    })();
+                """.trimIndent()
+                webView?.evaluateJavascript(jsGetOuter) { htmlRes ->
+                    val raw = if (htmlRes != null && htmlRes.startsWith("\"")) {
+                        htmlRes.substring(1, htmlRes.length - 1).replace("\\\"", "\"").replace("\\n", "\n")
+                    } else htmlRes ?: ""
+                    val cb = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cb.setPrimaryClip(ClipData.newPlainText("Outer HTML", raw))
+                    Toast.makeText(activity, "Outer HTML copied", Toast.LENGTH_SHORT).show()
+                }
+            })
+            domArea.addView(quickActionBar)
             panel.addView(domArea)
+
+            // Resizable Styles, Computed, and Box Model Section
+            val defaultStylesH = dpToPx(activity, 220)
+            val defaultStylesW = dpToPx(activity, 300)
+            var currentStylesHeight = prefs.getInt("devtools_styles_height", defaultStylesH)
+            var currentStylesWidth = prefs.getInt("devtools_styles_width", defaultStylesW)
 
             val stylesDrawer = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 background = ColorDrawable(bgColor)
                 val params = LinearLayout.LayoutParams(
-                    if (isLandscape) dpToPx(activity, 320) else ViewGroup.LayoutParams.MATCH_PARENT,
-                    if (isLandscape) ViewGroup.LayoutParams.MATCH_PARENT else dpToPx(activity, 280)
+                    if (isLandscape) currentStylesWidth else ViewGroup.LayoutParams.MATCH_PARENT,
+                    if (isLandscape) ViewGroup.LayoutParams.MATCH_PARENT else currentStylesHeight
                 )
-                if (isLandscape) params.marginStart = dpToPx(activity, 1)
-                else params.topMargin = dpToPx(activity, 1)
                 layoutParams = params
             }
+
+            // Draggable divider handle between DOM Area and Styles Drawer
+            val stylesDragHandle = LinearLayout(activity).apply {
+                orientation = if (isLandscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setBackgroundColor(topBarColor)
+                layoutParams = LinearLayout.LayoutParams(
+                    if (isLandscape) dpToPx(activity, 16) else ViewGroup.LayoutParams.MATCH_PARENT,
+                    if (isLandscape) ViewGroup.LayoutParams.MATCH_PARENT else dpToPx(activity, 16)
+                )
+            }
+            val stylesDragPill = View(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    if (isLandscape) dpToPx(activity, 4) else dpToPx(activity, 40),
+                    if (isLandscape) dpToPx(activity, 40) else dpToPx(activity, 4)
+                )
+                background = GradientDrawable().apply {
+                    setColor(if (isDark) Color.parseColor("#70757A") else Color.parseColor("#9AA0A6"))
+                    cornerRadius = dpToPx(activity, 2).toFloat()
+                }
+            }
+            stylesDragHandle.addView(stylesDragPill)
+
+            val stylesGestureDetector = GestureDetector(activity, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    activity.triggerStrongHaptic()
+                    if (isLandscape) {
+                        val nextW = when {
+                            stylesDrawer.layoutParams.width < dpToPx(activity, 260) -> dpToPx(activity, 340)
+                            stylesDrawer.layoutParams.width < dpToPx(activity, 400) -> dpToPx(activity, 480)
+                            else -> dpToPx(activity, 200)
+                        }
+                        stylesDrawer.layoutParams.width = nextW
+                        stylesDrawer.requestLayout()
+                        prefs.edit().putInt("devtools_styles_width", nextW).apply()
+                    } else {
+                        val nextH = when {
+                            stylesDrawer.layoutParams.height < dpToPx(activity, 180) -> dpToPx(activity, 260)
+                            stylesDrawer.layoutParams.height < dpToPx(activity, 320) -> dpToPx(activity, 400)
+                            else -> dpToPx(activity, 130)
+                        }
+                        stylesDrawer.layoutParams.height = nextH
+                        stylesDrawer.requestLayout()
+                        prefs.edit().putInt("devtools_styles_height", nextH).apply()
+                    }
+                    return true
+                }
+            })
+
+            var stylesDragStart = 0f
+            var stylesDimensionAtStart = 0
+            stylesDragHandle.setOnTouchListener { v, event ->
+                stylesGestureDetector.onTouchEvent(event)
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        stylesDragStart = if (isLandscape) event.rawX else event.rawY
+                        stylesDimensionAtStart = if (isLandscape) stylesDrawer.width else stylesDrawer.height
+                        stylesDragPill.background = GradientDrawable().apply {
+                            setColor(accentColor)
+                            cornerRadius = dpToPx(activity, 2).toFloat()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        if (isLandscape) {
+                            val dx = event.rawX - stylesDragStart
+                            val newW = (stylesDimensionAtStart - dx).toInt().coerceIn(dpToPx(activity, 140), dpToPx(activity, 600))
+                            stylesDrawer.layoutParams.width = newW
+                            stylesDrawer.requestLayout()
+                        } else {
+                            val dy = event.rawY - stylesDragStart
+                            val newH = (stylesDimensionAtStart - dy).toInt().coerceIn(dpToPx(activity, 70), dpToPx(activity, 480))
+                            stylesDrawer.layoutParams.height = newH
+                            stylesDrawer.requestLayout()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(false)
+                        stylesDragPill.background = GradientDrawable().apply {
+                            setColor(if (isDark) Color.parseColor("#70757A") else Color.parseColor("#9AA0A6"))
+                            cornerRadius = dpToPx(activity, 2).toFloat()
+                        }
+                        if (isLandscape) {
+                            prefs.edit().putInt("devtools_styles_width", stylesDrawer.layoutParams.width).apply()
+                        } else {
+                            prefs.edit().putInt("devtools_styles_height", stylesDrawer.layoutParams.height).apply()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+
+            panel.addView(stylesDragHandle)
 
             val subTabHeader = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -959,8 +1193,6 @@ object HazeDevToolsManager {
             }
             stylesDrawer.addView(drawerContent)
             panel.addView(stylesDrawer)
-
-            var selectedSelector = initialSelector ?: "body"
 
             fun renderBoxModel(widthVal: Int, heightVal: Int, marginVal: String, paddingVal: String): View {
                 val boxRoot = LinearLayout(activity).apply {
@@ -1094,29 +1326,42 @@ object HazeDevToolsManager {
                         val inputEt = EditText(activity).apply {
                             setText(compObj.optString(p, ""))
                             setSelection(text.length)
+                            textSize = 13f
+                            setTypeface(Typeface.MONOSPACE)
                         }
-                        val editDialog = AlertDialog.Builder(activity)
-                            .setTitle("Edit CSS: $p")
-                            .setView(inputEt)
-                            .setPositiveButton("Apply") { _, _ ->
-                                val newVal = inputEt.text.toString().trim()
-                                val camelProp = p.split("-").mapIndexed { idx, s -> if (idx == 0) s else s.replaceFirstChar { it.uppercase() } }.joinToString("")
+                        val camelProp = p.split("-").mapIndexed { idx, s -> if (idx == 0) s else s.replaceFirstChar { it.uppercase() } }.joinToString("")
+
+                        inputEt.addTextChangedListener(object : TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                            override fun afterTextChanged(s: Editable?) {
+                                val typingVal = s?.toString()?.trim() ?: ""
                                 webView?.evaluateJavascript(
                                     """
                                     (function() {
                                         try {
-                                            var el = window.__hazeInspectedElement || document.querySelector("${selectedSelector.replace("\"", "\\\"")}");
-                                            if (el) el.style['$camelProp'] = "$newVal";
+                                            var el = window.__hazeInspectedElement || document.querySelector(${JSONObject.quote(selectedSelector)});
+                                            if (el) el.style['$camelProp'] = ${JSONObject.quote(typingVal)};
                                         } catch(e) {}
                                     })();
                                     """.trimIndent(), null
                                 )
-                                tvVal.text = "$newVal;"
+                                tvVal.text = if (typingVal.isNotEmpty()) "$typingVal;" else ";"
+                            }
+                        })
+
+                        val editDialog = AlertDialog.Builder(activity)
+                            .setTitle("Edit CSS: $p")
+                            .setView(inputEt)
+                            .setPositiveButton("Done") { _, _ ->
+                                val newVal = inputEt.text.toString().trim()
+                                tvVal.text = if (newVal.isNotEmpty()) "$newVal;" else ";"
                                 focusElementBySelectorFn?.invoke(selectedSelector)
                             }
                             .setNegativeButton("Cancel", null)
                             .create()
                         editDialog.show()
+                        inputEt.requestFocus()
                     }
                 }
 
@@ -1290,6 +1535,101 @@ object HazeDevToolsManager {
             }
             focusElementBySelectorFn = { s -> focusElementBySelector(s) }
 
+            openOuterHtmlEditorFn = { sel ->
+                val jsGetHtml = """
+                    (function() {
+                        var el = document.querySelector(${JSONObject.quote(sel)}) || window.__hazeInspectedElement;
+                        return el ? el.outerHTML : '';
+                    })();
+                """.trimIndent()
+                webView?.evaluateJavascript(jsGetHtml) { htmlRes ->
+                    val raw = if (htmlRes != null && htmlRes.startsWith("\"")) {
+                        htmlRes.substring(1, htmlRes.length - 1).replace("\\\"", "\"").replace("\\n", "\n")
+                    } else htmlRes ?: ""
+                    val et = EditText(activity).apply {
+                        setText(raw)
+                        textSize = 12f
+                        setTypeface(Typeface.MONOSPACE)
+                        setPadding(dpToPx(activity, 12), dpToPx(activity, 12), dpToPx(activity, 12), dpToPx(activity, 12))
+                        gravity = Gravity.TOP or Gravity.START
+                    }
+                    val sv = NestedScrollView(activity).apply {
+                        addView(et)
+                        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 280))
+                    }
+                    AlertDialog.Builder(activity)
+                        .setTitle("Edit as HTML: $sel")
+                        .setView(sv)
+                        .setPositiveButton("Apply") { _, _ ->
+                            val edited = et.text.toString()
+                            val jsSetHtml = """
+                                (function() {
+                                    var el = document.querySelector(${JSONObject.quote(sel)}) || window.__hazeInspectedElement;
+                                    if (el) el.outerHTML = ${JSONObject.quote(edited)};
+                                })();
+                            """.trimIndent()
+                            webView?.evaluateJavascript(jsSetHtml, null)
+                            loadDOMFn?.invoke(filterInput.text.toString().trim())
+                            Toast.makeText(activity, "HTML Updated in real time", Toast.LENGTH_SHORT).show()
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                    et.requestFocus()
+                }
+            }
+
+            openAddAttributeDialogFn = { sel ->
+                val lay = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dpToPx(activity, 20), dpToPx(activity, 10), dpToPx(activity, 20), dpToPx(activity, 10))
+                }
+                val etName = EditText(activity).apply { hint = "Attribute Name (e.g. style, class, id)" }
+                val etVal = EditText(activity).apply { hint = "Attribute Value" }
+                lay.addView(etName)
+                lay.addView(etVal)
+                AlertDialog.Builder(activity)
+                    .setTitle("Add/Edit Attribute: $sel")
+                    .setView(lay)
+                    .setPositiveButton("Apply") { _, _ ->
+                        val an = etName.text.toString().trim()
+                        val av = etVal.text.toString().trim()
+                        if (an.isNotEmpty()) {
+                            val jsSet = """
+                                (function() {
+                                    var el = document.querySelector(${JSONObject.quote(sel)}) || window.__hazeInspectedElement;
+                                    if (el) el.setAttribute(${JSONObject.quote(an)}, ${JSONObject.quote(av)});
+                                })();
+                            """.trimIndent()
+                            webView?.evaluateJavascript(jsSet, null)
+                            loadDOMFn?.invoke(filterInput.text.toString().trim())
+                            focusElementBySelector(sel)
+                            Toast.makeText(activity, "Attribute applied in real time", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                etName.requestFocus()
+            }
+
+            deleteElementFn = { sel ->
+                AlertDialog.Builder(activity)
+                    .setTitle("Delete Element")
+                    .setMessage("Are you sure you want to remove '$sel' from the live webpage?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        val jsRemove = """
+                            (function() {
+                                var el = document.querySelector(${JSONObject.quote(sel)}) || window.__hazeInspectedElement;
+                                if (el && el.parentNode) el.parentNode.removeChild(el);
+                            })();
+                        """.trimIndent()
+                        webView?.evaluateJavascript(jsRemove, null)
+                        loadDOMFn?.invoke(filterInput.text.toString().trim())
+                        Toast.makeText(activity, "Element removed", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+
             activeElementFocuser = { sel ->
                 currentSelectorToFocus = sel
                 if (currentTab == "ELEMENTS") {
@@ -1457,12 +1797,13 @@ object HazeDevToolsManager {
                                 }
                                 row.addView(tv)
 
-                                row.setOnLongClickListener {
-                                    activity.triggerStrongHaptic(isHeavy = true)
+                                val openEditTextDialog = {
+                                    activity.triggerStrongHaptic(isHeavy = false)
                                     val et = EditText(activity).apply {
                                         setText(textVal)
                                         textSize = 12f
                                         setTypeface(Typeface.MONOSPACE)
+                                        setSelection(text.length)
                                     }
                                     AlertDialog.Builder(activity)
                                         .setTitle("Edit Text Node")
@@ -1488,17 +1829,67 @@ object HazeDevToolsManager {
                                             """.trimIndent()
                                             webView?.evaluateJavascript(jsEditText, null)
                                             loadDOM(filterInput.text.toString().trim())
+                                            Toast.makeText(activity, "Text updated live", Toast.LENGTH_SHORT).show()
                                         }
                                         .setNegativeButton("Cancel", null)
                                         .show()
-                                    true
+                                    et.requestFocus()
                                 }
+                                row.setOnClickListener { openEditTextDialog() }
+                                row.setOnLongClickListener { openEditTextDialog(); true }
                             } else {
                                 val tag = obj.optString("tag")
                                 val id = obj.optString("id")
                                 val cls = obj.optString("cls")
                                 val path = obj.optString("path")
                                 val attrsObj = obj.optJSONObject("attrs")
+
+                                val targetSel = when {
+                                    path.isNotEmpty() -> path
+                                    id.isNotEmpty() -> "#$id"
+                                    cls.isNotEmpty() -> "$tag.${cls.split(" ").first()}"
+                                    else -> tag
+                                }
+
+                                if (targetSel == selectedSelector) {
+                                    row.setBackgroundColor(if (isDark) Color.parseColor("#0D3C61") else Color.parseColor("#E8F0FE"))
+                                }
+
+                                fun editSingleAttr(attrName: String, attrVal: String) {
+                                    activity.triggerStrongHaptic()
+                                    val et = EditText(activity).apply {
+                                        setText(attrVal)
+                                        textSize = 12f
+                                        setTypeface(Typeface.MONOSPACE)
+                                        setSelection(text.length)
+                                    }
+                                    AlertDialog.Builder(activity)
+                                        .setTitle("Edit Attribute: $attrName")
+                                        .setView(et)
+                                        .setPositiveButton("Apply") { _, _ ->
+                                            val newVal = et.text.toString()
+                                            val jsSetAttr = """
+                                                (function() {
+                                                    try {
+                                                        var el = document.querySelector(${JSONObject.quote(targetSel)}) || window.__hazeInspectedElement;
+                                                        if (el) {
+                                                            el.setAttribute(${JSONObject.quote(attrName)}, ${JSONObject.quote(newVal)});
+                                                            return true;
+                                                        }
+                                                    } catch(_) {}
+                                                    return false;
+                                                })();
+                                            """.trimIndent()
+                                            webView?.evaluateJavascript(jsSetAttr) {
+                                                loadDOM(filterInput.text.toString().trim())
+                                                focusElementBySelector(targetSel)
+                                                Toast.makeText(activity, "$attrName updated live", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        .setNegativeButton("Cancel", null)
+                                        .show()
+                                    et.requestFocus()
+                                }
 
                                 val tvTagStart = TextView(activity).apply {
                                     text = "<"
@@ -1527,6 +1918,8 @@ object HazeDevToolsManager {
                                         textSize = 11.5f
                                         setTextColor(syntaxStrColor)
                                         setTypeface(Typeface.MONOSPACE)
+                                        paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                                        setOnClickListener { editSingleAttr("id", id) }
                                     }
                                     row.addView(tvIdName)
                                     row.addView(tvIdVal)
@@ -1544,6 +1937,8 @@ object HazeDevToolsManager {
                                         textSize = 11.5f
                                         setTextColor(syntaxStrColor)
                                         setTypeface(Typeface.MONOSPACE)
+                                        paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                                        setOnClickListener { editSingleAttr("class", cls) }
                                     }
                                     row.addView(tvClsName)
                                     row.addView(tvClsVal)
@@ -1565,6 +1960,8 @@ object HazeDevToolsManager {
                                             textSize = 11.5f
                                             setTextColor(syntaxStrColor)
                                             setTypeface(Typeface.MONOSPACE)
+                                            paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                                            setOnClickListener { editSingleAttr(ak, av) }
                                         }
                                         row.addView(tvAName)
                                         row.addView(tvAVal)
@@ -1578,13 +1975,6 @@ object HazeDevToolsManager {
                                     setTypeface(Typeface.MONOSPACE)
                                 }
                                 row.addView(tvEnd)
-
-                                val targetSel = when {
-                                    path.isNotEmpty() -> path
-                                    id.isNotEmpty() -> "#$id"
-                                    cls.isNotEmpty() -> "$tag.${cls.split(" ").first()}"
-                                    else -> tag
-                                }
 
                                 row.setOnClickListener {
                                     activity.triggerStrongHaptic()
@@ -1757,6 +2147,7 @@ object HazeDevToolsManager {
                     }
                 }
             }
+            loadDOMFn = { sel -> loadDOM(sel) }
 
             filterInput.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -1775,6 +2166,7 @@ object HazeDevToolsManager {
         // =========================================================================
         fun renderConsolePanel(): View {
             val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            var populateLogsFn: (() -> Unit)? = null
 
             val consoleToolBar = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1790,7 +2182,9 @@ object HazeDevToolsManager {
                 layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 26), dpToPx(activity, 26))
                 setOnClickListener {
                     activity.triggerStrongHaptic()
-                    clearTabLogs(tabId)
+                    clearConsoleLogsOnly(tabId)
+                    webView?.evaluateJavascript("try { console.clear(); } catch(_){}", null)
+                    populateLogsFn?.invoke()
                 }
             }
             consoleToolBar.addView(btnConsoleClear)
@@ -1855,7 +2249,8 @@ object HazeDevToolsManager {
             val promptRow = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dpToPx(activity, 8), dpToPx(activity, 4), dpToPx(activity, 8), dpToPx(activity, 4))
+                minimumHeight = dpToPx(activity, 42)
+                setPadding(dpToPx(activity, 8), dpToPx(activity, 6), dpToPx(activity, 8), dpToPx(activity, 6))
                 setBackgroundColor(bgColor)
             }
 
@@ -1874,8 +2269,16 @@ object HazeDevToolsManager {
                 setTypeface(Typeface.MONOSPACE)
                 setSingleLine()
                 background = null
+                imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO or android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginStart = dpToPx(activity, 4)
+                }
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (hasFocus) {
+                        consoleScroll.postDelayed({
+                            consoleScroll.fullScroll(View.FOCUS_DOWN)
+                        }, 200)
+                    }
                 }
             }
             promptRow.addView(consoleInput)
@@ -1992,6 +2395,7 @@ object HazeDevToolsManager {
             }
 
             activeTabUpdateListener = { populateLogs() }
+            populateLogsFn = { populateLogs() }
 
             val commandHistory = mutableListOf<String>()
             var historyIndex = -1
@@ -2006,34 +2410,81 @@ object HazeDevToolsManager {
                     historyIndex = commandHistory.size
                     consoleInput.setText("")
 
-                    recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
-                    val evalWrapper = """
-                        (function() {
-                            try {
-                                window.${'$'}0 = window.__hazeInspectedElement || null;
-                                var __evalRes = eval(${JSONObject.quote(cmd)});
-                                if (__evalRes === undefined) return 'undefined';
-                                if (__evalRes === null) return 'null';
-                                if (typeof __evalRes === 'function') return __evalRes.toString();
-                                if (typeof __evalRes === 'object') {
-                                    if (__evalRes.nodeType === 1) return __evalRes.outerHTML.substring(0, 400);
-                                    try {
-                                        return JSON.stringify(__evalRes, null, 2);
-                                    } catch(_) {
-                                        return String(__evalRes);
-                                    }
-                                }
-                                return String(__evalRes);
-                            } catch(e) {
-                                return 'Uncaught ' + (e.name ? e.name + ': ' : '') + (e.message || String(e));
-                            }
-                        })();
-                    """.trimIndent()
-                    webView?.evaluateJavascript(evalWrapper) { res ->
-                        val unescaped = res?.trim('"')?.replace("\\\"", "\"")?.replace("\\n", "\n") ?: "undefined"
-                        val isErr = unescaped.startsWith("Uncaught ")
-                        recordConsoleMessage(tabId, unescaped, level = if (isErr) ConsoleLogEntry.Level.ERROR else ConsoleLogEntry.Level.INFO)
+                    val cleanCmd = cmd.trim()
+                    if (cleanCmd == "clear()" || cleanCmd == "console.clear()" || cleanCmd == "clear" || cleanCmd == "console.clear") {
+                        recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
+                        clearConsoleLogsOnly(tabId)
+                        webView?.evaluateJavascript("try { console.clear(); } catch(_){}", null)
                         populateLogs()
+                    } else {
+                        recordConsoleMessage(tabId, "<- $cmd", level = ConsoleLogEntry.Level.LOG)
+                        val evalWrapper = """
+                            (async function() {
+                                try {
+                                    window.${'$'}0 = window.__hazeInspectedElement || document.body;
+                                    window.${'$'} = function(s) { return document.querySelector(s); };
+                                    window.${'$'}${'$'} = function(s) { return Array.from(document.querySelectorAll(s)); };
+                                    window.${'$'}x = function(xpath) {
+                                        var result = [];
+                                        var snap = document.evaluate(xpath, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+                                        for (var i = 0; i < snap.snapshotLength; i++) result.push(snap.snapshotItem(i));
+                                        return result;
+                                    };
+                                    window.keys = Object.keys;
+                                    window.values = Object.values;
+                                    window.clear = function() {
+                                        if (window.Android && window.Android.clearConsoleLogs) window.Android.clearConsoleLogs();
+                                        console.clear();
+                                    };
+                                    window.copy = function(val) {
+                                        var s = typeof val === 'string' ? val : (typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val));
+                                        if (window.Android && window.Android.copyToClipboard) window.Android.copyToClipboard(s);
+                                        return s;
+                                    };
+
+                                    function __formatVal(v) {
+                                        if (v === undefined) return 'undefined';
+                                        if (v === null) return 'null';
+                                        if (typeof v === 'function') return v.toString();
+                                        if (typeof v === 'object') {
+                                            if (v.nodeType === 1) return v.outerHTML.substring(0, 500);
+                                            try { return JSON.stringify(v, null, 2); } catch(_) { return String(v); }
+                                        }
+                                        return String(v);
+                                    }
+
+                                    var __evalRes = eval(${JSONObject.quote(cmd)});
+                                    if (__evalRes instanceof Promise) {
+                                        __evalRes.then(function(val) {
+                                            var formatted = __formatVal(val);
+                                            if (window.Android && window.Android.onDevToolsConsoleResult) {
+                                                window.Android.onDevToolsConsoleResult(formatted, false);
+                                            }
+                                        }).catch(function(err) {
+                                            var errStr = 'Uncaught ' + (err && err.name ? err.name + ': ' : '') + (err && err.message ? err.message : String(err));
+                                            if (window.Android && window.Android.onDevToolsConsoleResult) {
+                                                window.Android.onDevToolsConsoleResult(errStr, true);
+                                            }
+                                        });
+                                        return '__HAZE_ASYNC_PENDING__';
+                                    }
+
+                                    return __formatVal(__evalRes);
+                                } catch(e) {
+                                    return 'Uncaught ' + (e.name ? e.name + ': ' : '') + (e.message || String(e));
+                                }
+                            })();
+                        """.trimIndent()
+                        webView?.evaluateJavascript(evalWrapper) { res ->
+                            if (res == null || res == "\"__HAZE_ASYNC_PENDING__\"" || res == "__HAZE_ASYNC_PENDING__") {
+                                return@evaluateJavascript
+                            }
+                            val unescaped = res.trim('"').replace("\\\"", "\"").replace("\\n", "\n")
+                            val isErr = unescaped.startsWith("Uncaught ")
+                            recordConsoleMessage(tabId, unescaped, level = if (isErr) ConsoleLogEntry.Level.ERROR else ConsoleLogEntry.Level.INFO)
+                            populateLogs()
+                            consoleScroll.postDelayed({ consoleScroll.fullScroll(View.FOCUS_DOWN) }, 100)
+                        }
                     }
                 }
             }
@@ -2258,6 +2709,7 @@ object HazeDevToolsManager {
         // =========================================================================
         fun renderNetworkPanel(): View {
             val panel = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            var populateNetworkTableFn: (() -> Unit)? = null
 
             val netTopBar = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2273,7 +2725,8 @@ object HazeDevToolsManager {
                 layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 26), dpToPx(activity, 26))
                 setOnClickListener {
                     activity.triggerStrongHaptic()
-                    clearTabLogs(tabId)
+                    clearNetworkRequestsOnly(tabId)
+                    populateNetworkTableFn?.invoke()
                 }
             }
             netTopBar.addView(btnNetClear)
@@ -2414,11 +2867,25 @@ object HazeDevToolsManager {
             panel.addView(summaryDivider)
             panel.addView(summaryBar)
 
+            var previewMediaPlayer: MediaPlayer? = null
+            var previewVideoView: VideoView? = null
+
             fun showNetworkPreviewDialog(req: NetworkRequestEntry) {
                 val previewDialog = Dialog(activity)
                 previewDialog.window?.let {
                     it.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
                     it.setLayout((activity.resources.displayMetrics.widthPixels * 0.9).toInt(), (activity.resources.displayMetrics.heightPixels * 0.8).toInt())
+                }
+                previewDialog.setOnDismissListener {
+                    try {
+                        previewMediaPlayer?.stop()
+                        previewMediaPlayer?.release()
+                        previewMediaPlayer = null
+                    } catch (_: Throwable) {}
+                    try {
+                        previewVideoView?.stopPlayback()
+                        previewVideoView = null
+                    } catch (_: Throwable) {}
                 }
 
                 val pRoot = LinearLayout(activity).apply {
@@ -2492,6 +2959,178 @@ object HazeDevToolsManager {
 
                 val targetFullUrl = if (req.fullUrl.isNotEmpty()) req.fullUrl else req.url
                 addSection("General", "Request URL: $targetFullUrl\nRequest Method: ${req.method}\nStatus Code: ${req.statusCode}\nResource Type: ${req.type}\nSize: ${req.sizeBytes} B\nDuration: ${req.durationMs} ms")
+
+                // Media Preview (Image, Video, Audio)
+                val urlLower = targetFullUrl.lowercase()
+                val isImage = req.type == "Image" || urlLower.endsWith(".png") || urlLower.endsWith(".jpg") || urlLower.endsWith(".jpeg") || urlLower.endsWith(".webp") || urlLower.endsWith(".gif") || urlLower.endsWith(".ico") || urlLower.endsWith(".bmp") || urlLower.endsWith(".svg")
+                val isVideo = (req.type == "Media" && !urlLower.endsWith(".mp3") && !urlLower.endsWith(".wav") && !urlLower.endsWith(".aac") && !urlLower.endsWith(".flac") && !urlLower.endsWith(".m4a")) || urlLower.endsWith(".mp4") || urlLower.endsWith(".webm") || urlLower.endsWith(".ogg") || urlLower.endsWith(".mov") || urlLower.endsWith(".m4v") || urlLower.endsWith(".3gp") || urlLower.endsWith(".mkv")
+                val isAudio = !isVideo && (req.type == "Media" || urlLower.endsWith(".mp3") || urlLower.endsWith(".wav") || urlLower.endsWith(".aac") || urlLower.endsWith(".flac") || urlLower.endsWith(".m4a") || urlLower.endsWith(".oga"))
+
+                if (isImage) {
+                    val imgCard = LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 8).toFloat()
+                            setColor(if (isDark) Color.parseColor("#252525") else Color.parseColor("#F1F3F4"))
+                            setStroke(1, borderColor)
+                        }
+                    }
+                    val imgTitle = TextView(activity).apply {
+                        text = "Image Preview"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(textColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 6))
+                    }
+                    val imgStatus = TextView(activity).apply {
+                        text = "Loading image preview..."
+                        textSize = 11f
+                        setTextColor(subTextColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 4))
+                    }
+                    val previewIv = ImageView(activity).apply {
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 200))
+                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        adjustViewBounds = true
+                    }
+                    imgCard.addView(imgTitle)
+                    imgCard.addView(imgStatus)
+                    imgCard.addView(previewIv)
+                    content.addView(imgCard)
+
+                    Thread {
+                        try {
+                            val u = URL(targetFullUrl)
+                            val conn = u.openConnection() as java.net.HttpURLConnection
+                            conn.connectTimeout = 6000
+                            conn.readTimeout = 6000
+                            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Haze)")
+                            conn.connect()
+                            val bmp = BitmapFactory.decodeStream(conn.inputStream)
+                            activity.runOnUiThread {
+                                if (bmp != null) {
+                                    imgStatus.visibility = View.GONE
+                                    previewIv.setImageBitmap(bmp)
+                                    imgTitle.text = "Image Preview (${bmp.width} × ${bmp.height} px)"
+                                } else {
+                                    imgStatus.text = "Preview format cannot be rendered as bitmap."
+                                }
+                            }
+                        } catch (e: Exception) {
+                            activity.runOnUiThread {
+                                imgStatus.text = "Preview unavailable: ${e.message}"
+                            }
+                        }
+                    }.start()
+                } else if (isVideo) {
+                    val vidCard = LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 8).toFloat()
+                            setColor(if (isDark) Color.parseColor("#252525") else Color.parseColor("#F1F3F4"))
+                            setStroke(1, borderColor)
+                        }
+                    }
+                    val vidTitle = TextView(activity).apply {
+                        text = "Video Preview"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(textColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 6))
+                    }
+                    val vidStatus = TextView(activity).apply {
+                        text = "Connecting to media stream..."
+                        textSize = 11f
+                        setTextColor(subTextColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 4))
+                    }
+                    val vv = VideoView(activity).apply {
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 200))
+                    }
+                    previewVideoView = vv
+                    val mc = MediaController(activity)
+                    mc.setAnchorView(vv)
+                    vv.setMediaController(mc)
+                    vv.setVideoPath(targetFullUrl)
+                    vv.setOnPreparedListener {
+                        vidStatus.visibility = View.GONE
+                        vidTitle.text = "Video Preview (${vv.duration / 1000}s)"
+                        vv.start()
+                    }
+                    vv.setOnErrorListener { _, _, _ ->
+                        vidStatus.text = "Video format cannot be played inline."
+                        true
+                    }
+                    vidCard.addView(vidTitle)
+                    vidCard.addView(vidStatus)
+                    vidCard.addView(vv)
+                    content.addView(vidCard)
+                } else if (isAudio) {
+                    val audCard = LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 8).toFloat()
+                            setColor(if (isDark) Color.parseColor("#252525") else Color.parseColor("#F1F3F4"))
+                            setStroke(1, borderColor)
+                        }
+                    }
+                    val audTitle = TextView(activity).apply {
+                        text = "Audio Preview"
+                        textSize = 12f
+                        setTypeface(null, Typeface.BOLD)
+                        setTextColor(textColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 6))
+                    }
+                    val audStatus = TextView(activity).apply {
+                        text = "Loading audio track..."
+                        textSize = 11f
+                        setTextColor(subTextColor)
+                        setPadding(0, 0, 0, dpToPx(activity, 4))
+                    }
+                    val playBtn = Button(activity).apply {
+                        text = "▶ Play Audio"
+                        setTextColor(Color.WHITE)
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 8).toFloat()
+                            setColor(accentColor)
+                        }
+                    }
+                    audCard.addView(audTitle)
+                    audCard.addView(audStatus)
+                    audCard.addView(playBtn)
+                    content.addView(audCard)
+
+                    val mp = MediaPlayer()
+                    previewMediaPlayer = mp
+                    try {
+                        mp.setDataSource(targetFullUrl)
+                        mp.setOnPreparedListener {
+                            audStatus.text = "Duration: ${mp.duration / 1000}s"
+                        }
+                        mp.setOnCompletionListener {
+                            playBtn.text = "▶ Play Audio"
+                            audStatus.text = "Playback finished"
+                        }
+                        mp.prepareAsync()
+                    } catch (e: Exception) {
+                        audStatus.text = "Cannot load audio source: ${e.message}"
+                    }
+
+                    playBtn.setOnClickListener {
+                        if (mp.isPlaying) {
+                            mp.pause()
+                            playBtn.text = "▶ Play Audio"
+                            audStatus.text = "Paused"
+                        } else {
+                            mp.start()
+                            playBtn.text = "⏸ Pause Audio"
+                            audStatus.text = "Playing..."
+                        }
+                    }
+                }
 
                 val hStr = if (req.headers.isEmpty()) "No custom headers intercepted." else req.headers.entries.joinToString("\n") { "${it.key}: ${it.value}" }
                 addSection("Request Headers", hStr)
@@ -2668,7 +3307,85 @@ object HazeDevToolsManager {
                 summaryBar.text = "${filtered.size} requests  0 B transferred  $kbTotal kB resources"
             }
 
-            activeTabUpdateListener = { populateNetworkTable() }
+            fun syncPerformanceResources() {
+                val jsGetRes = """
+                    (function() {
+                        try {
+                            var list = window.performance.getEntriesByType('resource');
+                            var out = [];
+                            for (var i = 0; i < list.length; i++) {
+                                var r = list[i];
+                                out.push({
+                                    name: r.name,
+                                    initiator: r.initiatorType || 'other',
+                                    transferSize: r.transferSize || r.encodedBodySize || 0,
+                                    duration: Math.round(r.duration || 0)
+                                });
+                            }
+                            return JSON.stringify(out);
+                        } catch(e) { return '[]'; }
+                    })();
+                """.trimIndent()
+                webView?.evaluateJavascript(jsGetRes) { res ->
+                    if (!res.isNullOrEmpty() && res != "null") {
+                        try {
+                            val raw = if (res.startsWith("\"")) res.substring(1, res.length - 1).replace("\\\"", "\"").replace("\\\\", "\\") else res
+                            val arr = JSONArray(raw)
+                            val existing = getNetworkRequests(tabId)
+                            val existingUrls = existing.map { it.fullUrl.ifEmpty { it.url } }.toSet()
+                            var addedAny = false
+                            for (i in 0 until arr.length()) {
+                                val item = arr.getJSONObject(i)
+                                val fullUrl = item.optString("name")
+                                if (fullUrl.isNotEmpty() && !existingUrls.contains(fullUrl)) {
+                                    val initiatorType = item.optString("initiator")
+                                    val mappedType = when (initiatorType.lowercase()) {
+                                        "img" -> "Image"
+                                        "script" -> "Script"
+                                        "link", "css" -> "Stylesheet"
+                                        "fetch" -> "Fetch"
+                                        "xmlhttprequest" -> "XHR"
+                                        "video", "audio" -> "Media"
+                                        "font" -> "Font"
+                                        else -> when {
+                                            fullUrl.contains(".js") -> "Script"
+                                            fullUrl.contains(".css") -> "Stylesheet"
+                                            fullUrl.contains(".png") || fullUrl.contains(".jpg") || fullUrl.contains(".webp") || fullUrl.contains(".svg") || fullUrl.contains(".gif") -> "Image"
+                                            fullUrl.contains(".mp4") || fullUrl.contains(".webm") || fullUrl.contains(".mp3") -> "Media"
+                                            fullUrl.contains(".woff") || fullUrl.contains(".ttf") -> "Font"
+                                            else -> "Other"
+                                        }
+                                    }
+                                    val shortName = fullUrl.substringAfterLast("/").substringBefore("?").ifEmpty { fullUrl }
+                                    val entry = NetworkRequestEntry(
+                                        id = "perf_${System.currentTimeMillis()}_$i",
+                                        url = shortName,
+                                        fullUrl = fullUrl,
+                                        method = "GET",
+                                        statusCode = 200,
+                                        type = mappedType,
+                                        sizeBytes = item.optLong("transferSize", 0L),
+                                        durationMs = item.optLong("duration", 10L),
+                                        initiator = initiatorType.ifEmpty { "server" }
+                                    )
+                                    val list = networkRequestsMap.getOrPut(tabId) { CopyOnWriteArrayList<NetworkRequestEntry>() }
+                                    list.add(entry)
+                                    addedAny = true
+                                }
+                            }
+                            if (addedAny) {
+                                populateNetworkTable()
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+
+            activeTabUpdateListener = {
+                syncPerformanceResources()
+                populateNetworkTable()
+            }
+            populateNetworkTableFn = { populateNetworkTable() }
 
             filterNet.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -2678,6 +3395,7 @@ object HazeDevToolsManager {
                 }
             })
 
+            syncPerformanceResources()
             populateNetworkTable()
             return panel
         }
