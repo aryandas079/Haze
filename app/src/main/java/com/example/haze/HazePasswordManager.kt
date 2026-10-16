@@ -145,86 +145,20 @@ object HazePasswordManager {
     }
 
     // =========================================================================
-    // SEED DEFAULT VAULT FROM GOOGLE PASSWORD MANAGER REFERENCE
+    // VAULT PURGE / CLEAN STATE (NO DEFAULT ENTRIES)
     // =========================================================================
 
-    fun seedDefaultDataIfEmpty(context: Context) {
+    fun purgeDefaultEntriesIfPresent(context: Context) {
         val prefs = getPrefs(context)
-        if (prefs.getBoolean(PREF_SEEDED_DEFAULTS, false)) return
-
+        if (prefs.getBoolean("pm_cleaned_defaults_v3", false)) return
         val db = HazeDatabase.getInstance(context)
-
-        // Seed passwords if empty
-        if (db.getPasswords().isEmpty()) {
-            val pw1 = encrypt("Admin@Flex2024")
-            val pw2 = encrypt("AmzSecurePass!99")
-            val pw3a = encrypt("AmzIn#2024aryan")
-            val pw3b = encrypt("AryanOutlook@943")
-            val pw3c = encrypt("DevAryanKey$715")
-
-            db.upsertPassword("1flex.nl", "1flex.nl", "dasaryan715@gmail.com", pw1)
-            db.upsertPassword("amazon.com", "amazon.com", "dasaryan715@gmail.com", pw2)
-            db.upsertPassword("amazon.in", "amazon.in", "dasaryan715@gmail.com", pw3a)
-            db.upsertPassword("amazon.in", "amazon.in", "aryandas079@outlook.com", pw3b)
-            db.upsertPassword("amazon.in", "amazon.in", "aryandas.dev@gmail.com", pw3c)
-        }
-
-        // Seed payment cards if empty
-        if (db.getCreditCards().isEmpty()) {
-            db.upsertCreditCard(
-                cardholderName = "Aryan Das",
-                encryptedNumber = encrypt("5412750012349729"),
-                expiryMonth = "04",
-                expiryYear = "31",
-                cardNickname = "Mastercard"
-            )
-        }
-
-        // Seed addresses if empty
-        if (db.getAddresses().isEmpty()) {
-            db.upsertAddress(
-                fullName = "Aryan Das",
-                phoneNumber = "+91 94358 85077",
-                addressLine1 = "Hno 16, Sukanta Lane, Satsang Ashram Road, Assam, Silchar",
-                addressLine2 = "dasaryan715@gmail.com",
-                city = "Silchar",
-                state = "Assam",
-                postalCode = "788005",
-                country = "India"
-            )
-            db.upsertAddress(
-                fullName = "Aryan Das",
-                phoneNumber = "+91 94358 85077",
-                addressLine1 = "Hno 16, Sukanta Lane Satsang Ashram Road, Assam, Silchar",
-                addressLine2 = "aryandas079@outlook.com",
-                city = "Silchar",
-                state = "Assam",
-                postalCode = "788005",
-                country = "India"
-            )
-            db.upsertAddress(
-                fullName = "Aryan Das",
-                phoneNumber = "+91 94358 85077",
-                addressLine1 = "Hno 16 Sukanta Lane Satsang Ashram Road, Assam, Silchar",
-                addressLine2 = "aryandas.dev@gmail.com",
-                city = "Silchar",
-                state = "Assam",
-                postalCode = "788005",
-                country = "India"
-            )
-            db.upsertAddress(
-                fullName = "Aryan Das",
-                phoneNumber = "",
-                addressLine1 = "QQ5Q+44F Masimpur, Assam, Silcoorie Grant",
-                addressLine2 = "dasaryan715@gmail.com",
-                city = "Silcoorie Grant",
-                state = "Assam",
-                postalCode = "788118",
-                country = "India"
-            )
-        }
-
-        prefs.edit().putBoolean(PREF_SEEDED_DEFAULTS, true).apply()
+        db.clearAllPasswords()
+        db.clearAllCreditCards()
+        db.clearAllAddresses()
+        prefs.edit()
+            .putBoolean("pm_cleaned_defaults_v3", true)
+            .remove(PREF_SEEDED_DEFAULTS)
+            .apply()
     }
 
     // =========================================================================
@@ -282,7 +216,7 @@ object HazePasswordManager {
     // =========================================================================
 
     fun show(context: MainActivity, importLauncher: () -> Unit = {}) {
-        seedDefaultDataIfEmpty(context)
+        purgeDefaultEntriesIfPresent(context)
         authenticateUser(
             activity = context,
             title = "Unlock Passwords & Autofill",

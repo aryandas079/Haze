@@ -609,6 +609,15 @@ class HazeDatabase private constructor(context: Context) :
     fun deleteAddress(id: Long): Boolean =
         writableDatabase.delete("addresses", "id = ?", arrayOf(id.toString())) > 0
 
+    fun clearAllPasswords(): Int =
+        writableDatabase.delete("password_items", null, null)
+
+    fun clearAllCreditCards(): Int =
+        writableDatabase.delete("credit_cards", null, null)
+
+    fun clearAllAddresses(): Int =
+        writableDatabase.delete("addresses", null, null)
+
     private fun createPrivacyTables(db: SQLiteDatabase) {
         try {
             db.execSQL(

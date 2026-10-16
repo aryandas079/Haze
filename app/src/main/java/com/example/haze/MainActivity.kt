@@ -889,6 +889,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
+        HazePasswordManager.purgeDefaultEntriesIfPresent(this)
 
         webContainer = findViewById(R.id.webContainer)
         fullscreenVideoContainer = findViewById(R.id.fullscreenVideoContainer)
