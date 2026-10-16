@@ -528,13 +528,6 @@ object HazePrivacyShieldEngine {
             return BlockDecision.ALLOW
         }
 
-        // 2b. CRITICAL: Never block video and audio media streams!
-        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
-        // Blocking media chunks causes video to fail/freeze while only audio plays, or broken video playback.
-        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
-            return BlockDecision.ALLOW
-        }
-
         val isYouTube = isYouTubeHost(pageHost) || isYouTubeHost(reqHost)
         if (isYouTube) {
             val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -544,7 +537,7 @@ object HazePrivacyShieldEngine {
                 val decision = BlockDecision(
                     shouldBlock = true,
                     category = CATEGORY_ADS,
-                    reason = "YouTube advertising request",
+                    reason = "YouTube advertising & telemetry request",
                     bytesSaved = 48_000L,
                     timeSavedMs = 120L,
                     targetUrl = requestUrl
@@ -552,6 +545,12 @@ object HazePrivacyShieldEngine {
                 recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate, pageHost)
                 return decision
             }
+        }
+
+        // 2b. Never block legitimate video and audio media streams!
+        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
+        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+            return BlockDecision.ALLOW
         }
 
         // Native C++ HazeShieldCore Execution
@@ -802,22 +801,36 @@ object HazePrivacyShieldEngine {
     }
 
     private fun isYouTubeAdRequest(host: String, path: String, url: String): Boolean {
-        if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) return false
+        if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
+            val lowerUrl = url.lowercase()
+            return lowerUrl.contains("adformat=") ||
+                lowerUrl.contains("ctier=a") ||
+                lowerUrl.contains("&oad=") ||
+                lowerUrl.contains("&ad_type=") ||
+                lowerUrl.contains("&ad=") ||
+                (lowerUrl.contains("c=web_embedded_player") && lowerUrl.contains("&ad_"))
+        }
 
         val adHosts = host == "doubleclick.net" || host.endsWith(".doubleclick.net") ||
             host == "googleadservices.com" || host.endsWith(".googleadservices.com") ||
             host == "googlesyndication.com" || host.endsWith(".googlesyndication.com") ||
             host == "ads.youtube.com" || host.endsWith(".ads.youtube.com") ||
-            host == "adservice.google.com" || host.endsWith(".adservice.google.com")
+            host == "adservice.google.com" || host.endsWith(".adservice.google.com") ||
+            host == "static.doubleclick.net" || host == "pagead2.googlesyndication.com"
         if (adHosts) return true
 
         val lowerPath = path.lowercase()
         val lowerUrl = url.lowercase()
-        return (host == "youtube.com" || host.endsWith(".youtube.com")) &&
+        return (host == "youtube.com" || host.endsWith(".youtube.com") || host == "youtube-nocookie.com" || host.endsWith(".youtube-nocookie.com")) &&
             (lowerPath.contains("/api/stats/ads") ||
+                lowerPath.contains("/api/stats/atr") ||
+                (lowerPath.contains("/api/stats/qoe") && (lowerUrl.contains("adformat=") || lowerUrl.contains("ad_type="))) ||
                 lowerPath.contains("/pagead/") ||
+                lowerPath.contains("/ptracking") ||
+                lowerPath.contains("/get_midroll_info") ||
                 lowerPath.contains("/youtubei/v1/player/ad_break") ||
                 lowerPath.contains("/ad_break") ||
+                lowerPath.contains("/youtubei/v1/att/get") ||
                 lowerUrl.contains("adformat=") ||
                 lowerUrl.contains("ad_type="))
     }

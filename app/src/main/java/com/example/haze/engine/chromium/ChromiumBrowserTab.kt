@@ -73,6 +73,17 @@ class ChromiumBrowserTab(
                 e.printStackTrace()
             }
         }
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    YOUTUBE_ENGINE_SCRIPT,
+                    setOf("https://*.youtube.com", "https://youtube.com", "https://*.youtube-nocookie.com")
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         configureWebSettings(config)
         setupClientHandlers()
     }
@@ -1158,43 +1169,259 @@ class ChromiumBrowserTab(
                 if (window.__hazeYouTubeEngineInjected) return;
                 window.__hazeYouTubeEngineInjected = true;
 
-                // 1. Automatic Fallback for Empty Home Feed
-                // If YouTube mobile serves the blank "Try searching to get started" state on root,
-                // seamlessly route to /feed/trending (Explore/Trending) so the user gets a rich feed of videos immediately.
-                function checkAndPopulateFeed() {
+                // 1. Comprehensive AdGuard/uBlock Cosmetic CSS Injection
+                var ytCosmeticSelectors = [
+                    'ytd-ad-slot-renderer',
+                    'ytd-in-feed-ad-layout-renderer',
+                    'ytd-promoted-sparkles-web-renderer',
+                    'ytd-promoted-video-renderer',
+                    'ytd-display-ad-renderer',
+                    'ytd-statement-banner-renderer',
+                    'ytd-banner-promo-renderer',
+                    'ytd-compact-promoted-video-renderer',
+                    'ytd-companion-ad-renderer',
+                    'ytd-merch-shelf-renderer',
+                    'ytd-action-companion-ad-renderer',
+                    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
+                    'ytd-player-legacy-desktop-watch-ads-renderer',
+                    '#masthead-ad',
+                    '#player-ads',
+                    '.ytp-ad-overlay-container',
+                    '.ytp-ad-text',
+                    '.ytp-ad-message-container',
+                    '.ytp-ad-image-overlay',
+                    '.ytp-ad-overlay-image',
+                    '.ytp-ad-player-overlay',
+                    '.ytp-ad-player-overlay-layout',
+                    '.ytp-ad-player-overlay-skip-or-preview',
+                    '.ytp-ad-action-interstitial',
+                    '.ytp-ad-survey',
+                    '.ytp-ad-progress-list',
+                    'ytm-promoted-sparkles-web-renderer',
+                    'ytm-promoted-video-renderer',
+                    'ytm-ad-slot-renderer',
+                    'ytm-companion-ad-renderer',
+                    'ytm-inline-ad',
+                    'ytm-statement-banner-renderer',
+                    'ytm-banner-promo-renderer',
+                    'ytm-compact-promoted-video-renderer',
+                    'ytm-promoted-sparkles-text-search-web-renderer',
+                    'ytm-paid-content-overlay-renderer',
+                    'ytm-mealbar-promo-renderer',
+                    'yt-mealbar-promo-renderer',
+                    'ytd-mealbar-promo-renderer',
+                    'ytm-upsell-dialog-renderer',
+                    'ytd-offline-promo-renderer',
+                    'ytd-enforcement-message-view-model',
+                    '#enforcement-message',
+                    'tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)',
+                    'tp-yt-paper-dialog:has(#feedback)',
+                    'yt-playability-error-supported-renderers',
+                    'ytm-search ytm-compact-promoted-video-renderer',
+                    '.ad-container',
+                    '.ad-div',
+                    '.video-ads'
+                ];
+                var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }';
+
+                function injectYtStyle() {
                     try {
-                        var path = window.location.pathname;
-                        if (path === '/' || path === '') {
-                            var text = document.body ? document.body.innerText : '';
-                            if (text && text.indexOf('Try searching to get started') !== -1) {
-                                var trendingBtn = document.querySelector('a[href*="/feed/trending"], a[href*="/feed/explore"], [aria-label*="Explore"], [aria-label*="Trending"]');
-                                if (trendingBtn) {
-                                    trendingBtn.click();
-                                } else {
-                                    window.location.replace('/feed/trending');
-                                }
-                            }
+                        var style = document.getElementById('__haze_yt_style');
+                        if (!style) {
+                            style = document.createElement('style');
+                            style.id = '__haze_yt_style';
+                            style.type = 'text/css';
+                            style.textContent = ytCosmeticCss;
+                            var target = document.head || document.documentElement;
+                            if (target) target.appendChild(style);
+                        }
+                    } catch(_) {}
+                }
+                injectYtStyle();
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', injectYtStyle);
+                }
+
+                // 2. Prototype Trapping on Object.prototype (json-prune / set-constant)
+                try {
+                    Object.defineProperty(Object.prototype, 'adPlacements', {
+                        get: function() { return undefined; },
+                        set: function() {},
+                        configurable: true
+                    });
+                    Object.defineProperty(Object.prototype, 'playerAds', {
+                        get: function() { return undefined; },
+                        set: function() {},
+                        configurable: true
+                    });
+                    Object.defineProperty(Object.prototype, 'adSlots', {
+                        get: function() { return undefined; },
+                        set: function() {},
+                        configurable: true
+                    });
+                } catch(_) {}
+
+                // 3. Trapping window.ytInitialPlayerResponse
+                function cleanPlayerPayload(obj) {
+                    if (!obj || typeof obj !== 'object') return;
+                    try {
+                        delete obj.adPlacements;
+                        delete obj.playerAds;
+                        delete obj.adSlots;
+                        delete obj.adBreakHeartbeatParams;
+                        if (obj.playbackTracking) {
+                            obj.playbackTracking.videostatsPlaybackUrl = { baseUrl: '' };
+                            obj.playbackTracking.videostatsDelayplayUrl = { baseUrl: '' };
+                            obj.playbackTracking.videostatsWatchtimeUrl = { baseUrl: '' };
+                            obj.playbackTracking.qoeUrl = { baseUrl: '' };
+                            obj.playbackTracking.atrUrl = { baseUrl: '' };
                         }
                     } catch(_) {}
                 }
 
-                if (document.readyState === 'complete' || document.readyState === 'interactive') {
-                    setTimeout(checkAndPopulateFeed, 350);
-                } else {
-                    window.addEventListener('DOMContentLoaded', function() { setTimeout(checkAndPopulateFeed, 350); });
-                }
-                var feedObserver = new MutationObserver(function() {
-                    checkAndPopulateFeed();
-                });
-                if (document.body) {
-                    feedObserver.observe(document.body, { childList: true, subtree: true });
-                } else {
-                    window.addEventListener('DOMContentLoaded', function() {
-                        if (document.body) feedObserver.observe(document.body, { childList: true, subtree: true });
+                var _ytInitialPlayerResp = undefined;
+                try {
+                    Object.defineProperty(window, 'ytInitialPlayerResponse', {
+                        get: function() { return _ytInitialPlayerResp; },
+                        set: function(val) {
+                            cleanPlayerPayload(val);
+                            _ytInitialPlayerResp = val;
+                        },
+                        configurable: true
                     });
+                } catch(_) {}
+
+                // 4. Runtime Fetch & XHR Response Pruning (Non-destructive JSON wrapping)
+                try {
+                    var origFetch = window.fetch;
+                    window.fetch = function(input, init) {
+                        var url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
+                        if (url && (
+                            url.indexOf('/api/stats/ads') !== -1 ||
+                            url.indexOf('/pagead/') !== -1 ||
+                            url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
+                            url.indexOf('/ptracking') !== -1
+                        )) {
+                            return Promise.resolve(new Response('', { status: 204, statusText: 'No Content' }));
+                        }
+
+                        var isPlayerReq = url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1);
+                        var p = origFetch.apply(this, arguments);
+                        if (isPlayerReq) {
+                            return p.then(function(res) {
+                                var origJson = res.json;
+                                res.json = function() {
+                                    return origJson.apply(this, arguments).then(function(data) {
+                                        cleanPlayerPayload(data);
+                                        return data;
+                                    });
+                                };
+                                var origText = res.text;
+                                res.text = function() {
+                                    return origText.apply(this, arguments).then(function(text) {
+                                        try {
+                                            if (text && text.indexOf('adPlacements') !== -1) {
+                                                var parsed = JSON.parse(text);
+                                                cleanPlayerPayload(parsed);
+                                                return JSON.stringify(parsed);
+                                            }
+                                        } catch(_) {}
+                                        return text;
+                                    });
+                                };
+                                return res;
+                            });
+                        }
+                        return p;
+                    };
+                } catch(_) {}
+
+                try {
+                    var origXhrOpen = XMLHttpRequest.prototype.open;
+                    var origXhrSend = XMLHttpRequest.prototype.send;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        this.__hazeYtUrl = url || '';
+                        return origXhrOpen.apply(this, arguments);
+                    };
+                    XMLHttpRequest.prototype.send = function() {
+                        var url = this.__hazeYtUrl;
+                        if (url && (
+                            url.indexOf('/api/stats/ads') !== -1 ||
+                            url.indexOf('/pagead/') !== -1 ||
+                            url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
+                            url.indexOf('/ptracking') !== -1
+                        )) {
+                            var self = this;
+                            setTimeout(function() {
+                                try {
+                                    Object.defineProperty(self, 'status', { get: function() { return 204; } });
+                                    Object.defineProperty(self, 'responseText', { get: function() { return ''; } });
+                                    if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
+                                    if (typeof self.onload === 'function') self.onload();
+                                } catch(_) {}
+                            }, 0);
+                            return;
+                        }
+
+                        if (url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1)) {
+                            var self = this;
+                            var origOnLoad = self.onload;
+                            self.onload = function() {
+                                try {
+                                    if (self.responseText && self.responseText.indexOf('adPlacements') !== -1) {
+                                        var json = JSON.parse(self.responseText);
+                                        cleanPlayerPayload(json);
+                                        var cleaned = JSON.stringify(json);
+                                        Object.defineProperty(self, 'responseText', { get: function() { return cleaned; }, configurable: true });
+                                        Object.defineProperty(self, 'response', { get: function() { return cleaned; }, configurable: true });
+                                    }
+                                } catch(_) {}
+                                if (origOnLoad) return origOnLoad.apply(this, arguments);
+                            };
+                        }
+                        return origXhrSend.apply(this, arguments);
+                    };
+                } catch(_) {}
+
+                // 5. ytcfg experiment flags to disable anti-adblock modals & banners
+                try {
+                    var setYtCfg = function() {
+                        if (window.ytcfg && typeof window.ytcfg.set === 'function') {
+                            window.ytcfg.set({
+                                'WEB_EXPERIMENT_FLAGS': {
+                                    'ad_block_banner_enabled': false,
+                                    'ad_block_overlay_enabled': false,
+                                    'disable_adblock_warning': true,
+                                    'html5_ad_timeout_ms': 0
+                                }
+                            });
+                        }
+                    };
+                    setYtCfg();
+                    window.addEventListener('DOMContentLoaded', setYtCfg);
+                } catch(_) {}
+
+                // 6. Automatic Dismissal of Enforcement Dialogs, Paywalls & Premium Promos
+                function dismissPaywallsAndEnforcements() {
+                    try {
+                        var enforcementModals = document.querySelectorAll(
+                            'ytd-enforcement-message-view-model, #enforcement-message, tp-yt-paper-dialog:has(ytd-enforcement-message-view-model), tp-yt-paper-dialog:has(#feedback), yt-playability-error-supported-renderers, ytm-mealbar-promo-renderer, ytm-upsell-dialog-renderer, ytd-mealbar-promo-renderer, ytd-popup-container yt-confirm-dialog-renderer'
+                        );
+                        for (var i = 0; i < enforcementModals.length; i++) {
+                            enforcementModals[i].remove();
+                        }
+                        var backdrops = document.querySelectorAll('tp-yt-iron-overlay-backdrop, .opened[aria-hidden="true"]');
+                        for (var b = 0; b < backdrops.length; b++) {
+                            backdrops[b].remove();
+                        }
+                        var video = document.querySelector('video');
+                        if (video && video.paused && !video.ended && video.readyState > 2) {
+                            video.play().catch(function() {});
+                        }
+                    } catch(_) {}
                 }
 
-                // 2. High-performance Video Ad Skipper & Auto-Fast-Forwarder
+                // 7. Instant 0ms Fast-Forward & Fallback Ad Skipper (for server-stitched ads)
                 var adSelectors = [
                     '.ytp-ad-skip-button',
                     '.ytp-ad-skip-button-modern',
@@ -1211,6 +1438,7 @@ class ChromiumBrowserTab(
                 ];
 
                 function skipYouTubeAd() {
+                    dismissPaywallsAndEnforcements();
                     var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing, [class*="ad-showing"], [class*="ad-interrupting"]');
                     var video = document.querySelector('video');
 
@@ -1241,21 +1469,46 @@ class ChromiumBrowserTab(
                     for (var d = 0; d < dismissButtons.length; d++) {
                         try { dismissButtons[d].click(); } catch(_) {}
                     }
-
-                    var overlays = document.querySelectorAll(
-                        '.ytp-ad-overlay-container, .ytp-ad-text, .ytp-ad-message-container, .ytp-ad-image-overlay, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer, #player-ads'
-                    );
-                    for (var j = 0; j < overlays.length; j++) {
-                        overlays[j].style.setProperty('display', 'none', 'important');
-                    }
                 }
 
-                setInterval(skipYouTubeAd, 500);
+                // 8. Automatic Fallback for Empty Home Feed
+                function checkAndPopulateFeed() {
+                    try {
+                        var path = window.location.pathname;
+                        if (path === '/' || path === '') {
+                            var text = document.body ? document.body.innerText : '';
+                            if (text && (text.indexOf('Try searching to get started') !== -1 || text.indexOf('build a feed of videos') !== -1)) {
+                                var trendingBtn = document.querySelector('a[href*="/feed/trending"], a[href*="/feed/explore"], [aria-label*="Explore"], [aria-label*="Trending"]');
+                                if (trendingBtn) {
+                                    trendingBtn.click();
+                                } else {
+                                    window.location.replace('/feed/trending');
+                                }
+                            }
+                        }
+                    } catch(_) {}
+                }
+
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                    setTimeout(checkAndPopulateFeed, 350);
+                } else {
+                    window.addEventListener('DOMContentLoaded', function() { setTimeout(checkAndPopulateFeed, 350); });
+                }
+                var feedObserver = new MutationObserver(function() {
+                    checkAndPopulateFeed();
+                });
+                if (document.body) {
+                    feedObserver.observe(document.body, { childList: true, subtree: true });
+                } else {
+                    window.addEventListener('DOMContentLoaded', function() {
+                        if (document.body) feedObserver.observe(document.body, { childList: true, subtree: true });
+                    });
+                }
+
+                setInterval(skipYouTubeAd, 300);
                 document.addEventListener('yt-navigate-finish', function() { setTimeout(skipYouTubeAd, 50); });
                 document.addEventListener('yt-page-data-updated', function() { setTimeout(skipYouTubeAd, 50); });
-                document.addEventListener('click', function() {
-                    setTimeout(skipYouTubeAd, 0);
-                }, true);
+                document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
 
                 var observer = new MutationObserver(function() {
                     skipYouTubeAd();
