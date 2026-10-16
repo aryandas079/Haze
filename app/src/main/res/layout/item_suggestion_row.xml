@@ -47,19 +47,43 @@
         android:clickable="true"
         android:focusable="true">
 
-        <ImageView
-            android:id="@+id/ivSuggestionIcon"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_search"
-            app:tint="#5F6368"
-            android:contentDescription="Suggestion Icon" />
+        <FrameLayout
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="center_vertical">
+
+            <ImageView
+                android:id="@+id/ivSuggestionIcon"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_search"
+                app:tint="#5F6368"
+                android:contentDescription="Suggestion Icon" />
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardSuggestionThumbnail"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                app:cardCornerRadius="6dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="@android:color/transparent"
+                android:visibility="gone">
+
+                <ImageView
+                    android:id="@+id/ivSuggestionThumbnail"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="Suggestion Thumbnail" />
+            </androidx.cardview.widget.CardView>
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="14dp"
+            android:layout_marginStart="12dp"
             android:layout_marginEnd="8dp"
             android:orientation="vertical"
             android:clickable="false"

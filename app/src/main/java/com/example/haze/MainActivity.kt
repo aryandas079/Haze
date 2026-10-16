@@ -30,6 +30,9 @@ import android.speech.tts.TextToSpeech
 import java.util.Locale
 import android.text.Editable
 import android.text.TextWatcher
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
@@ -218,10 +221,12 @@ class MainActivity : AppCompatActivity() {
     // Chromium can report dozens of progress ticks per page.  Updating Android
     private val renderedProgressByTab = mutableMapOf<Long, Int>()
     private val suggestionExecutor = Executors.newFixedThreadPool(2)
+    private val thumbnailExecutor = Executors.newFixedThreadPool(3)
     private val dbExecutor = Executors.newSingleThreadExecutor()
+    private val thumbnailCache = object : android.util.LruCache<String, Bitmap>(60) {}
     private val suggestionCache = Collections.synchronizedMap(
-        object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean {
+        object : LinkedHashMap<String, List<SearchSuggestionItem>>(32, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<SearchSuggestionItem>>?): Boolean {
                 return size > 64
             }
         }
@@ -1640,6 +1645,14 @@ class MainActivity : AppCompatActivity() {
         renderRecentSearchesAndShortcuts()
     }
 
+    data class SearchSuggestionItem(
+        val query: String,
+        val title: String,
+        val category: String? = null,
+        val imageUrl: String? = null,
+        val isEntity: Boolean = false
+    )
+
     data class SuggestionRowItem(
         val title: String,
         val subtitle: String? = null,
@@ -1651,7 +1664,11 @@ class MainActivity : AppCompatActivity() {
         val isShortcut: Boolean = false,
         val isSmartItem: Boolean = false,
         val badgeText: String? = null,
-        val fillText: String? = null
+        val fillText: String? = null,
+        val imageUrl: String? = null,
+        val entityCategory: String? = null,
+        val isEntity: Boolean = false,
+        val isVerbatim: Boolean = false
     )
 
     private fun applySuggestionTheme(isDark: Boolean) {
@@ -1792,6 +1809,8 @@ class MainActivity : AppCompatActivity() {
         val bgDelete = rowContainer.findViewById<View>(R.id.layoutSwipeDeleteBackground)
         val foreground = rowContainer.findViewById<View>(R.id.layoutSuggestionForeground)
         val ivIcon = rowContainer.findViewById<ImageView>(R.id.ivSuggestionIcon)
+        val cardThumbnail = rowContainer.findViewById<androidx.cardview.widget.CardView>(R.id.cardSuggestionThumbnail)
+        val ivThumbnail = rowContainer.findViewById<ImageView>(R.id.ivSuggestionThumbnail)
         val tvTitle = rowContainer.findViewById<TextView>(R.id.tvSuggestionTitle)
         val tvBadge = rowContainer.findViewById<TextView>(R.id.tvSuggestionBadge)
         val tvSub = rowContainer.findViewById<TextView>(R.id.tvSuggestionSubtitle)
@@ -1810,11 +1829,64 @@ class MainActivity : AppCompatActivity() {
         val defaultIconColor = if (isPrivateMode || isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val smartAccentColor = if (isPrivateMode || isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8")
 
-        ivIcon.setImageResource(item.iconRes)
-        ivIcon.setColorFilter(if (item.isSmartItem) smartAccentColor else defaultIconColor)
-        tvTitle.text = item.title
-        tvTitle.setTextColor(titleColor)
-        tvTitle.setTypeface(null, if (item.isSmartItem) Typeface.BOLD else Typeface.NORMAL)
+        if (!item.imageUrl.isNullOrBlank()) {
+            ivIcon.visibility = View.GONE
+            cardThumbnail.visibility = View.VISIBLE
+            val imgUrl = item.imageUrl
+            ivThumbnail.tag = imgUrl
+            val cached = thumbnailCache.get(imgUrl)
+            if (cached != null) {
+                ivThumbnail.setImageBitmap(cached)
+            } else {
+                ivThumbnail.setImageDrawable(null)
+                thumbnailExecutor.execute {
+                    try {
+                        val conn = java.net.URL(imgUrl).openConnection() as java.net.HttpURLConnection
+                        conn.connectTimeout = 3000
+                        conn.readTimeout = 3000
+                        conn.inputStream.use { stream ->
+                            val bmp = android.graphics.BitmapFactory.decodeStream(stream)
+                            if (bmp != null) {
+                                thumbnailCache.put(imgUrl, bmp)
+                                mainHandler.post {
+                                    if (ivThumbnail.tag == imgUrl) {
+                                        ivThumbnail.setImageBitmap(bmp)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        } else {
+            cardThumbnail.visibility = View.GONE
+            ivIcon.visibility = View.VISIBLE
+            ivIcon.setImageResource(item.iconRes)
+            ivIcon.setColorFilter(if (item.isSmartItem) smartAccentColor else defaultIconColor)
+        }
+
+        if (!item.subtitle.isNullOrBlank() && item.subtitle.startsWith("- ")) {
+            val titleText = item.title
+            val suffixText = "  ${item.subtitle}"
+            val fullText = titleText + suffixText
+            val span = SpannableString(fullText)
+            span.setSpan(ForegroundColorSpan(titleColor), 0, titleText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            span.setSpan(ForegroundColorSpan(subColor), titleText.length, fullText.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            tvTitle.text = span
+            tvSub.visibility = View.GONE
+        } else if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
+            tvTitle.text = item.title
+            tvTitle.setTextColor(titleColor)
+            tvSub.text = item.subtitle
+            tvSub.setTextColor(subColor)
+            tvSub.visibility = View.VISIBLE
+        } else {
+            tvTitle.text = item.title
+            tvTitle.setTextColor(titleColor)
+            tvSub.visibility = View.GONE
+        }
+
+        tvTitle.setTypeface(null, if (item.isSmartItem || item.isVerbatim) Typeface.BOLD else Typeface.NORMAL)
 
         if (!item.badgeText.isNullOrBlank()) {
             tvBadge.text = item.badgeText.uppercase(Locale.US)
@@ -1830,13 +1902,6 @@ class MainActivity : AppCompatActivity() {
             tvBadge.visibility = View.GONE
         }
 
-        if (!item.subtitle.isNullOrBlank() && item.subtitle != item.title) {
-            tvSub.text = item.subtitle
-            tvSub.setTextColor(subColor)
-            tvSub.visibility = View.VISIBLE
-        } else {
-            tvSub.visibility = View.GONE
-        }
         btnFill.setColorFilter(defaultIconColor)
 
         btnFill.setOnClickListener {
@@ -2066,12 +2131,12 @@ class MainActivity : AppCompatActivity() {
         // 5. Check cached suggestions
         suggestionCache[strippedQ]?.let { cached ->
             for (s in cached) {
-                val cleaned = cleanUrlForMatching(s)
+                val cleaned = cleanUrlForMatching(s.query)
                 if (cleaned.lowercase(Locale.US).startsWith(strippedQ)) {
                     return cleaned
                 }
-                if (s.lowercase(Locale.US).startsWith(lowerQ)) {
-                    return s
+                if (s.query.lowercase(Locale.US).startsWith(lowerQ)) {
+                    return s.query
                 }
             }
         }
@@ -2218,7 +2283,7 @@ class MainActivity : AppCompatActivity() {
         return local.take(20)
     }
 
-    private fun fetchSearchSuggestions(query: String, callback: (List<String>) -> Unit) {
+    private fun fetchSearchSuggestions(query: String, callback: (List<SearchSuggestionItem>) -> Unit) {
         val trimmed = query.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("haze://")) {
             callback(emptyList())
@@ -2229,31 +2294,76 @@ class MainActivity : AppCompatActivity() {
             return
         }
         suggestionExecutor.execute {
-            val localMatches = buildLocalIndexedSuggestions(trimmed)
+            val localMatches = buildLocalIndexedSuggestions(trimmed).map {
+                SearchSuggestionItem(query = it, title = it)
+            }
             if (localMatches.isNotEmpty()) {
                 mainHandler.post { callback(localMatches) }
             }
             var conn: java.net.HttpURLConnection? = null
             try {
                 val encoded = Uri.encode(trimmed)
-                val url = java.net.URL("https://suggestqueries.google.com/complete/search?client=chrome&q=$encoded")
+                val url = java.net.URL("https://www.google.com/complete/search?client=gws-wiz&xssi=t&q=$encoded")
                 conn = url.openConnection() as java.net.HttpURLConnection
                 conn.connectTimeout = 1500
                 conn.readTimeout = 1500
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
-                val jsonArray = JSONArray(text)
-                val suggestionsArray = jsonArray.getJSONArray(1)
-                val combined = LinkedHashSet<String>()
-                combined.addAll(localMatches)
+                val cleanJson = if (text.startsWith(")]}'")) text.substring(4).trim() else text.trim()
+                val jsonArray = JSONArray(cleanJson)
+                val suggestionsArray = jsonArray.getJSONArray(0)
+                val combined = mutableListOf<SearchSuggestionItem>()
+                val seenTitles = mutableSetOf<String>()
+
                 for (i in 0 until suggestionsArray.length()) {
-                    combined.add(suggestionsArray.getString(i))
+                    val item = suggestionsArray.getJSONArray(i)
+                    val rawText = item.getString(0)
+                    val cleanQuery = rawText.replace(Regex("<[^>]*>"), "").trim()
+                    val metaObj = if (item.length() > 3) item.optJSONObject(3) else null
+                    val entityTitle = metaObj?.optString("zh", "")?.ifBlank { null }
+                    val entityCategory = metaObj?.optString("zi", "")?.ifBlank { null }
+                    val entityImageUrl = metaObj?.optString("zs", "")?.ifBlank { null }
+
+                    val displayTitle = entityTitle ?: cleanQuery
+                    val lower = displayTitle.lowercase(Locale.US)
+                    if (seenTitles.add(lower)) {
+                        combined.add(
+                            SearchSuggestionItem(
+                                query = cleanQuery,
+                                title = displayTitle,
+                                category = entityCategory,
+                                imageUrl = entityImageUrl,
+                                isEntity = (entityTitle != null || entityImageUrl != null)
+                            )
+                        )
+                    }
                     if (combined.size >= 25) break
                 }
                 val result = combined.toList()
                 suggestionCache[trimmed] = result
                 mainHandler.post { callback(result) }
             } catch (e: Exception) {
-                mainHandler.post { callback(localMatches) }
+                try {
+                    val fallbackEncoded = Uri.encode(trimmed)
+                    val fallbackUrl = java.net.URL("https://suggestqueries.google.com/complete/search?client=chrome&q=$fallbackEncoded")
+                    val fallbackConn = fallbackUrl.openConnection() as java.net.HttpURLConnection
+                    fallbackConn.connectTimeout = 1200
+                    fallbackConn.readTimeout = 1200
+                    val fallbackText = fallbackConn.inputStream.bufferedReader().use { it.readText() }
+                    val fbArray = JSONArray(fallbackText)
+                    val fbSuggestions = fbArray.getJSONArray(1)
+                    val fbList = mutableListOf<SearchSuggestionItem>()
+                    for (i in 0 until fbSuggestions.length()) {
+                        val s = fbSuggestions.getString(i)
+                        fbList.add(SearchSuggestionItem(query = s, title = s))
+                        if (fbList.size >= 25) break
+                    }
+                    fallbackConn.disconnect()
+                    suggestionCache[trimmed] = fbList
+                    mainHandler.post { callback(fbList) }
+                } catch (_: Exception) {
+                    mainHandler.post { callback(localMatches) }
+                }
             } finally {
                 conn?.disconnect()
             }
@@ -2292,7 +2402,7 @@ class MainActivity : AppCompatActivity() {
         searchSuggestionStrip.visibility = View.VISIBLE
     }
 
-    private fun renderSearchSuggestions(query: String, suggestions: List<String>) {
+    private fun renderSearchSuggestions(query: String, suggestions: List<SearchSuggestionItem>) {
         suggestionChipContainer.removeAllViews()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         applySuggestionTheme(isDark)
@@ -2315,6 +2425,22 @@ class MainActivity : AppCompatActivity() {
                     isSmartItem = true,
                     badgeText = smart.badgeText,
                     fillText = smart.fillText
+                )
+            )
+        }
+
+        // 01. Verbatim Top Search Item (matches Chrome UX: e.g. "pors - Google Search")
+        val searchEngineName = prefs.getString("search_engine", "Google") ?: "Google"
+        val trimmedQuery = query.trim()
+        if (trimmedQuery.isNotEmpty()) {
+            rowItems.add(
+                SuggestionRowItem(
+                    title = trimmedQuery,
+                    subtitle = "- $searchEngineName Search",
+                    iconRes = R.drawable.ic_search,
+                    target = trimmedQuery,
+                    fillText = trimmedQuery,
+                    isVerbatim = true
                 )
             )
         }
@@ -2371,25 +2497,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. Top completion candidate (surfaced in search suggestions list, never inside address bar typing area)
+        // 2. Top completion candidate (surfaced in search suggestions list only for URL navigations)
         val bestCandidate = findBestInlineCompletion(query)
         if (bestCandidate != null && !bestCandidate.equals(query, ignoreCase = true)) {
             val isUrl = bestCandidate.contains(".") && !bestCandidate.contains(" ")
-            val icon = if (isUrl) R.drawable.ic_globe else R.drawable.ic_search
-            val target = if (isUrl && !bestCandidate.startsWith("http://") && !bestCandidate.startsWith("https://")) {
-                "https://$bestCandidate"
-            } else {
-                bestCandidate
-            }
-            if (rowItems.none { it.target.equals(target, ignoreCase = true) || it.title.equals(bestCandidate, ignoreCase = true) }) {
-                rowItems.add(
-                    SuggestionRowItem(
-                        title = bestCandidate,
-                        subtitle = if (isUrl) "Navigate to $bestCandidate" else "Search suggestion",
-                        iconRes = icon,
-                        target = target
+            if (isUrl) {
+                val icon = R.drawable.ic_globe
+                val target = if (!bestCandidate.startsWith("http://") && !bestCandidate.startsWith("https://")) {
+                    "https://$bestCandidate"
+                } else {
+                    bestCandidate
+                }
+                if (rowItems.none { !it.isVerbatim && (it.target.equals(target, ignoreCase = true) || it.title.equals(bestCandidate, ignoreCase = true)) }) {
+                    rowItems.add(
+                        SuggestionRowItem(
+                            title = bestCandidate,
+                            subtitle = "Navigate to $bestCandidate",
+                            iconRes = icon,
+                            target = target
+                        )
                     )
-                )
+                }
             }
         }
 
@@ -2399,7 +2527,7 @@ class MainActivity : AppCompatActivity() {
             for (b in db.searchBookmarks(query).take(3)) {
                 val clean = cleanUrlForMatching(b.url)
                 val title = b.title.ifBlank { clean }
-                if (rowItems.none { it.target == b.url }) {
+                if (rowItems.none { !it.isVerbatim && it.target == b.url }) {
                     rowItems.add(
                         SuggestionRowItem(
                             title = title,
@@ -2414,7 +2542,7 @@ class MainActivity : AppCompatActivity() {
             for (h in db.searchHistory(query).take(15)) {
                 val clean = cleanUrlForMatching(h.url)
                 val title = h.title.ifBlank { clean }
-                if (rowItems.none { it.target == h.url }) {
+                if (rowItems.none { !it.isVerbatim && it.target == h.url }) {
                     rowItems.add(
                         SuggestionRowItem(
                             title = title,
@@ -2428,22 +2556,46 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (_: Exception) {}
 
-        // 4. Add suggestions from network / local list
+        // 4. Add rich suggestions from network / local list
         for (s in suggestions) {
-            val isUrl = s.startsWith("http://") || s.startsWith("https://") || (s.contains(".") && !s.contains(" "))
+            val isUrl = s.query.startsWith("http://") || s.query.startsWith("https://") || (s.query.contains(".") && !s.query.contains(" "))
             val icon = if (isUrl) R.drawable.ic_globe else R.drawable.ic_search
-            val clean = if (isUrl) cleanUrlForMatching(s) else null
-            if (rowItems.none { it.target.equals(s, ignoreCase = true) || it.title.equals(s, ignoreCase = true) }) {
-                val isRecent = getRecentSearches().any { it.equals(s, ignoreCase = true) }
-                rowItems.add(
-                    SuggestionRowItem(
-                        title = s,
-                        subtitle = clean,
-                        iconRes = if (isRecent) R.drawable.ic_history else icon,
-                        target = s,
-                        isRecent = isRecent
-                    )
-                )
+            val clean = if (isUrl) cleanUrlForMatching(s.query) else null
+            val isRecent = getRecentSearches().any { it.equals(s.query, ignoreCase = true) || it.equals(s.title, ignoreCase = true) }
+
+            // If non-entity item is an exact duplicate of the user's verbatim query, omit it to avoid clutter
+            if (!s.isEntity && s.title.equals(trimmedQuery, ignoreCase = true)) {
+                continue
+            }
+
+            val itemSubtitle = if (s.isEntity && !s.category.isNullOrBlank()) {
+                "- ${s.category}"
+            } else clean
+
+            val newItem = SuggestionRowItem(
+                title = s.title,
+                subtitle = itemSubtitle,
+                iconRes = if (isRecent) R.drawable.ic_history else icon,
+                target = s.title.ifBlank { s.query },
+                fillText = s.title.ifBlank { s.query },
+                imageUrl = s.imageUrl,
+                entityCategory = s.category,
+                isEntity = s.isEntity,
+                isRecent = isRecent
+            )
+
+            val existingIdx = rowItems.indexOfFirst {
+                !it.isVerbatim && (it.target.equals(s.title, ignoreCase = true) || it.title.equals(s.title, ignoreCase = true) ||
+                    it.target.equals(s.query, ignoreCase = true) || it.title.equals(s.query, ignoreCase = true))
+            }
+
+            if (existingIdx != -1) {
+                // If incoming is rich entity, upgrade existing plain row to show thumbnail preview
+                if (s.isEntity && (!rowItems[existingIdx].isEntity || rowItems[existingIdx].imageUrl == null)) {
+                    rowItems[existingIdx] = newItem
+                }
+            } else {
+                rowItems.add(newItem)
             }
         }
 
@@ -10262,6 +10414,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         mainHandler.removeCallbacks(suggestionDebounce)
         suggestionExecutor.shutdownNow()
+        thumbnailExecutor.shutdownNow()
+        thumbnailCache.evictAll()
         dbExecutor.shutdownNow()
         miniPlayerManager?.release()
         super.onDestroy()
