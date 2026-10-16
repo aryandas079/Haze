@@ -68,7 +68,10 @@ object HazeTabSystemManager {
         onModeChanged: (Int) -> Unit,
         onSortRequested: (MainActivity.TabSortMode) -> Unit,
         onRefresh: () -> Unit,
-        onCloseTab: (MainActivity.Tab) -> Unit
+        onCloseTab: (MainActivity.Tab) -> Unit,
+        isPrivate: Boolean = false,
+        onSelectTabsRequested: (() -> Unit)? = null,
+        onPinSettingsRequested: (() -> Unit)? = null
     ) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -87,7 +90,7 @@ object HazeTabSystemManager {
 
         // Header
         val header = TextView(activity).apply {
-            text = "Tab Management"
+            text = if (isPrivate) "Private Tab Management" else "Tab Management"
             textSize = 17f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
@@ -138,9 +141,26 @@ object HazeTabSystemManager {
             root.addView(row)
         }
 
+        // 0. Multi-Select Tabs (moved into menu)
+        if (onSelectTabsRequested != null) {
+            addMenuItem("Select Tabs", R.drawable.ic_check, "Select multiple tabs to group or close") {
+                onSelectTabsRequested()
+            }
+        }
+
+        // 0.1 In Private: Option to set PIN or manage Incognito Lock
+        if (isPrivate && onPinSettingsRequested != null) {
+            val hasPin = HazeIncognitoAuthManager.hasPinConfigured(activity)
+            val pinTitle = if (hasPin) "Incognito Lock & PIN Settings" else "Set Private PIN Protection"
+            val pinSubtitle = if (hasPin) "Lock private tabs now or manage security" else "Require PIN or biometrics to view private tabs"
+            addMenuItem(pinTitle, R.drawable.ic_lock_shield, pinSubtitle) {
+                onPinSettingsRequested()
+            }
+        }
+
         // 1. Layout Mode Switcher
-        val modeNames = arrayOf("Grid Mode (2 columns)", "Cards Mode (Large Preview)", "List Mode (Compact Rows)")
-        val currentModeName = modeNames.getOrElse(currentMode) { "Grid Mode" }
+        val modeNames = arrayOf("Card View (Webpage Previews)", "Tile View (Responsive Grid)", "List View (Compact Rows)")
+        val currentModeName = modeNames.getOrElse(currentMode) { "Card View" }
         addMenuItem("Change View Mode", R.drawable.ic_grid, currentModeName) {
             showViewModeSelector(activity, currentMode) { newMode ->
                 onModeChanged(newMode)

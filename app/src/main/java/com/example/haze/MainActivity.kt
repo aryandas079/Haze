@@ -4794,7 +4794,7 @@ class MainActivity : AppCompatActivity() {
 
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
         val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
-        val btnSelectTabs = dialog.findViewById<ImageButton>(R.id.btnSelectTabs)
+        val btnPrivatePinAction = dialog.findViewById<ImageButton>(R.id.btnPrivatePinAction)
         val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
         val btnTabsMoreOptions = dialog.findViewById<ImageButton>(R.id.btnTabsMoreOptions)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
@@ -4804,6 +4804,8 @@ class MainActivity : AppCompatActivity() {
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
         val layoutEmptyIncognito = dialog.findViewById<LinearLayout>(R.id.layoutEmptyIncognito)
         val btnEmptyNewIncognito = dialog.findViewById<TextView>(R.id.btnEmptyNewIncognito)
+        val btnEmptyIncognitoPin = dialog.findViewById<LinearLayout>(R.id.btnEmptyIncognitoPin)
+        val tvEmptyIncognitoPin = dialog.findViewById<TextView>(R.id.tvEmptyIncognitoPin)
         val layoutLockedIncognito = dialog.findViewById<LinearLayout>(R.id.layoutLockedIncognito)
         val btnUnlockIncognito = dialog.findViewById<TextView>(R.id.btnUnlockIncognito)
 
@@ -4975,32 +4977,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnTabsMoreOptions.setOnClickListener {
-            triggerStrongHaptic(it)
-            val list = if (viewingPrivate) privateTabs else normalTabs
-            HazeTabSystemManager.showTabSwitcherMenu(
-                activity = this@MainActivity,
-                tabs = list,
-                activeIndex = if (viewingPrivate) activePrivateTabIndex else activeNormalTabIndex,
-                currentMode = currentMode,
-                onModeChanged = { newMode -> applyNewViewMode(newMode) },
-                onSortRequested = { sortMode ->
-                    personalAdapter.sortMode = sortMode
-                    privateAdapter.sortMode = sortMode
-                    personalAdapter.notifyDataSetChanged()
-                    privateAdapter.notifyDataSetChanged()
-                    Toast.makeText(this@MainActivity, "Sorted tabs by ${sortMode.name.lowercase()}", Toast.LENGTH_SHORT).show()
-                },
-                onRefresh = {
-                    personalAdapter.notifyDataSetChanged()
-                    privateAdapter.notifyDataSetChanged()
-                },
-                onCloseTab = { tabToClose ->
-                    onTabClosed(tabToClose, viewingPrivate)
-                }
-            )
-        }
-
         etTabSearch.addTextChangedListener(object : TextWatcher {
             override fun afterTextChanged(s: Editable?) {
                 val q = s?.toString()?.trim() ?: ""
@@ -5029,23 +5005,6 @@ class MainActivity : AppCompatActivity() {
 
         personalAdapter.onSelectionChanged = { updateSelectionUI() }
         privateAdapter.onSelectionChanged = { updateSelectionUI() }
-
-        btnSelectTabs?.setOnClickListener {
-            triggerStrongHaptic(it)
-            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
-            adapter.isSelectionMode = !adapter.isSelectionMode
-            if (adapter.isSelectionMode) {
-                barMultiSelect?.visibility = View.VISIBLE
-                searchPillContainer?.visibility = View.GONE
-                adapter.selectedTabIds.clear()
-                updateSelectionUI()
-            } else {
-                barMultiSelect?.visibility = View.GONE
-                searchPillContainer?.visibility = View.VISIBLE
-                adapter.selectedTabIds.clear()
-            }
-            adapter.notifyDataSetChanged()
-        }
 
         btnMultiSelectDone?.setOnClickListener {
             triggerStrongHaptic(it)
@@ -5247,7 +5206,10 @@ class MainActivity : AppCompatActivity() {
                 etTabSearch.setHintTextColor(Color.parseColor("#9AA0A6"))
                 btnClose.setColorFilter(Color.WHITE)
                 btnRecentlyClosed.setColorFilter(Color.parseColor("#9AA0A6"))
-                btnSelectTabs?.setColorFilter(Color.WHITE)
+                btnPrivatePinAction?.visibility = View.VISIBLE
+                btnPrivatePinAction?.setColorFilter(Color.WHITE)
+                val hasPin = HazeIncognitoAuthManager.hasPinConfigured(this@MainActivity)
+                tvEmptyIncognitoPin?.text = if (hasPin) "Incognito Protection Settings" else "Set PIN Protection"
                 btnToggleViewMode.setColorFilter(Color.WHITE)
                 btnTabsMoreOptions.setColorFilter(Color.WHITE)
 
@@ -5326,7 +5288,7 @@ class MainActivity : AppCompatActivity() {
                 etTabSearch.setHintTextColor(subColor)
                 btnClose.setColorFilter(textColor)
                 btnRecentlyClosed.setColorFilter(subColor)
-                btnSelectTabs?.setColorFilter(textColor)
+                btnPrivatePinAction?.visibility = View.GONE
                 btnToggleViewMode.setColorFilter(textColor)
                 btnTabsMoreOptions.setColorFilter(textColor)
 
@@ -5366,6 +5328,81 @@ class MainActivity : AppCompatActivity() {
                 }
                 currentTouchHelper?.attachToRecyclerView(rvActiveTabs)
             }
+        }
+
+        fun handlePrivatePinAction() {
+            if (!HazeIncognitoAuthManager.hasPinConfigured(this@MainActivity)) {
+                HazeIncognitoAuthManager.showSetPinDialog(this@MainActivity) { success ->
+                    if (success) {
+                        updateUI(animate = false)
+                    }
+                }
+            } else {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Incognito Security")
+                    .setItems(arrayOf("Lock Private Tabs Now", "Change PIN / Protection Settings")) { _, which ->
+                        if (which == 0) {
+                            HazeIncognitoAuthManager.lockNow(this@MainActivity)
+                            updateUI(animate = true)
+                            Toast.makeText(this@MainActivity, "Incognito locked", Toast.LENGTH_SHORT).show()
+                        } else {
+                            HazeIncognitoAuthManager.showProtectionSettingsDialog(this@MainActivity) {
+                                updateUI(animate = false)
+                            }
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+
+        btnPrivatePinAction?.setOnClickListener {
+            triggerStrongHaptic(it)
+            handlePrivatePinAction()
+        }
+
+        btnEmptyIncognitoPin?.setOnClickListener {
+            triggerStrongHaptic(it)
+            handlePrivatePinAction()
+        }
+
+        btnTabsMoreOptions.setOnClickListener {
+            triggerStrongHaptic(it)
+            val list = if (viewingPrivate) privateTabs else normalTabs
+            HazeTabSystemManager.showTabSwitcherMenu(
+                activity = this@MainActivity,
+                tabs = list,
+                activeIndex = if (viewingPrivate) activePrivateTabIndex else activeNormalTabIndex,
+                currentMode = currentMode,
+                onModeChanged = { newMode -> applyNewViewMode(newMode) },
+                onSortRequested = { sortMode ->
+                    personalAdapter.sortMode = sortMode
+                    privateAdapter.sortMode = sortMode
+                    personalAdapter.notifyDataSetChanged()
+                    privateAdapter.notifyDataSetChanged()
+                    Toast.makeText(this@MainActivity, "Sorted tabs by ${sortMode.name.lowercase()}", Toast.LENGTH_SHORT).show()
+                },
+                onRefresh = {
+                    personalAdapter.notifyDataSetChanged()
+                    privateAdapter.notifyDataSetChanged()
+                },
+                onCloseTab = { tabToClose ->
+                    onTabClosed(tabToClose, viewingPrivate)
+                },
+                isPrivate = viewingPrivate,
+                onSelectTabsRequested = {
+                    val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                    adapter.isSelectionMode = true
+                    barMultiSelect?.visibility = View.VISIBLE
+                    searchPillContainer?.visibility = View.GONE
+                    adapter.selectedTabIds.clear()
+                    updateSelectionUI()
+                    adapter.notifyDataSetChanged()
+                },
+                onPinSettingsRequested = {
+                    handlePrivatePinAction()
+                }
+            )
         }
 
         btnTogglePersonal.setOnClickListener {
@@ -6542,9 +6579,15 @@ class MainActivity : AppCompatActivity() {
         val activeTab = currentTabsList.getOrNull(activeTabIndex)
         val isDesktopActive = activeTab?.isDesktop == true || activeTab?.browserTab?.isDesktop == true
 
-        val menuItems = listOf(
+        val menuItems = mutableListOf(
             Pair("New Tab", R.drawable.ic_add),
-            Pair("New InPrivate", R.drawable.ic_private),
+            Pair("New InPrivate", R.drawable.ic_private)
+        )
+        if (isPrivateMode) {
+            val pinTitle = if (HazeIncognitoAuthManager.hasPinConfigured(this)) "Lock Private" else "Set Private PIN"
+            menuItems.add(Pair(pinTitle, R.drawable.ic_lock_shield))
+        }
+        menuItems.addAll(listOf(
             Pair("Privacy Shield", R.drawable.ic_privacy_shield),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
@@ -6561,7 +6604,7 @@ class MainActivity : AppCompatActivity() {
             Pair("DevTools", R.drawable.ic_code),
             Pair("Extra", R.drawable.ic_extra),
             Pair("Settings", R.drawable.ic_settings)
-        )
+        ))
         
         for (item in menuItems) {
             val itemView = layoutInflater.inflate(R.layout.item_menu_box, grid, false)
@@ -6595,6 +6638,26 @@ class MainActivity : AppCompatActivity() {
                         isPrivateMode = true
                         addNewTab(HAZE_HOME_URL)
                         Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
+                    }
+                    "Set Private PIN", "Lock Private" -> {
+                        if (!HazeIncognitoAuthManager.hasPinConfigured(this)) {
+                            HazeIncognitoAuthManager.showSetPinDialog(this) {}
+                        } else {
+                            AlertDialog.Builder(this)
+                                .setTitle("Incognito Security")
+                                .setItems(arrayOf("Lock Private Tabs Now", "Protection Settings")) { _, which ->
+                                    if (which == 0) {
+                                        HazeIncognitoAuthManager.lockNow(this)
+                                        isPrivateMode = false
+                                        if (normalTabs.isNotEmpty()) switchTab(activeNormalTabIndex.coerceIn(0, normalTabs.size - 1))
+                                        Toast.makeText(this, "Private tabs locked", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        HazeIncognitoAuthManager.showProtectionSettingsDialog(this) {}
+                                    }
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
                     }
                     "Privacy Shield" -> HazePrivacyShieldDashboard.showDashboard(this)
                     "Personalize" -> showPersonalizeDialog()

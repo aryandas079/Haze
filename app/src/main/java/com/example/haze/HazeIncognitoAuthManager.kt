@@ -167,6 +167,28 @@ object HazeIncognitoAuthManager {
         isIncognitoSessionUnlocked = false
     }
 
+    fun lockNow(activity: Activity) {
+        if (isProtectionEnabled(activity)) {
+            isIncognitoSessionUnlocked = false
+            applyWindowSecurity(activity, isViewingPrivate = true)
+        }
+    }
+
+    fun openPinOrSettings(activity: MainActivity, onUpdated: () -> Unit) {
+        if (!hasPinConfigured(activity)) {
+            showSetPinDialog(activity) { success ->
+                if (success) {
+                    isIncognitoSessionUnlocked = true
+                    onUpdated()
+                }
+            }
+        } else {
+            showProtectionSettingsDialog(activity) {
+                onUpdated()
+            }
+        }
+    }
+
     /**
      * Called when the app enters background or when tab switcher wants to lock private session.
      */
