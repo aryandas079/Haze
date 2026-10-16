@@ -7064,12 +7064,43 @@ class MainActivity : AppCompatActivity() {
             grid.addView(itemView)
         }
         
-        popupView.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-        val popupHeight = popupView.measuredHeight
+        val displayMetrics = resources.displayMetrics
+        val screenHeight = displayMetrics.heightPixels
         val menuBtn = findViewById<ImageButton>(R.id.menuBtn)
         
+        // Calculate max available height for the menu popup above the bottom bar
+        val menuBtnLoc = IntArray(2)
+        val availableHeightAbove = if (menuBtn.isShown) {
+            menuBtn.getLocationOnScreen(menuBtnLoc)
+            (menuBtnLoc[1] - dpToPx(24)).coerceAtLeast(dpToPx(200))
+        } else {
+            (screenHeight - dpToPx(100))
+        }
+
+        val menuScrollView = popupView.findViewById<ScrollView>(R.id.menuScrollView)
+        
+        // Measure unconstrained
+        popupView.measure(
+            View.MeasureSpec.makeMeasureSpec(dpToPx(328), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val measuredHeight = popupView.measuredHeight
+        val finalPopupHeight = Math.min(measuredHeight, availableHeightAbove)
+        
+        // If height exceeds available space, constrain the scrollview
+        if (measuredHeight > availableHeightAbove && menuScrollView != null) {
+            val nonScrollableHeaderHeight = measuredHeight - menuScrollView.measuredHeight
+            val allowedScrollHeight = (availableHeightAbove - nonScrollableHeaderHeight).coerceAtLeast(dpToPx(160))
+            val lp = menuScrollView.layoutParams
+            lp.height = allowedScrollHeight
+            menuScrollView.layoutParams = lp
+        }
+
+        popupWindow.isFocusable = true
+        popupWindow.isOutsideTouchable = true
+
         if (menuBtn.isShown) {
-            popupWindow.showAsDropDown(menuBtn, 0, -(popupHeight + menuBtn.height + 24))
+            popupWindow.showAsDropDown(menuBtn, 0, -(finalPopupHeight + menuBtn.height + 24))
         } else {
             popupWindow.showAtLocation(webContainer, Gravity.TOP or Gravity.END, 32, 140)
         }
@@ -8123,7 +8154,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val screenWidth = resources.displayMetrics.widthPixels
-        val edgeZone = dpToPx(36)
+        val edgeZone = dpToPx(20)
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -8314,10 +8345,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // 2. Edge swipe navigation tracking
+                // 2. Edge swipe navigation tracking (strictly horizontal to never hijack vertical page scrolling)
                 if (isEdgeTouch && !isSearchActive) {
-                    val isEdgeDrag = (isLeftEdge && dx > dpToPx(14) && dx > absY) ||
-                                     (isRightEdge && dx < -dpToPx(14) && absX > absY)
+                    val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                    val canGoBack = currentTab?.browserTab?.navigationController?.canGoBack() == true
+                    val canGoForward = currentTab?.browserTab?.navigationController?.canGoForward() == true
+                    val isEdgeDrag = (isLeftEdge && canGoBack && dx > dpToPx(28) && absX > (absY * 2.0f)) ||
+                                     (isRightEdge && canGoForward && dx < -dpToPx(28) && absX > (absY * 2.0f))
                     if (isEdgeDrag) {
                         isEdgeSwiping = true
                         if (!childTouchesCanceled) {
@@ -8326,7 +8360,7 @@ class MainActivity : AppCompatActivity() {
                             cancelEvent.recycle()
                             childTouchesCanceled = true
                         }
-                        val currView = currentTabsList.getOrNull(activeTabIndex)?.let { it.swipeRefreshLayout ?: it.browserTab.renderView }
+                        val currView = currentTab?.let { it.swipeRefreshLayout ?: it.browserTab.renderView }
                         if (currView != null) {
                             currView.translationX = dx * 0.25f
                         }

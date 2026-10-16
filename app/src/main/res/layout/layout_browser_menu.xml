@@ -94,10 +94,19 @@
         android:background="#E5E5E5"
         android:layout_marginBottom="10dp" />
 
-    <!-- 4-Column Grid -->
-    <GridLayout
-        android:id="@+id/menuGrid"
+    <!-- Scrollable Container for 4-Column Grid -->
+    <ScrollView
+        android:id="@+id/menuScrollView"
         android:layout_width="296dp"
-        android:layout_height="wrap_content"
-        android:columnCount="4" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="none"
+        android:overScrollMode="ifContentScrolls">
+
+        <GridLayout
+            android:id="@+id/menuGrid"
+            android:layout_width="296dp"
+            android:layout_height="wrap_content"
+            android:columnCount="4" />
+    </ScrollView>
 </LinearLayout>
