@@ -847,6 +847,14 @@ class MainActivity : AppCompatActivity() {
                 HazePasswordManager.promptSaveCredential(this@MainActivity, site, username, password)
             }
         }
+        @JavascriptInterface
+        fun checkAutofill(url: String) {
+            runOnUiThread {
+                if (isPrivateMode) return@runOnUiThread
+                val wv = currentTabsList.getOrNull(activeTabIndex)?.webView ?: return@runOnUiThread
+                HazePasswordManager.checkAndPromptAutofill(this@MainActivity, wv, url)
+            }
+        }
     }
 
     private fun wakeScreen() {
@@ -4250,12 +4258,20 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
-                // Google & Universal Password Manager hook: detect credentials, commit autofill, and persist cookies on submission
+                // Google & Universal Password Manager hook: detect credentials, offer autofill, and save prompt on submission
                 val authHook = """
                     (function() {
                         if (window.__hazeAuthObserverInjected) return;
                         window.__hazeAuthObserverInjected = true;
+
+                        function checkForAutofill() {
+                            try {
+                                var passInput = document.querySelector('input[type="password"]');
+                                if (passInput && window.Android && window.Android.checkAutofill) {
+                                    window.Android.checkAutofill(window.location.href);
+                                }
+                            } catch(_) {}
+                        }
 
                         function handleForm(form) {
                             try {
@@ -4286,6 +4302,17 @@ class MainActivity : AppCompatActivity() {
                                 setTimeout(function() { handleForm(form); }, 100);
                             }
                         }, true);
+
+                        // Trigger autofill on input focus
+                        document.addEventListener('focusin', function(e) {
+                            var tag = e.target ? e.target.tagName : '';
+                            var type = e.target ? (e.target.type || '') : '';
+                            if (tag === 'INPUT' && (type === 'password' || type === 'email' || type === 'text')) {
+                                checkForAutofill();
+                            }
+                        }, true);
+
+                        setTimeout(checkForAutofill, 600);
                     })();
                 """.trimIndent()
                 view?.evaluateJavascript(authHook, null)
