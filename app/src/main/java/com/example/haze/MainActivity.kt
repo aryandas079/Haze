@@ -840,6 +840,13 @@ class MainActivity : AppCompatActivity() {
                 HazeSecurityManager.persistCookieStore()
             }
         }
+        @JavascriptInterface
+        fun saveCredentialPrompt(site: String, username: String, password: String) {
+            runOnUiThread {
+                if (site.isBlank() || password.isBlank() || isPrivateMode) return@runOnUiThread
+                HazePasswordManager.promptSaveCredential(this@MainActivity, site, username, password)
+            }
+        }
     }
 
     private fun wakeScreen() {
@@ -4239,16 +4246,40 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
+                // Google & Universal Password Manager hook: detect credentials, commit autofill, and persist cookies on submission
                 val authHook = """
                     (function() {
                         if (window.__hazeAuthObserverInjected) return;
                         window.__hazeAuthObserverInjected = true;
-                        document.addEventListener('submit', function(e) {
+
+                        function handleForm(form) {
                             try {
                                 if (window.Android && window.Android.notifyFormSubmitted) {
                                     window.Android.notifyFormSubmitted();
                                 }
+                                var passInput = form ? form.querySelector('input[type="password"]') : document.querySelector('input[type="password"]');
+                                if (passInput && passInput.value) {
+                                    var password = passInput.value;
+                                    var userInput = form ? form.querySelector('input[type="email"], input[type="text"], input[name*="user" i], input[name*="email" i], input[name*="login" i], input[autocomplete*="username" i]') : document.querySelector('input[type="email"], input[type="text"], input[name*="user" i]');
+                                    var username = userInput ? userInput.value : '';
+                                    if (window.Android && window.Android.saveCredentialPrompt) {
+                                        window.Android.saveCredentialPrompt(window.location.href, username, password);
+                                    }
+                                }
                             } catch(_) {}
+                        }
+
+                        document.addEventListener('submit', function(e) {
+                            handleForm(e.target);
+                        }, true);
+
+                        // Capture clicks on submit buttons for SPAs
+                        document.addEventListener('click', function(e) {
+                            var btn = e.target ? (e.target.closest ? e.target.closest('button[type="submit"], input[type="submit"], button[id*="login" i], button[id*="signin" i], button[id*="submit" i]') : null) : null;
+                            if (btn) {
+                                var form = btn.closest ? btn.closest('form') : null;
+                                setTimeout(function() { handleForm(form); }, 100);
+                            }
                         }, true);
                     })();
                 """.trimIndent()
@@ -6943,6 +6974,7 @@ class MainActivity : AppCompatActivity() {
         menuItems.addAll(listOf(
             Pair("Performance", R.drawable.ic_bolt),
             Pair("Data Saver", R.drawable.ic_data_saver),
+            Pair("Passwords", R.drawable.ic_key),
             Pair("Privacy Shield", R.drawable.ic_privacy_shield),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
@@ -7036,6 +7068,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     "Performance" -> HazePerformanceManager.showPerformanceDialog(this)
                     "Data Saver" -> HazeDataSaverManager.showDataSaverDialog(this)
+                    "Passwords" -> openPasswordManager()
                     "Privacy Shield" -> HazePrivacyShieldDashboard.showDashboard(this)
                     "Personalize" -> showPersonalizeDialog()
                     "Favorites" -> HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) }

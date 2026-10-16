@@ -116,7 +116,30 @@ data class PasswordItem(
     val site: String,
     val username: String,
     val encryptedPassword: String,
-    val title: String = ""
+    val title: String = "",
+    val note: String = "",
+    val isPasskey: Boolean = false
+)
+
+data class CreditCardItem(
+    val id: Long = 0L,
+    val cardholderName: String,
+    val encryptedCardNumber: String,
+    val expiryMonth: String,
+    val expiryYear: String,
+    val cardNickname: String = ""
+)
+
+data class AddressItem(
+    val id: Long = 0L,
+    val fullName: String,
+    val addressLine1: String,
+    val addressLine2: String = "",
+    val city: String,
+    val state: String = "",
+    val postalCode: String,
+    val country: String = "",
+    val phoneNumber: String = ""
 )
 
 data class OfflinePageItem(
@@ -329,6 +352,12 @@ class HazeDatabase private constructor(context: Context) :
         } catch (ignored: Exception) {}
         createPrivacyTables(db)
         createPasswordTable(db)
+        try {
+            db.execSQL("ALTER TABLE password_items ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+        } catch (ignored: Exception) {}
+        try {
+            db.execSQL("ALTER TABLE password_items ADD COLUMN is_passkey INTEGER NOT NULL DEFAULT 0")
+        } catch (ignored: Exception) {}
         createOfflineTable(db)
         createSavedSelectionsTable(db)
         try {
@@ -380,6 +409,8 @@ class HazeDatabase private constructor(context: Context) :
                 title TEXT NOT NULL DEFAULT '',
                 username TEXT NOT NULL,
                 encrypted_password TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                is_passkey INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 UNIQUE(site, username)
@@ -387,15 +418,57 @@ class HazeDatabase private constructor(context: Context) :
             """.trimIndent()
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_password_items_site ON password_items(site)")
+
+        // Credit Cards Table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS credit_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cardholder_name TEXT NOT NULL,
+                encrypted_card_number TEXT NOT NULL,
+                expiry_month TEXT NOT NULL,
+                expiry_year TEXT NOT NULL,
+                card_nickname TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+
+        // Addresses Table
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS addresses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                address_line1 TEXT NOT NULL,
+                address_line2 TEXT NOT NULL DEFAULT '',
+                city TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT '',
+                postal_code TEXT NOT NULL,
+                country TEXT NOT NULL DEFAULT '',
+                phone_number TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
     }
 
-    fun upsertPassword(site: String, title: String, username: String, encryptedPassword: String): Long {
+    fun upsertPassword(
+        site: String,
+        title: String,
+        username: String,
+        encryptedPassword: String,
+        note: String = "",
+        isPasskey: Boolean = false
+    ): Long {
         val now = System.currentTimeMillis()
         val values = ContentValues().apply {
             put("site", site.trim())
             put("title", title.trim())
             put("username", username)
             put("encrypted_password", encryptedPassword)
+            put("note", note)
+            put("is_passkey", if (isPasskey) 1 else 0)
             put("created_at", now)
             put("updated_at", now)
         }
@@ -404,20 +477,34 @@ class HazeDatabase private constructor(context: Context) :
         )
     }
 
+    fun updatePasswordNote(id: Long, note: String): Boolean {
+        val values = ContentValues().apply {
+            put("note", note)
+            put("updated_at", System.currentTimeMillis())
+        }
+        return writableDatabase.update("password_items", values, "id = ?", arrayOf(id.toString())) > 0
+    }
+
     fun getPasswords(): List<PasswordItem> {
         val result = mutableListOf<PasswordItem>()
         readableDatabase.query(
             "password_items",
-            arrayOf("id", "site", "title", "username", "encrypted_password"),
+            arrayOf("id", "site", "title", "username", "encrypted_password", "note", "is_passkey"),
             null, null, null, null, "site COLLATE NOCASE ASC, username COLLATE NOCASE ASC"
         ).use { cursor ->
+            val noteIdx = cursor.getColumnIndex("note")
+            val passkeyIdx = cursor.getColumnIndex("is_passkey")
             while (cursor.moveToNext()) {
+                val note = if (noteIdx >= 0) cursor.getString(noteIdx) ?: "" else ""
+                val isPasskey = if (passkeyIdx >= 0) cursor.getInt(passkeyIdx) == 1 else false
                 result += PasswordItem(
                     id = cursor.getLong(0),
                     site = cursor.getString(1),
                     title = cursor.getString(2),
                     username = cursor.getString(3),
-                    encryptedPassword = cursor.getString(4)
+                    encryptedPassword = cursor.getString(4),
+                    note = note,
+                    isPasskey = isPasskey
                 )
             }
         }
@@ -426,6 +513,101 @@ class HazeDatabase private constructor(context: Context) :
 
     fun deletePassword(id: Long): Boolean =
         writableDatabase.delete("password_items", "id = ?", arrayOf(id.toString())) > 0
+
+    // Credit card CRUD
+    fun upsertCreditCard(
+        cardholderName: String,
+        encryptedNumber: String,
+        expiryMonth: String,
+        expiryYear: String,
+        cardNickname: String = ""
+    ): Long {
+        val values = ContentValues().apply {
+            put("cardholder_name", cardholderName.trim())
+            put("encrypted_card_number", encryptedNumber)
+            put("expiry_month", expiryMonth.trim())
+            put("expiry_year", expiryYear.trim())
+            put("card_nickname", cardNickname.trim())
+            put("created_at", System.currentTimeMillis())
+        }
+        return writableDatabase.insert("credit_cards", null, values)
+    }
+
+    fun getCreditCards(): List<CreditCardItem> {
+        val result = mutableListOf<CreditCardItem>()
+        readableDatabase.query(
+            "credit_cards",
+            arrayOf("id", "cardholder_name", "encrypted_card_number", "expiry_month", "expiry_year", "card_nickname"),
+            null, null, null, null, "id DESC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += CreditCardItem(
+                    id = cursor.getLong(0),
+                    cardholderName = cursor.getString(1),
+                    encryptedCardNumber = cursor.getString(2),
+                    expiryMonth = cursor.getString(3),
+                    expiryYear = cursor.getString(4),
+                    cardNickname = cursor.getString(5)
+                )
+            }
+        }
+        return result
+    }
+
+    fun deleteCreditCard(id: Long): Boolean =
+        writableDatabase.delete("credit_cards", "id = ?", arrayOf(id.toString())) > 0
+
+    // Addresses CRUD
+    fun upsertAddress(
+        fullName: String,
+        addressLine1: String,
+        addressLine2: String = "",
+        city: String,
+        state: String = "",
+        postalCode: String,
+        country: String = "",
+        phoneNumber: String = ""
+    ): Long {
+        val values = ContentValues().apply {
+            put("full_name", fullName.trim())
+            put("address_line1", addressLine1.trim())
+            put("address_line2", addressLine2.trim())
+            put("city", city.trim())
+            put("state", state.trim())
+            put("postal_code", postalCode.trim())
+            put("country", country.trim())
+            put("phone_number", phoneNumber.trim())
+            put("created_at", System.currentTimeMillis())
+        }
+        return writableDatabase.insert("addresses", null, values)
+    }
+
+    fun getAddresses(): List<AddressItem> {
+        val result = mutableListOf<AddressItem>()
+        readableDatabase.query(
+            "addresses",
+            arrayOf("id", "full_name", "address_line1", "address_line2", "city", "state", "postal_code", "country", "phone_number"),
+            null, null, null, null, "id DESC"
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                result += AddressItem(
+                    id = cursor.getLong(0),
+                    fullName = cursor.getString(1),
+                    addressLine1 = cursor.getString(2),
+                    addressLine2 = cursor.getString(3),
+                    city = cursor.getString(4),
+                    state = cursor.getString(5),
+                    postalCode = cursor.getString(6),
+                    country = cursor.getString(7),
+                    phoneNumber = cursor.getString(8)
+                )
+            }
+        }
+        return result
+    }
+
+    fun deleteAddress(id: Long): Boolean =
+        writableDatabase.delete("addresses", "id = ?", arrayOf(id.toString())) > 0
 
     private fun createPrivacyTables(db: SQLiteDatabase) {
         try {
