@@ -2634,6 +2634,16 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_personalize", false)) {
             showPersonalizeDialog()
         }
+        if (intent.getBooleanExtra("open_weather", false)) {
+            webContainer.postDelayed({
+                if (::weatherManager.isInitialized) weatherManager.showWeatherOverlay()
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_weather_settings", false)) {
+            webContainer.postDelayed({
+                if (::weatherManager.isInitialized) weatherManager.showWeatherSettingsDialog()
+            }, 300)
+        }
         if (intent.getBooleanExtra("open_bookmarks", false)) {
             webContainer.postDelayed({ HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) } }, 200)
         }

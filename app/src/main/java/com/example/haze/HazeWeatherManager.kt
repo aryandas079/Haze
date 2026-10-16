@@ -6,7 +6,9 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.location.Geocoder
 import android.location.Location
@@ -26,8 +28,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.radiobutton.MaterialRadioButton
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -71,6 +75,7 @@ class HazeWeatherManager(
         val temp: Double,
         val feelsLike: Double,
         val weatherCode: Int,
+        val isDay: Boolean,
         val humidity: Int,
         val windSpeed: Double,
         val precipitation: Double,
@@ -144,11 +149,14 @@ class HazeWeatherManager(
         ivIcon.setColorFilter(iconAndTextColor)
         tvTemp.setTextColor(iconAndTextColor)
 
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val isDayFallback = hour in 6..18
+
         currentWeather?.let { data ->
-            ivIcon.setImageResource(getWeatherIconRes(data.weatherCode))
+            ivIcon.setImageResource(getWeatherIconRes(data.weatherCode, data.isDay))
             tvTemp.text = "${data.temp.roundToInt()}°"
         } ?: run {
-            ivIcon.setImageResource(R.drawable.ic_cloud)
+            ivIcon.setImageResource(if (isDayFallback) R.drawable.ic_weather_sunny else R.drawable.ic_weather_clear_night)
             tvTemp.text = "--°"
         }
     }
@@ -165,6 +173,9 @@ class HazeWeatherManager(
             val temp = obj.optDouble("temp", 0.0)
             val feelsLike = obj.optDouble("feelsLike", 0.0)
             val weatherCode = obj.optInt("weatherCode", 0)
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val isDayFallback = hour in 6..18
+            val isDay = obj.optBoolean("isDay", isDayFallback)
             val humidity = obj.optInt("humidity", 0)
             val windSpeed = obj.optDouble("windSpeed", 0.0)
             val precipitation = obj.optDouble("precipitation", 0.0)
@@ -198,6 +209,7 @@ class HazeWeatherManager(
                 temp = temp,
                 feelsLike = feelsLike,
                 weatherCode = weatherCode,
+                isDay = isDay,
                 humidity = humidity,
                 windSpeed = windSpeed,
                 precipitation = precipitation,
@@ -221,6 +233,7 @@ class HazeWeatherManager(
             obj.put("temp", data.temp)
             obj.put("feelsLike", data.feelsLike)
             obj.put("weatherCode", data.weatherCode)
+            obj.put("isDay", data.isDay)
             obj.put("humidity", data.humidity)
             obj.put("windSpeed", data.windSpeed)
             obj.put("precipitation", data.precipitation)
@@ -313,7 +326,7 @@ class HazeWeatherManager(
 
                 // Fetch Weather Forecast from Open-Meteo
                 val tempUnitParam = if (isFahrenheit) "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch" else "&wind_speed_unit=kmh"
-                val forecastUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max&timezone=auto$tempUnitParam"
+                val forecastUrl = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max&timezone=auto$tempUnitParam"
 
                 val forecastJson = fetchHttpString(forecastUrl)
                 val fObj = JSONObject(forecastJson)
@@ -322,6 +335,13 @@ class HazeWeatherManager(
                 val curTemp = currentObj.optDouble("temperature_2m", 0.0)
                 val curFeelsLike = currentObj.optDouble("apparent_temperature", curTemp)
                 val curWeatherCode = currentObj.optInt("weather_code", 0)
+                val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                val isDayFallback = currentHour in 6..18
+                val isDay = if (currentObj.has("is_day")) {
+                    currentObj.optInt("is_day", if (isDayFallback) 1 else 0) == 1
+                } else {
+                    isDayFallback
+                }
                 val curHumidity = currentObj.optInt("relative_humidity_2m", 0)
                 val curPrecip = currentObj.optDouble("precipitation", 0.0)
                 val curWind = currentObj.optDouble("wind_speed_10m", 0.0)
@@ -375,7 +395,7 @@ class HazeWeatherManager(
                     aqi = aqiObj.optJSONObject("current")?.optInt("us_aqi", 35) ?: 35
                 } catch (_: Exception) {}
 
-                val todayUv = dailyList.firstOrNull()?.uvIndex ?: 0.0
+                val todayUv = if (isDay) (dailyList.firstOrNull()?.uvIndex ?: 0.0) else 0.0
 
                 val data = WeatherData(
                     placeName = placeName,
@@ -383,6 +403,7 @@ class HazeWeatherManager(
                     temp = curTemp,
                     feelsLike = curFeelsLike,
                     weatherCode = curWeatherCode,
+                    isDay = isDay,
                     humidity = curHumidity,
                     windSpeed = curWind,
                     precipitation = curPrecip,
@@ -437,6 +458,8 @@ class HazeWeatherManager(
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val borderColor = if (isDark) Color.parseColor("#38393A") else Color.parseColor("#E0E0E0")
 
+        val screenHeight = activity.resources.displayMetrics.heightPixels
+        val maxSheetHeight = (screenHeight * 0.85).toInt()
         val rootLayout = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             val pad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
@@ -445,6 +468,10 @@ class HazeWeatherManager(
                 setColor(bgColor)
                 cornerRadii = floatArrayOf(48f, 48f, 48f, 48f, 0f, 0f, 0f, 0f)
             }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                maxSheetHeight
+            )
         }
 
         // Top drag handle
@@ -551,12 +578,15 @@ class HazeWeatherManager(
         headerRow.addView(btnClose)
         rootLayout.addView(headerRow)
 
-        // Scrollable Weather Overview Content
-        val scrollView = ScrollView(activity).apply {
-            isVerticalScrollBarEnabled = false
+        // Scrollable Weather Overview Content using NestedScrollView for fluid bottom sheet scrolling
+        val scrollView = NestedScrollView(activity).apply {
+            isVerticalScrollBarEnabled = true
+            isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 460f, activity.resources.displayMetrics).toInt()
+                0,
+                1f
             )
         }
         val contentLayout = LinearLayout(activity).apply {
@@ -596,7 +626,7 @@ class HazeWeatherManager(
             layoutParams = LinearLayout.LayoutParams(dp48, dp48).apply {
                 setMargins(0, 0, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt(), 0)
             }
-            setImageResource(getWeatherIconRes(data.weatherCode))
+            setImageResource(getWeatherIconRes(data.weatherCode, data.isDay))
             setColorFilter(textColor)
         }
         heroRow.addView(ivHeroIcon)
@@ -612,7 +642,7 @@ class HazeWeatherManager(
         heroCard.addView(heroRow)
 
         val tvHeroCondition = TextView(activity).apply {
-            text = getWeatherDescription(data.weatherCode)
+            text = getWeatherDescription(data.weatherCode, data.isDay)
             textSize = 15f
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setTextColor(textColor)
@@ -655,10 +685,11 @@ class HazeWeatherManager(
 
         val aqiCategory = getAqiCategory(data.aqi)
         val uvCategory = getUvCategory(data.uvIndex)
+        val uvIcon = if (data.isDay) R.drawable.ic_weather_sunny else R.drawable.ic_weather_clear_night
 
         val cardPrecip = buildMetricCard("Precipitation", "${data.precipitation} $precipUnit", R.drawable.ic_water_drop, isDark, cardBgColor, borderColor, textColor, subTextColor)
         val cardWind = buildMetricCard("Wind Speed", "${data.windSpeed.roundToInt()} $windUnit", R.drawable.ic_air, isDark, cardBgColor, borderColor, textColor, subTextColor)
-        val cardUv = buildMetricCard("UV Index", "${data.uvIndex.roundToInt()} ($uvCategory)", R.drawable.ic_weather_sunny, isDark, cardBgColor, borderColor, textColor, subTextColor)
+        val cardUv = buildMetricCard("UV Index", "${data.uvIndex.roundToInt()} ($uvCategory)", uvIcon, isDark, cardBgColor, borderColor, textColor, subTextColor)
         val cardAqi = buildMetricCard("Air Quality", "${data.aqi} ($aqiCategory)", R.drawable.ic_air_quality, isDark, cardBgColor, borderColor, textColor, subTextColor)
 
         metricsRow1.addView(cardPrecip)
@@ -727,7 +758,8 @@ class HazeWeatherManager(
             val ivDayIcon = ImageView(activity).apply {
                 val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
                 layoutParams = LinearLayout.LayoutParams(dp24, dp24)
-                setImageResource(getWeatherIconRes(day.weatherCode))
+                val isToday = index == 0
+                setImageResource(getWeatherIconRes(day.weatherCode, if (isToday) data.isDay else true))
                 setColorFilter(textColor)
             }
             dayRow.addView(ivDayIcon)
@@ -801,9 +833,13 @@ class HazeWeatherManager(
         contentLayout.addView(forecastCard)
 
         dialog.setContentView(rootLayout)
-        dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundColor(Color.TRANSPARENT)
-        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        dialog.behavior.skipCollapsed = true
+        dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { bs ->
+            bs.setBackgroundColor(Color.TRANSPARENT)
+            val behavior = BottomSheetBehavior.from(bs)
+            behavior.state = BottomSheetBehavior.STATE_EXPANDED
+            behavior.skipCollapsed = true
+            behavior.isDraggable = true
+        }
         dialog.show()
     }
 
@@ -872,93 +908,218 @@ class HazeWeatherManager(
     }
 
     /**
-     * Dialog to configure weather location and unit (°C or °F)
+     * Dialog to configure weather location and unit (°C or °F) with Material 3 UI theme
      */
     fun showWeatherSettingsDialog() {
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val dialogBgColor = if (isDark) Color.parseColor("#1E1F22") else Color.parseColor("#FFFFFF")
+        val cardBgColor = if (isDark) Color.parseColor("#2B2D31") else Color.parseColor("#F2F4F8")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#1C1B1F")
-        val dp16 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
+        val subTextColor = if (isDark) Color.parseColor("#A0A5AC") else Color.parseColor("#60646C")
+        val borderColor = if (isDark) Color.parseColor("#3B3D42") else Color.parseColor("#E0E3EA")
 
-        val layout = LinearLayout(activity).apply {
+        val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
+        val dp16 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
+        val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
+        val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
+
+        val rootCard = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp16, dp16, dp16, dp16)
+            setPadding(dp24, dp24, dp24, dp16)
+            background = GradientDrawable().apply {
+                setColor(dialogBgColor)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, activity.resources.displayMetrics)
+                setStroke(1, borderColor)
+            }
         }
 
-        val tvUnitTitle = TextView(activity).apply {
-            text = "Temperature Unit"
-            textSize = 14f
+        // Title Row
+        val tvTitle = TextView(activity).apply {
+            text = "Weather Settings"
+            textSize = 20f
             typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
             setTextColor(textColor)
         }
-        layout.addView(tvUnitTitle)
+        rootCard.addView(tvTitle)
+
+        val tvSubtitle = TextView(activity).apply {
+            text = "Customize temperature units and forecast location"
+            textSize = 12f
+            setTextColor(subTextColor)
+            setPadding(0, dp8 / 2, 0, dp16)
+        }
+        rootCard.addView(tvSubtitle)
+
+        val themeAccent = if (isDark) Color.parseColor("#A8C7FA") else accentColor
+        val radioCheckedColor = if (isDark) Color.parseColor("#A8C7FA") else accentColor
+        val radioUncheckedColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
+
+        // Radio Button Tint
+        val radioStates = arrayOf(
+            intArrayOf(android.R.attr.state_checked),
+            intArrayOf(-android.R.attr.state_checked)
+        )
+        val radioColors = intArrayOf(
+            radioCheckedColor,
+            radioUncheckedColor
+        )
+        val radioTintList = ColorStateList(radioStates, radioColors)
+
+        // 1. Temperature Unit Section Card
+        val tvUnitTitle = TextView(activity).apply {
+            text = "Temperature Unit"
+            textSize = 13f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(themeAccent)
+            setPadding(0, 0, 0, dp8 / 2)
+        }
+        rootCard.addView(tvUnitTitle)
 
         val isFahrenheitNow = prefs.getBoolean(PREF_IS_FAHRENHEIT, false)
+        val unitContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp12, dp8, dp12, dp8)
+            background = GradientDrawable().apply {
+                setColor(cardBgColor)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
+                setStroke(1, borderColor)
+            }
+        }
+
         val rgUnits = RadioGroup(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp16 / 2, 0, dp16)
         }
-        val rbCelsius = RadioButton(activity).apply {
+        val rbCelsius = MaterialRadioButton(activity).apply {
+            id = View.generateViewId()
             text = "Celsius (°C)"
-            isChecked = !isFahrenheitNow
             setTextColor(textColor)
+            buttonTintList = radioTintList
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val rbFahrenheit = RadioButton(activity).apply {
+        val rbFahrenheit = MaterialRadioButton(activity).apply {
+            id = View.generateViewId()
             text = "Fahrenheit (°F)"
-            isChecked = isFahrenheitNow
             setTextColor(textColor)
-            setPadding(dp16, 0, 0, 0)
+            buttonTintList = radioTintList
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         rgUnits.addView(rbCelsius)
         rgUnits.addView(rbFahrenheit)
-        layout.addView(rgUnits)
+        rgUnits.check(if (isFahrenheitNow) rbFahrenheit.id else rbCelsius.id)
+        unitContainer.addView(rgUnits)
+        rootCard.addView(unitContainer)
 
+        // 2. Location Section Card
         val tvLocTitle = TextView(activity).apply {
             text = "Weather Location"
-            textSize = 14f
-            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
-            setTextColor(textColor)
+            textSize = 13f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(themeAccent)
+            setPadding(0, dp16, 0, dp8 / 2)
         }
-        layout.addView(tvLocTitle)
+        rootCard.addView(tvLocTitle)
 
         val useGpsNow = prefs.getBoolean(PREF_USE_GPS, true)
+        val locContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp12, dp8, dp12, dp12)
+            background = GradientDrawable().apply {
+                setColor(cardBgColor)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
+                setStroke(1, borderColor)
+            }
+        }
+
         val rgLocation = RadioGroup(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp16 / 2, 0, 0)
         }
-        val rbGps = RadioButton(activity).apply {
+        val rbGps = MaterialRadioButton(activity).apply {
+            id = View.generateViewId()
             text = "Use Current GPS Location"
-            isChecked = useGpsNow
             setTextColor(textColor)
+            buttonTintList = radioTintList
         }
-        val rbCustom = RadioButton(activity).apply {
+        val rbCustom = MaterialRadioButton(activity).apply {
+            id = View.generateViewId()
             text = "Set Custom City/Place"
-            isChecked = !useGpsNow
             setTextColor(textColor)
+            buttonTintList = radioTintList
         }
         rgLocation.addView(rbGps)
         rgLocation.addView(rbCustom)
-        layout.addView(rgLocation)
+        rgLocation.check(if (useGpsNow) rbGps.id else rbCustom.id)
+        locContainer.addView(rgLocation)
 
         val etCustomCity = EditText(activity).apply {
             hint = "Enter city name (e.g. San Francisco, Tokyo)"
+            setHintTextColor(subTextColor)
+            setTextColor(textColor)
             setText(prefs.getString(PREF_CUSTOM_CITY, ""))
             setSingleLine()
+            textSize = 14f
+            val dp10 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics).toInt()
+            setPadding(dp12, dp10, dp12, dp10)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp8, 0, 0)
+            }
+            background = GradientDrawable().apply {
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics)
+                setColor(if (isDark) Color.parseColor("#383A40") else Color.WHITE)
+                setStroke(1, themeAccent)
+            }
             visibility = if (useGpsNow) View.GONE else View.VISIBLE
-            setPadding(dp16 / 2, dp16 / 2, dp16 / 2, dp16 / 2)
         }
-        layout.addView(etCustomCity)
+        locContainer.addView(etCustomCity)
+        rootCard.addView(locContainer)
 
-        rbGps.setOnCheckedChangeListener { _, isChecked ->
-            etCustomCity.visibility = if (isChecked) View.GONE else View.VISIBLE
-        }
-        rbCustom.setOnCheckedChangeListener { _, isChecked ->
-            etCustomCity.visibility = if (isChecked) View.VISIBLE else View.GONE
+        rgLocation.setOnCheckedChangeListener { _, checkedId ->
+            activity.triggerStrongHaptic(rootCard)
+            etCustomCity.visibility = if (checkedId == rbCustom.id) View.VISIBLE else View.GONE
+            if (checkedId == rbCustom.id) etCustomCity.requestFocus()
         }
 
-        AlertDialog.Builder(activity)
-            .setTitle("Weather Settings")
-            .setView(layout)
-            .setPositiveButton("Save") { _, _ ->
+        // Action Buttons Row
+        val btnRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(0, dp24, 0, 0)
+        }
+
+        var dialogRef: AlertDialog? = null
+
+        val btnCancel = TextView(activity).apply {
+            text = "CANCEL"
+            textSize = 13.5f
+            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+            setTextColor(subTextColor)
+            setPadding(dp16, dp8, dp16, dp8)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                activity.triggerStrongHaptic(it)
+                dialogRef?.dismiss()
+            }
+        }
+        btnRow.addView(btnCancel)
+
+        val btnSave = TextView(activity).apply {
+            text = "SAVE"
+            textSize = 13.5f
+            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+            setTextColor(if (isDark) Color.parseColor("#062E6F") else Color.WHITE)
+            setPadding(dp24, dp8, dp24, dp8)
+            background = GradientDrawable().apply {
+                setColor(themeAccent)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, activity.resources.displayMetrics)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                activity.triggerStrongHaptic(it)
                 val newIsFahrenheit = rbFahrenheit.isChecked
                 val newUseGps = rbGps.isChecked
                 val newCity = etCustomCity.text.toString().trim()
@@ -977,9 +1138,18 @@ class HazeWeatherManager(
 
                 Toast.makeText(activity, "Updating weather...", Toast.LENGTH_SHORT).show()
                 refreshWeather(force = true)
+                dialogRef?.dismiss()
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+        btnRow.addView(btnSave)
+        rootCard.addView(btnRow)
+
+        dialogRef = AlertDialog.Builder(activity)
+            .setView(rootCard)
+            .create().apply {
+                window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            }
+        dialogRef.show()
     }
 
     /**
@@ -1105,12 +1275,12 @@ class HazeWeatherManager(
     }
 
     /**
-     * Returns Material weather vector icon based on WMO weather code
+     * Returns Material weather vector icon based on WMO weather code and day/night status
      */
-    fun getWeatherIconRes(code: Int): Int {
+    fun getWeatherIconRes(code: Int, isDay: Boolean = true): Int {
         return when (code) {
-            0 -> R.drawable.ic_weather_sunny
-            1, 2 -> R.drawable.ic_weather_partly_cloudy
+            0 -> if (isDay) R.drawable.ic_weather_sunny else R.drawable.ic_weather_clear_night
+            1, 2 -> if (isDay) R.drawable.ic_weather_partly_cloudy else R.drawable.ic_weather_partly_cloudy_night
             3 -> R.drawable.ic_weather_cloudy
             45, 48 -> R.drawable.ic_weather_fog
             51, 53, 55, 56, 57 -> R.drawable.ic_weather_rain
@@ -1119,17 +1289,17 @@ class HazeWeatherManager(
             80, 81, 82 -> R.drawable.ic_weather_rain
             85, 86 -> R.drawable.ic_weather_snow
             95, 96, 99 -> R.drawable.ic_weather_thunderstorm
-            else -> R.drawable.ic_cloud
+            else -> if (isDay) R.drawable.ic_weather_sunny else R.drawable.ic_weather_clear_night
         }
     }
 
     /**
      * Returns clear human-readable weather condition text
      */
-    fun getWeatherDescription(code: Int): String {
+    fun getWeatherDescription(code: Int, isDay: Boolean = true): String {
         return when (code) {
-            0 -> "Clear Sky"
-            1 -> "Mainly Clear"
+            0 -> if (isDay) "Clear Sky" else "Clear Night"
+            1 -> if (isDay) "Mainly Clear" else "Clear Night"
             2 -> "Partly Cloudy"
             3 -> "Overcast"
             45, 48 -> "Fog"
