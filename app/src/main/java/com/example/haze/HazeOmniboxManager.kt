@@ -27,12 +27,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.HorizontalScrollView
+import android.widget.ScrollView
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
+
 /**
  * HazeOmniboxManager
  * Manages Omnibox features:
  * - Smart Clipboard Detection (URLs, phone numbers, search queries)
- * - Search Engine Selector chips (Google, Bing, DuckDuckGo, Brave, YouTube, GitHub, Wikipedia, etc.)
- * - Search Shortcuts & Prefix routing (g, yt, gh, w, b, ddg, br, r, a, custom)
+ * - Search Destinations Catalog (Essential, Video, Social, Shopping, AI, Knowledge, Travel, Productivity)
+ * - Compact Search Engine Selector Strip with Pinning & Personalization
+ * - Search Shortcuts & Prefix routing (g, yt, gh, w, b, ddg, br, r, a, gpt, gem, etc.)
  * - Custom Search Engines (creation & persistence)
  * - QR / Barcode Scanner integration
  */
@@ -40,13 +48,19 @@ class HazeOmniboxManager(
     private val activity: MainActivity,
     private val prefs: SharedPreferences
 ) {
+    companion object {
+        val DEFAULT_PINNED_IDS = listOf("google", "bing", "duckduckgo", "youtube", "chatgpt")
+    }
+
     data class SearchEngine(
         val id: String,
         val name: String,
         val prefix: String,
         val searchUrlPattern: String,
         val iconRes: Int,
-        val isCustom: Boolean = false
+        val isCustom: Boolean = false,
+        val category: String = "Essential",
+        val description: String = ""
     )
 
     sealed class ClipboardItem {
@@ -57,17 +71,455 @@ class HazeOmniboxManager(
 
     private var lastDismissedClip: String? = null
 
-    // Built-in Search Engines
+    // Comprehensive catalog of built-in search engines and destinations
     val defaultEngines = listOf(
-        SearchEngine("google", "Google", "g", "https://www.google.com/search?q=%s", R.drawable.ic_google_logo),
-        SearchEngine("duckduckgo", "DuckDuckGo", "ddg", "https://duckduckgo.com/?q=%s", R.drawable.ic_duckduckgo),
-        SearchEngine("bing", "Bing", "b", "https://www.bing.com/search?q=%s", R.drawable.ic_search),
-        SearchEngine("brave", "Brave", "br", "https://search.brave.com/search?q=%s", R.drawable.ic_search),
-        SearchEngine("youtube", "YouTube", "yt", "https://m.youtube.com/results?search_query=%s", R.drawable.ic_youtube),
-        SearchEngine("github", "GitHub", "gh", "https://github.com/search?q=%s", R.drawable.ic_github),
-        SearchEngine("wikipedia", "Wikipedia", "w", "https://en.wikipedia.org/wiki/Special:Search?search=%s", R.drawable.ic_wikipedia),
-        SearchEngine("reddit", "Reddit", "r", "https://www.reddit.com/search/?q=%s", R.drawable.ic_search),
-        SearchEngine("amazon", "Amazon", "a", "https://www.amazon.com/s?k=%s", R.drawable.ic_search)
+        // 1. Essential
+        SearchEngine(
+            id = "google",
+            name = "Google",
+            prefix = "g",
+            searchUrlPattern = "https://www.google.com/search?q=%s",
+            iconRes = R.drawable.ic_google_logo,
+            category = "Essential",
+            description = "General web search, images, news, maps"
+        ),
+        SearchEngine(
+            id = "bing",
+            name = "Bing",
+            prefix = "b",
+            searchUrlPattern = "https://www.bing.com/search?q=%s",
+            iconRes = R.drawable.ic_search,
+            category = "Essential",
+            description = "Web search and AI-powered search"
+        ),
+        SearchEngine(
+            id = "duckduckgo",
+            name = "DuckDuckGo",
+            prefix = "ddg",
+            searchUrlPattern = "https://duckduckgo.com/?q=%s",
+            iconRes = R.drawable.ic_duckduckgo,
+            category = "Essential",
+            description = "Privacy-focused search"
+        ),
+        SearchEngine(
+            id = "brave",
+            name = "Brave Search",
+            prefix = "br",
+            searchUrlPattern = "https://search.brave.com/search?q=%s",
+            iconRes = R.drawable.ic_shield_check,
+            category = "Essential",
+            description = "Independent search index"
+        ),
+        SearchEngine(
+            id = "perplexity",
+            name = "Perplexity",
+            prefix = "px",
+            searchUrlPattern = "https://www.perplexity.ai/search?q=%s",
+            iconRes = R.drawable.ic_sparkles,
+            category = "Essential",
+            description = "AI answers with sources"
+        ),
+        SearchEngine(
+            id = "yahoo",
+            name = "Yahoo Search",
+            prefix = "y",
+            searchUrlPattern = "https://search.yahoo.com/search?p=%s",
+            iconRes = R.drawable.ic_search,
+            category = "Essential",
+            description = "Web search and news"
+        ),
+        SearchEngine(
+            id = "ecosia",
+            name = "Ecosia",
+            prefix = "eco",
+            searchUrlPattern = "https://www.ecosia.org/search?q=%s",
+            iconRes = R.drawable.ic_globe,
+            category = "Essential",
+            description = "Search with an environmental mission"
+        ),
+
+        // 2. Video & Streaming
+        SearchEngine(
+            id = "youtube",
+            name = "YouTube",
+            prefix = "yt",
+            searchUrlPattern = "https://m.youtube.com/results?search_query=%s",
+            iconRes = R.drawable.ic_youtube,
+            category = "Video & Streaming",
+            description = "Watch videos, music and livestreams"
+        ),
+        SearchEngine(
+            id = "tiktok",
+            name = "TikTok",
+            prefix = "tt",
+            searchUrlPattern = "https://www.tiktok.com/search?q=%s",
+            iconRes = R.drawable.ic_play,
+            category = "Video & Streaming",
+            description = "Short-form videos and creators"
+        ),
+        SearchEngine(
+            id = "twitch",
+            name = "Twitch",
+            prefix = "tw",
+            searchUrlPattern = "https://www.twitch.tv/search?term=%s",
+            iconRes = R.drawable.ic_play_arrow,
+            category = "Video & Streaming",
+            description = "Live game streams and creators"
+        ),
+        SearchEngine(
+            id = "vimeo",
+            name = "Vimeo",
+            prefix = "vm",
+            searchUrlPattern = "https://vimeo.com/search?q=%s",
+            iconRes = R.drawable.ic_play,
+            category = "Video & Streaming",
+            description = "High quality videos and filmmakers"
+        ),
+        SearchEngine(
+            id = "netflix",
+            name = "Netflix",
+            prefix = "nf",
+            searchUrlPattern = "https://www.netflix.com/search?q=%s",
+            iconRes = R.drawable.ic_play,
+            category = "Video & Streaming",
+            description = "Movies and TV series catalog"
+        ),
+
+        // 3. Social & Community
+        SearchEngine(
+            id = "reddit",
+            name = "Reddit",
+            prefix = "r",
+            searchUrlPattern = "https://www.reddit.com/search/?q=%s",
+            iconRes = R.drawable.ic_search,
+            category = "Social & Community",
+            description = "Discussions, forums and communities"
+        ),
+        SearchEngine(
+            id = "instagram",
+            name = "Instagram",
+            prefix = "ig",
+            searchUrlPattern = "https://www.instagram.com/explore/tags/%s/",
+            iconRes = R.drawable.ic_instagram,
+            category = "Social & Community",
+            description = "Photos, reels and creator profiles"
+        ),
+        SearchEngine(
+            id = "facebook",
+            name = "Facebook",
+            prefix = "fb",
+            searchUrlPattern = "https://www.facebook.com/public/%s",
+            iconRes = R.drawable.ic_globe,
+            category = "Social & Community",
+            description = "Social posts, friends and pages"
+        ),
+        SearchEngine(
+            id = "x",
+            name = "X",
+            prefix = "x",
+            searchUrlPattern = "https://x.com/search?q=%s",
+            iconRes = R.drawable.ic_bolt,
+            category = "Social & Community",
+            description = "Real-time news, posts and trends"
+        ),
+        SearchEngine(
+            id = "threads",
+            name = "Threads",
+            prefix = "th",
+            searchUrlPattern = "https://www.threads.net/search?q=%s",
+            iconRes = R.drawable.ic_globe,
+            category = "Social & Community",
+            description = "Discussions and sharing community"
+        ),
+        SearchEngine(
+            id = "pinterest",
+            name = "Pinterest",
+            prefix = "pin",
+            searchUrlPattern = "https://www.pinterest.com/search/pins/?q=%s",
+            iconRes = R.drawable.ic_image,
+            category = "Social & Community",
+            description = "Visual discovery and creative ideas"
+        ),
+        SearchEngine(
+            id = "linkedin",
+            name = "LinkedIn",
+            prefix = "in",
+            searchUrlPattern = "https://www.linkedin.com/search/results/all/?keywords=%s",
+            iconRes = R.drawable.ic_linkedin,
+            category = "Social & Community",
+            description = "Professional networking and jobs"
+        ),
+        SearchEngine(
+            id = "quora",
+            name = "Quora",
+            prefix = "qu",
+            searchUrlPattern = "https://www.quora.com/search?q=%s",
+            iconRes = R.drawable.ic_search,
+            category = "Social & Community",
+            description = "Q&A knowledge community"
+        ),
+
+        // 4. Shopping
+        SearchEngine(
+            id = "amazon",
+            name = "Amazon",
+            prefix = "a",
+            searchUrlPattern = "https://www.amazon.com/s?k=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Online shopping, deals and products"
+        ),
+        SearchEngine(
+            id = "flipkart",
+            name = "Flipkart",
+            prefix = "fk",
+            searchUrlPattern = "https://www.flipkart.com/search?q=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Online shopping and electronics in India"
+        ),
+        SearchEngine(
+            id = "ebay",
+            name = "eBay",
+            prefix = "eb",
+            searchUrlPattern = "https://www.ebay.com/sch/i.html?_nkw=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Global auctions and marketplace"
+        ),
+        SearchEngine(
+            id = "etsy",
+            name = "Etsy",
+            prefix = "et",
+            searchUrlPattern = "https://www.etsy.com/search?q=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Handmade, vintage and craft items"
+        ),
+        SearchEngine(
+            id = "aliexpress",
+            name = "AliExpress",
+            prefix = "ali",
+            searchUrlPattern = "https://www.aliexpress.com/wholesale?SearchText=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Wholesale goods and factory bargains"
+        ),
+        SearchEngine(
+            id = "myntra",
+            name = "Myntra",
+            prefix = "my",
+            searchUrlPattern = "https://www.myntra.com/%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Fashion, footwear and lifestyle apparel"
+        ),
+        SearchEngine(
+            id = "temu",
+            name = "Temu",
+            prefix = "te",
+            searchUrlPattern = "https://www.temu.com/search_result.html?search_key=%s",
+            iconRes = R.drawable.ic_shopping,
+            category = "Shopping",
+            description = "Affordable global shopping deals"
+        ),
+
+        // 5. AI Search & Assistants
+        SearchEngine(
+            id = "chatgpt",
+            name = "ChatGPT",
+            prefix = "gpt",
+            searchUrlPattern = "https://chatgpt.com/?q=%s",
+            iconRes = R.drawable.ic_chatgpt,
+            category = "AI Search & Assistants",
+            description = "Conversational AI assistant by OpenAI"
+        ),
+        SearchEngine(
+            id = "gemini",
+            name = "Gemini",
+            prefix = "gem",
+            searchUrlPattern = "https://gemini.google.com/app?q=%s",
+            iconRes = R.drawable.ic_sparkles,
+            category = "AI Search & Assistants",
+            description = "Google's conversational AI assistant"
+        ),
+        SearchEngine(
+            id = "claude",
+            name = "Claude",
+            prefix = "cl",
+            searchUrlPattern = "https://claude.ai/new?q=%s",
+            iconRes = R.drawable.ic_sparkles,
+            category = "AI Search & Assistants",
+            description = "Helpful and safe AI assistant by Anthropic"
+        ),
+        SearchEngine(
+            id = "copilot",
+            name = "Microsoft Copilot",
+            prefix = "cop",
+            searchUrlPattern = "https://copilot.microsoft.com/?q=%s",
+            iconRes = R.drawable.ic_sparkle,
+            category = "AI Search & Assistants",
+            description = "AI companion powered by Microsoft"
+        ),
+        SearchEngine(
+            id = "deepseek",
+            name = "DeepSeek",
+            prefix = "ds",
+            searchUrlPattern = "https://chat.deepseek.com/?q=%s",
+            iconRes = R.drawable.ic_sparkles,
+            category = "AI Search & Assistants",
+            description = "Advanced reasoning and coding AI"
+        ),
+
+        // 6. Knowledge & Technical Search
+        SearchEngine(
+            id = "wikipedia",
+            name = "Wikipedia",
+            prefix = "w",
+            searchUrlPattern = "https://en.wikipedia.org/wiki/Special:Search?search=%s",
+            iconRes = R.drawable.ic_wikipedia,
+            category = "Knowledge & Technical Search",
+            description = "The free encyclopedia"
+        ),
+        SearchEngine(
+            id = "stackoverflow",
+            name = "Stack Overflow",
+            prefix = "so",
+            searchUrlPattern = "https://stackoverflow.com/search?q=%s",
+            iconRes = R.drawable.ic_code,
+            category = "Knowledge & Technical Search",
+            description = "Developer Q&A and coding problems"
+        ),
+        SearchEngine(
+            id = "github",
+            name = "GitHub",
+            prefix = "gh",
+            searchUrlPattern = "https://github.com/search?q=%s",
+            iconRes = R.drawable.ic_github,
+            category = "Knowledge & Technical Search",
+            description = "Code repositories and developers"
+        ),
+        SearchEngine(
+            id = "mdn",
+            name = "MDN Web Docs",
+            prefix = "mdn",
+            searchUrlPattern = "https://developer.mozilla.org/en-US/search?q=%s",
+            iconRes = R.drawable.ic_code,
+            category = "Knowledge & Technical Search",
+            description = "Web standards, HTML, CSS & JavaScript"
+        ),
+        SearchEngine(
+            id = "geeksforgeeks",
+            name = "GeeksforGeeks",
+            prefix = "gfg",
+            searchUrlPattern = "https://www.geeksforgeeks.org/search/?q=%s",
+            iconRes = R.drawable.ic_code,
+            category = "Knowledge & Technical Search",
+            description = "Computer science portal & algorithms"
+        ),
+        SearchEngine(
+            id = "w3schools",
+            name = "W3Schools",
+            prefix = "w3",
+            searchUrlPattern = "https://www.w3schools.com/howto/search.asp?search=%s",
+            iconRes = R.drawable.ic_code,
+            category = "Knowledge & Technical Search",
+            description = "Web developer tutorials & references"
+        ),
+
+        // 7. Travel, Maps & Bookings
+        SearchEngine(
+            id = "google_maps",
+            name = "Google Maps",
+            prefix = "map",
+            searchUrlPattern = "https://www.google.com/maps/search/%s",
+            iconRes = R.drawable.ic_map,
+            category = "Travel, Maps & Bookings",
+            description = "Turn-by-turn navigation and places"
+        ),
+        SearchEngine(
+            id = "booking",
+            name = "Booking.com",
+            prefix = "bk",
+            searchUrlPattern = "https://www.booking.com/searchresults.html?ss=%s",
+            iconRes = R.drawable.ic_map,
+            category = "Travel, Maps & Bookings",
+            description = "Hotels, flights and travel stays"
+        ),
+        SearchEngine(
+            id = "makemytrip",
+            name = "MakeMyTrip",
+            prefix = "mmt",
+            searchUrlPattern = "https://www.makemytrip.com/search?q=%s",
+            iconRes = R.drawable.ic_map,
+            category = "Travel, Maps & Bookings",
+            description = "Flight, hotel and train tickets in India"
+        ),
+        SearchEngine(
+            id = "tripadvisor",
+            name = "Tripadvisor",
+            prefix = "ta",
+            searchUrlPattern = "https://www.tripadvisor.com/Search?q=%s",
+            iconRes = R.drawable.ic_map,
+            category = "Travel, Maps & Bookings",
+            description = "Travel reviews, hotels and attractions"
+        ),
+        SearchEngine(
+            id = "airbnb",
+            name = "Airbnb",
+            prefix = "ab",
+            searchUrlPattern = "https://www.airbnb.com/s/%s/homes",
+            iconRes = R.drawable.ic_map,
+            category = "Travel, Maps & Bookings",
+            description = "Vacation rentals and homestays"
+        ),
+
+        // 8. Email & Productivity
+        SearchEngine(
+            id = "gmail",
+            name = "Gmail",
+            prefix = "gm",
+            searchUrlPattern = "https://mail.google.com/mail/u/0/#search/%s",
+            iconRes = R.drawable.ic_mail,
+            category = "Email & Productivity",
+            description = "Fast, secure email search"
+        ),
+        SearchEngine(
+            id = "outlook",
+            name = "Outlook",
+            prefix = "out",
+            searchUrlPattern = "https://outlook.live.com/mail/0/inbox?search=%s",
+            iconRes = R.drawable.ic_mail,
+            category = "Email & Productivity",
+            description = "Microsoft Outlook email and calendar"
+        ),
+        SearchEngine(
+            id = "google_drive",
+            name = "Google Drive",
+            prefix = "drv",
+            searchUrlPattern = "https://drive.google.com/drive/u/0/search?q=%s",
+            iconRes = R.drawable.ic_folder,
+            category = "Email & Productivity",
+            description = "Cloud files and documents search"
+        ),
+        SearchEngine(
+            id = "google_translate",
+            name = "Google Translate",
+            prefix = "tr",
+            searchUrlPattern = "https://translate.google.com/?sl=auto&tl=en&text=%s&op=translate",
+            iconRes = R.drawable.ic_translate,
+            category = "Email & Productivity",
+            description = "Translate text and languages"
+        ),
+        SearchEngine(
+            id = "microsoft_365",
+            name = "Microsoft 365",
+            prefix = "m365",
+            searchUrlPattern = "https://www.office.com/search?q=%s",
+            iconRes = R.drawable.ic_file,
+            category = "Email & Productivity",
+            description = "Office documents, files and apps"
+        )
     )
 
     // Load custom engines from SharedPreferences
@@ -85,7 +537,9 @@ class HazeOmniboxManager(
                         prefix = obj.getString("prefix").lowercase(Locale.US),
                         searchUrlPattern = obj.getString("url"),
                         iconRes = R.drawable.ic_search,
-                        isCustom = true
+                        isCustom = true,
+                        category = obj.optString("category", "Custom"),
+                        description = obj.optString("description", "Custom search engine")
                     )
                 )
             }
@@ -99,7 +553,13 @@ class HazeOmniboxManager(
         return defaultEngines + getCustomEngines()
     }
 
-    fun saveCustomEngine(name: String, prefix: String, urlPattern: String): Boolean {
+    fun saveCustomEngine(
+        name: String,
+        prefix: String,
+        urlPattern: String,
+        category: String = "Custom",
+        description: String = "Custom search destination"
+    ): Boolean {
         val cleanPrefix = prefix.trim().lowercase(Locale.US)
         val cleanUrl = if (urlPattern.contains("%s")) urlPattern.trim() else "${urlPattern.trim()}%s"
         val customList = getCustomEngines().toMutableList()
@@ -112,7 +572,9 @@ class HazeOmniboxManager(
                 prefix = cleanPrefix,
                 searchUrlPattern = cleanUrl,
                 iconRes = R.drawable.ic_search,
-                isCustom = true
+                isCustom = true,
+                category = category,
+                description = description
             )
         )
         val array = JSONArray()
@@ -122,9 +584,99 @@ class HazeOmniboxManager(
             obj.put("name", item.name)
             obj.put("prefix", item.prefix)
             obj.put("url", item.searchUrlPattern)
+            obj.put("category", item.category)
+            obj.put("description", item.description)
             array.put(obj)
         }
         return prefs.edit().putString("custom_search_engines_json", array.toString()).commit()
+    }
+
+    // Pinned engines management
+    fun getPinnedEngineIds(): List<String> {
+        val saved = prefs.getString("pinned_search_engine_ids", null)
+        if (saved != null) {
+            val list = mutableListOf<String>()
+            try {
+                val arr = JSONArray(saved)
+                for (i in 0 until arr.length()) {
+                    list.add(arr.getString(i))
+                }
+                if (list.isNotEmpty()) return list
+            } catch (_: Exception) {}
+        }
+        return DEFAULT_PINNED_IDS
+    }
+
+    fun setPinnedEngineIds(ids: List<String>) {
+        val arr = JSONArray()
+        for (id in ids) arr.put(id)
+        prefs.edit().putString("pinned_search_engine_ids", arr.toString()).apply()
+    }
+
+    fun togglePinEngine(engineId: String): Boolean {
+        val current = getPinnedEngineIds().toMutableList()
+        val isPinnedNow = if (current.contains(engineId)) {
+            current.remove(engineId)
+            false
+        } else {
+            current.add(engineId)
+            true
+        }
+        setPinnedEngineIds(current)
+        return isPinnedNow
+    }
+
+    fun isEnginePinned(engineId: String): Boolean {
+        return getPinnedEngineIds().contains(engineId)
+    }
+
+    // Personalization & Usage Stats
+    fun recordEngineUsage(engineId: String) {
+        try {
+            val json = prefs.getString("search_engine_usage_stats", "{}") ?: "{}"
+            val obj = JSONObject(json)
+            val count = obj.optInt(engineId, 0)
+            obj.put(engineId, count + 1)
+            prefs.edit().putString("search_engine_usage_stats", obj.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getEngineUsage(engineId: String): Int {
+        return try {
+            val json = prefs.getString("search_engine_usage_stats", "{}") ?: "{}"
+            JSONObject(json).optInt(engineId, 0)
+        } catch (_: Exception) { 0 }
+    }
+
+    /**
+     * Computes the compact strip of search engines to display:
+     * 1. Pinned engines in user order (default: Google, Bing, DuckDuckGo, YouTube, ChatGPT)
+     * 2. Top 2 frequently used unpinned engines (personalization)
+     */
+    fun getStripEngines(): List<SearchEngine> {
+        val all = getAllEngines()
+        val allMap = all.associateBy { it.id }
+        val pinnedIds = getPinnedEngineIds()
+        val result = mutableListOf<SearchEngine>()
+
+        for (id in pinnedIds) {
+            allMap[id]?.let { result.add(it) }
+        }
+
+        // Add top 2 frequently used unpinned engines
+        val unpinnedWithUsage = all.filter { !pinnedIds.contains(it.id) }
+            .map { Pair(it, getEngineUsage(it.id)) }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(2)
+            .map { it.first }
+
+        result.addAll(unpinnedWithUsage)
+
+        if (result.isEmpty()) {
+            return defaultEngines.take(5)
+        }
+        return result
     }
 
     /**
@@ -160,6 +712,16 @@ class HazeOmniboxManager(
             "gh", "github" -> all.find { it.id == "github" }?.let { Pair(it, remainder) }
             "r", "reddit" -> all.find { it.id == "reddit" }?.let { Pair(it, remainder) }
             "a", "amazon" -> all.find { it.id == "amazon" }?.let { Pair(it, remainder) }
+            "ai", "gpt", "chat" -> all.find { it.id == "chatgpt" }?.let { Pair(it, remainder) }
+            "gem" -> all.find { it.id == "gemini" }?.let { Pair(it, remainder) }
+            "claude" -> all.find { it.id == "claude" }?.let { Pair(it, remainder) }
+            "cop" -> all.find { it.id == "copilot" }?.let { Pair(it, remainder) }
+            "ds" -> all.find { it.id == "deepseek" }?.let { Pair(it, remainder) }
+            "px" -> all.find { it.id == "perplexity" }?.let { Pair(it, remainder) }
+            "map", "maps" -> all.find { it.id == "google_maps" }?.let { Pair(it, remainder) }
+            "drive" -> all.find { it.id == "google_drive" }?.let { Pair(it, remainder) }
+            "trans", "translate" -> all.find { it.id == "google_translate" }?.let { Pair(it, remainder) }
+            "stack", "so" -> all.find { it.id == "stackoverflow" }?.let { Pair(it, remainder) }
             else -> null
         }
     }
@@ -424,13 +986,14 @@ class HazeOmniboxManager(
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
 
-        val allEngines = getAllEngines()
         val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
         val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
         val dp6 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, activity.resources.displayMetrics).toInt()
         val dp16 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
 
-        for (engine in allEngines) {
+        val stripEngines = getStripEngines()
+
+        for (engine in stripEngines) {
             val isSelected = engine.name.equals(currentEngineName, ignoreCase = true)
             val chip = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -481,16 +1044,24 @@ class HazeOmniboxManager(
 
             chip.setOnClickListener {
                 activity.triggerStrongHaptic(it)
-                prefs.edit().putString("search_engine", engine.name).apply()
-                onEngineSelected(engine)
-                renderSearchEngineChips(chipContainer, onEngineSelected)
+                recordEngineUsage(engine.id)
+                val typed = activity.getUserTypedQuery()
+                if (typed.isNotEmpty()) {
+                    // Smart search: typing a query and clicking directly searches that destination
+                    val url = buildSearchUrl(engine, typed)
+                    activity.loadUrlFromInput(url)
+                } else {
+                    prefs.edit().putString("search_engine", engine.name).apply()
+                    onEngineSelected(engine)
+                    renderSearchEngineChips(chipContainer, onEngineSelected)
+                }
             }
 
             chipContainer.addView(chip)
         }
 
-        // "+ Add Engine" Chip
-        val addChip = LinearLayout(activity).apply {
+        // "More" Chip -> Opens Full Search Destinations Catalog
+        val moreChip = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -504,37 +1075,519 @@ class HazeOmniboxManager(
             isFocusable = true
         }
 
-        val addBg = GradientDrawable().apply {
+        val moreBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
             setColor(if (isDark) Color.parseColor("#252830") else Color.parseColor("#F1F3F4"))
             setStroke(1, accentColor)
         }
-        addChip.background = addBg
+        moreChip.background = moreBg
 
-        val addIv = ImageView(activity).apply {
+        val moreIv = ImageView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(dp16, dp16).apply {
                 setMargins(0, 0, dp6, 0)
             }
-            setImageResource(R.drawable.ic_add)
+            setImageResource(R.drawable.ic_grid)
             setColorFilter(accentColor)
         }
-        addChip.addView(addIv)
+        moreChip.addView(moreIv)
 
-        val addTv = TextView(activity).apply {
-            text = "Add Engine"
+        val moreTv = TextView(activity).apply {
+            text = "More"
             textSize = 12f
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
             setTextColor(accentColor)
         }
-        addChip.addView(addTv)
+        moreChip.addView(moreTv)
 
-        addChip.setOnClickListener {
+        moreChip.setOnClickListener {
             activity.triggerStrongHaptic(it)
-            showAddSearchEngineDialog(chipContainer, onEngineSelected)
+            showSearchDestinationsCatalog(chipContainer, onEngineSelected)
         }
 
-        chipContainer.addView(addChip)
+        chipContainer.addView(moreChip)
+    }
+
+    /**
+     * BottomSheet Catalog for all Search Destinations across all categories.
+     * Allows searching, category filtering, 1-tap pinning to omnibox strip,
+     * smart direct searching, and adding custom engines.
+     */
+    fun showSearchDestinationsCatalog(
+        chipContainer: LinearLayout,
+        onEngineSelected: (SearchEngine) -> Unit
+    ) {
+        val dialog = BottomSheetDialog(activity)
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val bgColor = if (isDark) Color.parseColor("#18191A") else Color.WHITE
+        val cardBgColor = if (isDark) Color.parseColor("#242526") else Color.parseColor("#F8F9FA")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val borderColor = if (isDark) Color.parseColor("#38393A") else Color.parseColor("#E0E0E0")
+
+        val rootLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
+            setPadding(pad, pad / 2, pad, pad)
+            background = GradientDrawable().apply {
+                setColor(bgColor)
+                cornerRadii = floatArrayOf(48f, 48f, 48f, 48f, 0f, 0f, 0f, 0f)
+            }
+        }
+
+        // Top drag handle
+        val handle = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 40f, activity.resources.displayMetrics).toInt(),
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
+            ).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                setMargins(0, 0, 0, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt())
+            }
+            background = GradientDrawable().apply {
+                setColor(if (isDark) Color.parseColor("#4E5052") else Color.parseColor("#D0D0D0"))
+                cornerRadius = 8f
+            }
+        }
+        rootLayout.addView(handle)
+
+        // Header row: Title + Reset Pins + Close
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        val tvTitle = TextView(activity).apply {
+            text = "Search Destinations"
+            textSize = 18f
+            typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerRow.addView(tvTitle)
+
+        val btnResetPins = TextView(activity).apply {
+            text = "Reset Pins"
+            textSize = 12f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(accentColor)
+            val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
+            val dp4 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
+            setPadding(dp8, dp4, dp8, dp4)
+            isClickable = true
+            isFocusable = true
+        }
+        headerRow.addView(btnResetPins)
+
+        val btnClose = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(subTextColor)
+            val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
+            layoutParams = LinearLayout.LayoutParams(dp24, dp24).apply {
+                setMargins(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt(), 0, 0, 0)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                activity.triggerStrongHaptic(it)
+                dialog.dismiss()
+            }
+        }
+        headerRow.addView(btnClose)
+        rootLayout.addView(headerRow)
+
+        val tvSub = TextView(activity).apply {
+            text = "Tap to search or set default. Pin to add to your omnibox strip."
+            textSize = 12f
+            setTextColor(subTextColor)
+            val dp4 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
+            setPadding(0, dp4, 0, dp4 * 2)
+        }
+        rootLayout.addView(tvSub)
+
+        // Filter / Search Input
+        val etFilter = EditText(activity).apply {
+            hint = "Filter destinations or shortcut prefixes..."
+            textSize = 14f
+            setTextColor(textColor)
+            setHintTextColor(subTextColor)
+            setSingleLine()
+            val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
+            setPadding(dp12, dp12, dp12, dp12)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics)
+                setColor(cardBgColor)
+                setStroke(1, borderColor)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, dp12 / 2, 0, dp12)
+            }
+        }
+        rootLayout.addView(etFilter)
+
+        // Horizontal Category Filter Bar
+        val categoryScroll = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 0, 0, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics).toInt())
+            }
+        }
+        val categoryContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        categoryScroll.addView(categoryContainer)
+        rootLayout.addView(categoryScroll)
+
+        // Destinations List inside ScrollView
+        val listScrollView = ScrollView(activity).apply {
+            isVerticalScrollBarEnabled = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 360f, activity.resources.displayMetrics).toInt()
+            )
+        }
+        val listContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        listScrollView.addView(listContainer)
+        rootLayout.addView(listScrollView)
+
+        // Bottom "+ Add Custom Destination" Bar
+        val bottomBar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            val dp10 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics).toInt()
+            setPadding(0, dp10, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val btnAddCustom = TextView(activity).apply {
+            text = "+ Add Custom Destination"
+            textSize = 13f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(accentColor)
+            val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
+            setPadding(dp8 * 2, dp8, dp8 * 2, dp8)
+            background = GradientDrawable().apply {
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
+                setColor(if (isDark) Color.parseColor("#252830") else Color.parseColor("#EEF3FD"))
+                setStroke(1, accentColor)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                activity.triggerStrongHaptic(it)
+                dialog.dismiss()
+                showAddSearchEngineDialog(chipContainer, onEngineSelected)
+            }
+        }
+        bottomBar.addView(btnAddCustom)
+        rootLayout.addView(bottomBar)
+
+        val categories = listOf(
+            "All",
+            "Essential",
+            "Video & Streaming",
+            "Social & Community",
+            "Shopping",
+            "AI Search & Assistants",
+            "Knowledge & Technical Search",
+            "Travel, Maps & Bookings",
+            "Email & Productivity"
+        )
+        var selectedCategory = "All"
+        var filterText = ""
+
+        fun renderList() {
+            listContainer.removeAllViews()
+            val allEngines = getAllEngines()
+            val currentEngineName = prefs.getString("search_engine", "Google") ?: "Google"
+            val dp10 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics).toInt()
+            val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
+            val dp4 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
+            val dp6 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, activity.resources.displayMetrics).toInt()
+            val dp38 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, activity.resources.displayMetrics).toInt()
+            val dp20 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, activity.resources.displayMetrics).toInt()
+            val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
+
+            val filtered = allEngines.filter { engine ->
+                val matchesCategory = (selectedCategory == "All") || engine.category.equals(selectedCategory, ignoreCase = true)
+                val matchesFilter = filterText.isEmpty() ||
+                        engine.name.contains(filterText, ignoreCase = true) ||
+                        engine.prefix.contains(filterText, ignoreCase = true) ||
+                        engine.description.contains(filterText, ignoreCase = true) ||
+                        engine.category.contains(filterText, ignoreCase = true)
+                matchesCategory && matchesFilter
+            }
+
+            if (filtered.isEmpty()) {
+                val tvEmpty = TextView(activity).apply {
+                    text = "No destinations found"
+                    textSize = 14f
+                    setTextColor(subTextColor)
+                    gravity = android.view.Gravity.CENTER
+                    val padEmpty = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32f, activity.resources.displayMetrics).toInt()
+                    setPadding(0, padEmpty, 0, padEmpty)
+                }
+                listContainer.addView(tvEmpty)
+                return
+            }
+
+            for (engine in filtered) {
+                val isCurrentDefault = engine.name.equals(currentEngineName, ignoreCase = true)
+                var isPinned = isEnginePinned(engine.id)
+
+                val itemCard = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(dp10, dp10, dp10, dp10)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(0, 0, 0, dp6)
+                    }
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14f, activity.resources.displayMetrics)
+                        setColor(cardBgColor)
+                        setStroke(1, borderColor)
+                    }
+                    isClickable = true
+                    isFocusable = true
+                }
+
+                // Left squircle icon container
+                val iconBox = LinearLayout(activity).apply {
+                    gravity = android.view.Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(dp38, dp38)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics)
+                        setColor(if (isDark) Color.parseColor("#323436") else Color.parseColor("#EAEAEA"))
+                    }
+                }
+                val ivIcon = ImageView(activity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp20, dp20)
+                    setImageResource(engine.iconRes)
+                    if (isDark) {
+                        setColorFilter(Color.WHITE)
+                    } else {
+                        setColorFilter(Color.parseColor("#202124"))
+                    }
+                }
+                iconBox.addView(ivIcon)
+                itemCard.addView(iconBox)
+
+                // Middle Info Column
+                val infoCol = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(dp10, 0, dp8, 0)
+                    }
+                }
+
+                // Title row (Name + Prefix badge + Optional Default badge)
+                val titleRow = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+
+                val tvName = TextView(activity).apply {
+                    text = engine.name
+                    textSize = 14f
+                    typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+                    setTextColor(textColor)
+                }
+                titleRow.addView(tvName)
+
+                // Shortcut prefix badge
+                val tvPrefix = TextView(activity).apply {
+                    text = engine.prefix
+                    textSize = 10f
+                    typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+                    setTextColor(accentColor)
+                    setPadding(dp6, dp4 / 2, dp6, dp4 / 2)
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = 8f
+                        setColor(if (isDark) Color.parseColor("#282D38") else Color.parseColor("#EEF3FD"))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(dp6, 0, 0, 0)
+                    }
+                }
+                titleRow.addView(tvPrefix)
+
+                if (isCurrentDefault) {
+                    val tvDefault = TextView(activity).apply {
+                        text = "Active"
+                        textSize = 9f
+                        typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
+                        setTextColor(Color.WHITE)
+                        setPadding(dp6, dp4 / 2, dp6, dp4 / 2)
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = 8f
+                            setColor(accentColor)
+                        }
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            setMargins(dp6, 0, 0, 0)
+                        }
+                    }
+                    titleRow.addView(tvDefault)
+                }
+
+                infoCol.addView(titleRow)
+
+                // Description
+                if (engine.description.isNotEmpty()) {
+                    val tvDesc = TextView(activity).apply {
+                        text = engine.description
+                        textSize = 11f
+                        setTextColor(subTextColor)
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    }
+                    infoCol.addView(tvDesc)
+                }
+
+                // Category tag
+                val tvCategory = TextView(activity).apply {
+                    text = engine.category
+                    textSize = 10f
+                    setTextColor(if (isDark) Color.parseColor("#80868B") else Color.parseColor("#70757A"))
+                }
+                infoCol.addView(tvCategory)
+
+                itemCard.addView(infoCol)
+
+                // Right Pin Button
+                val pinBtn = ImageView(activity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp38, dp38)
+                    setPadding(dp8, dp8, dp8, dp8)
+                    setImageResource(if (isPinned) R.drawable.ic_pin_filled else R.drawable.ic_pin)
+                    setColorFilter(if (isPinned) accentColor else subTextColor)
+                    isClickable = true
+                    isFocusable = true
+                }
+
+                pinBtn.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    val nowPinned = togglePinEngine(engine.id)
+                    isPinned = nowPinned
+                    pinBtn.setImageResource(if (nowPinned) R.drawable.ic_pin_filled else R.drawable.ic_pin)
+                    pinBtn.setColorFilter(if (nowPinned) accentColor else subTextColor)
+                    renderSearchEngineChips(chipContainer, onEngineSelected)
+                    val msg = if (nowPinned) "${engine.name} pinned to strip" else "${engine.name} unpinned from strip"
+                    Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+                }
+
+                itemCard.addView(pinBtn)
+
+                // Card Click: smart search if query is typed; otherwise set default engine
+                itemCard.setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    recordEngineUsage(engine.id)
+                    val typed = activity.getUserTypedQuery()
+                    dialog.dismiss()
+                    if (typed.isNotEmpty()) {
+                        val url = buildSearchUrl(engine, typed)
+                        activity.loadUrlFromInput(url)
+                    } else {
+                        prefs.edit().putString("search_engine", engine.name).apply()
+                        onEngineSelected(engine)
+                        renderSearchEngineChips(chipContainer, onEngineSelected)
+                        Toast.makeText(activity, "Default search set to ${engine.name}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                listContainer.addView(itemCard)
+            }
+        }
+
+        fun renderCategoryPills() {
+            categoryContainer.removeAllViews()
+            val dp10 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, activity.resources.displayMetrics).toInt()
+            val dp6 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 6f, activity.resources.displayMetrics).toInt()
+            val dp4 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
+
+            for (cat in categories) {
+                val isCatSelected = cat == selectedCategory
+                val pill = TextView(activity).apply {
+                    text = cat
+                    textSize = 12f
+                    typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                    setPadding(dp10, dp6, dp10, dp6)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(dp4, 0, dp4, 0)
+                    }
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14f, activity.resources.displayMetrics)
+                        if (isCatSelected) {
+                            setColor(accentColor)
+                        } else {
+                            setColor(cardBgColor)
+                            setStroke(1, borderColor)
+                        }
+                    }
+                    setTextColor(if (isCatSelected) Color.WHITE else textColor)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        activity.triggerStrongHaptic(it)
+                        selectedCategory = cat
+                        renderCategoryPills()
+                        renderList()
+                    }
+                }
+                categoryContainer.addView(pill)
+            }
+        }
+
+        btnResetPins.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            setPinnedEngineIds(DEFAULT_PINNED_IDS)
+            renderSearchEngineChips(chipContainer, onEngineSelected)
+            renderList()
+            Toast.makeText(activity, "Search strip reset to default", Toast.LENGTH_SHORT).show()
+        }
+
+        etFilter.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                filterText = s?.toString()?.trim() ?: ""
+                renderList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        renderCategoryPills()
+        renderList()
+
+        dialog.setContentView(rootLayout)
+        dialog.window?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.setBackgroundColor(Color.TRANSPARENT)
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+        dialog.show()
     }
 
     /**
@@ -551,7 +1604,7 @@ class HazeOmniboxManager(
         }
 
         val etName = EditText(activity).apply {
-            hint = "Engine Name (e.g. Stack Overflow)"
+            hint = "Destination Name (e.g. Stack Overflow)"
             setSingleLine()
         }
         val etPrefix = EditText(activity).apply {
@@ -568,7 +1621,7 @@ class HazeOmniboxManager(
         dialogLayout.addView(etUrl)
 
         AlertDialog.Builder(activity)
-            .setTitle("Add Custom Search Engine")
+            .setTitle("Add Custom Destination")
             .setView(dialogLayout)
             .setPositiveButton("Save") { _, _ ->
                 val name = etName.text.toString().trim()
@@ -577,7 +1630,7 @@ class HazeOmniboxManager(
                 if (name.isNotEmpty() && prefix.isNotEmpty() && url.isNotEmpty()) {
                     saveCustomEngine(name, prefix, url)
                     renderSearchEngineChips(chipContainer, onEngineSelected)
-                    Toast.makeText(activity, "Added custom engine: $name", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "Added custom destination: $name", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(activity, "Please fill in all fields", Toast.LENGTH_SHORT).show()
                 }

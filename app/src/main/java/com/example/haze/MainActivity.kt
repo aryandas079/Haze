@@ -1952,7 +1952,7 @@ class MainActivity : AppCompatActivity() {
         return rowContainer
     }
 
-    private fun getUserTypedQuery(): String {
+    internal fun getUserTypedQuery(): String {
         return addressBar.text?.toString()?.trim() ?: ""
     }
 
