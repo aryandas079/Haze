@@ -43,10 +43,12 @@ object HazeSettingsManager {
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)
 
-        val bgColor = if (isDark) Color.parseColor("#141414") else Color.parseColor("#F8F9FA")
-        val cardColor = if (isDark) Color.parseColor("#222222") else Color.WHITE
+        val sectionHeaderColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
+        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
+        val cardColor = if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
+        val cardBorderColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E2EC")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val dividerColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E5E5E5")
 
         val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
@@ -112,6 +114,7 @@ object HazeSettingsManager {
                 background = GradientDrawable().apply {
                     cornerRadius = dpToPx(activity, 18).toFloat()
                     setColor(cardColor)
+                    setStroke(1, cardBorderColor)
                 }
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = dpToPx(activity, 16)
@@ -123,9 +126,9 @@ object HazeSettingsManager {
         fun addSectionHeader(title: String) {
             val tv = TextView(activity).apply {
                 text = title
-                textSize = 13f
+                textSize = 13.5f
                 setTypeface(null, Typeface.BOLD)
-                setTextColor(accentColor)
+                setTextColor(sectionHeaderColor)
                 setPadding(dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 8))
             }
             content.addView(tv)
@@ -436,11 +439,17 @@ object HazeSettingsManager {
 
             val sw = Switch(context).apply {
                 isChecked = prefs.getBoolean(prefKey, defaultValue)
+                val isDark = prefs.getBoolean("is_dark", false)
+                val switchActiveColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
                 val thumbColor = ColorStateList(
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                    intArrayOf(accentColor, Color.GRAY)
+                    intArrayOf(switchActiveColor, if (isDark) Color.parseColor("#5A5D62") else Color.GRAY)
                 )
                 thumbTintList = thumbColor
+                trackTintList = ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(if (isDark) Color.parseColor("#3C4D6B") else Color.parseColor("#A8C7FA"), if (isDark) Color.parseColor("#38393D") else Color.parseColor("#DADCE0"))
+                )
                 setOnCheckedChangeListener { _, isChecked ->
                     if (context is MainActivity) context.triggerStrongHaptic()
                     prefs.edit().putBoolean(prefKey, isChecked).apply()

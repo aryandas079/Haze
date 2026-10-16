@@ -799,7 +799,8 @@ class HazeOmniboxManager(
         val tvClipSearchText = view.findViewById<TextView>(R.id.tvClipSearchText)
 
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val rawAccentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val accentColor = if (isDark) Color.parseColor("#8AB4F8") else rawAccentColor
         val coralColor = Color.parseColor("#E53935")
 
         if (isDark) {
@@ -811,7 +812,7 @@ class HazeOmniboxManager(
             }
             card.background = bgCard
             tvAction.setTextColor(Color.WHITE)
-            tvContent.setTextColor(Color.parseColor("#9AA0A6"))
+            tvContent.setTextColor(Color.parseColor("#C4C7C5"))
 
             val pillBgDark = GradientDrawable().apply {
                 cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
@@ -1119,11 +1120,12 @@ class HazeOmniboxManager(
     ) {
         val dialog = BottomSheetDialog(activity)
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val rawAccent = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+        val accentColor = if (isDark) Color.parseColor("#8AB4F8") else rawAccent
         val bgColor = if (isDark) Color.parseColor("#18191A") else Color.WHITE
         val cardBgColor = if (isDark) Color.parseColor("#242526") else Color.parseColor("#F8F9FA")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val borderColor = if (isDark) Color.parseColor("#38393A") else Color.parseColor("#E0E0E0")
 
         val rootLayout = LinearLayout(activity).apply {

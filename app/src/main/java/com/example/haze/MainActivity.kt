@@ -43,11 +43,14 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.*
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.constraintlayout.widget.ConstraintLayout
 import com.google.android.material.card.MaterialCardView
 import androidx.core.graphics.ColorUtils
@@ -930,6 +933,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
+        val isInitialDark = prefs.getBoolean("is_dark", false)
+        val targetNight = if (isInitialDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+        if (AppCompatDelegate.getDefaultNightMode() != targetNight) {
+            AppCompatDelegate.setDefaultNightMode(targetNight)
+        }
         HazePasswordManager.purgeDefaultEntriesIfPresent(this)
 
         webContainer = findViewById(R.id.webContainer)
@@ -1787,8 +1795,8 @@ class MainActivity : AppCompatActivity() {
         )
 
         val titleColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
-        val subColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val defaultIconColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val subColor = if (isPrivateMode || isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
+        val defaultIconColor = if (isPrivateMode || isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val smartAccentColor = if (isPrivateMode || isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8")
 
         ivIcon.setImageResource(item.iconRes)
@@ -3327,6 +3335,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyTheme() {
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val targetNight = if (isDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+        if (AppCompatDelegate.getDefaultNightMode() != targetNight) {
+            AppCompatDelegate.setDefaultNightMode(targetNight)
+        }
         
         val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
@@ -3416,6 +3428,16 @@ class MainActivity : AppCompatActivity() {
             floatingNavDivider.setBackgroundColor(if (isDark) Color.parseColor("#383838") else Color.parseColor("#DADCE0"))
 
             updateNavigationButtons()
+        }
+
+        val allTabs = normalTabs + privateTabs
+        for (tab in allTabs) {
+            val wv = tab.webView
+            if (wv != null) {
+                val tabIsDark = isDark || tab.isPrivate
+                applyDarkModeToWebView(wv, tabIsDark)
+                injectThemeColorScheme(wv, tabIsDark)
+            }
         }
     }
 
@@ -4116,12 +4138,96 @@ class MainActivity : AppCompatActivity() {
         targetView.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DYNAMIC_BANNER_CLEANER_SCRIPT, null)
     }
 
+    private fun applyDarkModeToWebView(webView: WebView, isDark: Boolean) {
+        try {
+            webView.setBackgroundColor(if (isDark) Color.parseColor("#121212") else Color.WHITE)
+
+            try {
+                val cookieManager = CookieManager.getInstance()
+                if (isDark) {
+                    cookieManager.setCookie("https://youtube.com", "PREF=f6=400; path=/; domain=.youtube.com")
+                    cookieManager.setCookie("https://wikipedia.org", "mf_displayMode=night; path=/; domain=.wikipedia.org")
+                } else {
+                    cookieManager.setCookie("https://youtube.com", "PREF=f6=0; path=/; domain=.youtube.com")
+                    cookieManager.setCookie("https://wikipedia.org", "mf_displayMode=day; path=/; domain=.wikipedia.org")
+                }
+            } catch (_: Exception) {}
+
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, isDark)
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setForceDark(
+                    webView.settings,
+                    if (isDark) WebSettingsCompat.FORCE_DARK_ON else WebSettingsCompat.FORCE_DARK_OFF
+                )
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK_STRATEGY)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setForceDarkStrategy(
+                    webView.settings,
+                    WebSettingsCompat.DARK_STRATEGY_PREFER_WEB_THEME_OVER_USER_AGENT_DARKENING
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun injectThemeColorScheme(webView: WebView, isDark: Boolean) {
+        val js = """
+            (function() {
+                try {
+                    let isDark = ${isDark};
+                    let meta = document.querySelector('meta[name="color-scheme"]');
+                    if (!meta) {
+                        meta = document.createElement('meta');
+                        meta.name = 'color-scheme';
+                        if (document.head) document.head.appendChild(meta);
+                    }
+                    meta.content = isDark ? 'dark light' : 'light dark';
+                    if (isDark) {
+                        document.documentElement.setAttribute('data-theme', 'dark');
+                        document.documentElement.setAttribute('data-bs-theme', 'dark');
+                        document.documentElement.classList.add('dark', 'dark-theme', 'theme-dark', 'skin-theme-clientpref-night', 'skin-night');
+                        if (window.location.hostname.includes('youtube.com')) {
+                            document.documentElement.setAttribute('dark', 'true');
+                        }
+                        if (window.location.hostname.includes('wikipedia.org')) {
+                            var style = document.getElementById('__haze_wiki_dark');
+                            if (!style) {
+                                style = document.createElement('style');
+                                style.id = '__haze_wiki_dark';
+                                style.innerHTML = 'html, body, .overlay, .header-container, #content, .content, .mw-body { background-color: #121212 !important; color: #E8EAED !important; } .ext-related-articles-card, .drawer { background-color: #1E1E1E !important; } a { color: #8AB4F8 !important; }';
+                                (document.head || document.documentElement).appendChild(style);
+                            }
+                        }
+                    } else {
+                        document.documentElement.removeAttribute('data-theme');
+                        document.documentElement.setAttribute('data-bs-theme', 'light');
+                        document.documentElement.classList.remove('dark', 'dark-theme', 'theme-dark', 'skin-theme-clientpref-night', 'skin-night');
+                        if (window.location.hostname.includes('youtube.com')) {
+                            document.documentElement.removeAttribute('dark');
+                        }
+                        var style = document.getElementById('__haze_wiki_dark');
+                        if (style) style.remove();
+                    }
+                } catch(e) {}
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(js, null)
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(webView: WebView) {
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
         webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
+
+        val isDarkWeb = prefs.getBoolean("is_dark", false) || isPrivateMode
+        applyDarkModeToWebView(webView, isDarkWeb)
 
         webView.addJavascriptInterface(WebAppInterface(webView), "Android")
 
@@ -4387,6 +4493,10 @@ class MainActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 updatePrivacyShieldButton()
                 
+                val isDarkForTab = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                applyDarkModeToWebView(view ?: webView, isDarkForTab)
+                injectThemeColorScheme(view ?: webView, isDarkForTab)
+                
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
                     val currentTab = getTabFromWebView(view ?: webView)
                     val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
@@ -4497,6 +4607,11 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 finishPageLoading()
                 HazeSecurityManager.persistCookieStore()
+
+                val isDarkForTab = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                applyDarkModeToWebView(view ?: webView, isDarkForTab)
+                injectThemeColorScheme(view ?: webView, isDarkForTab)
+
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
                     val currentTab = getTabFromWebView(view ?: webView)
                     val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
@@ -4679,14 +4794,18 @@ class MainActivity : AppCompatActivity() {
                     // Record history asynchronously off UI thread
                     if (!tab.isPrivate && !isHome && !url.startsWith("haze://") && !url.startsWith("about:")) {
                         val pageTitle = tab.title.ifEmpty { view?.title ?: "Web Page" }
-                        dbExecutor.execute {
+                        if (!dbExecutor.isShutdown) {
                             try {
-                                val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
-                                val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
-                                HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                                dbExecutor.execute {
+                                    try {
+                                        val cachedFavicon = HazeFaviconManager.getCachedFaviconFile(this@MainActivity, url)
+                                        val faviconPath = if (cachedFavicon.exists()) cachedFavicon.absolutePath else null
+                                        HazeDatabase.getInstance(this@MainActivity).addHistory(url, pageTitle, isPrivate = false, faviconPath = faviconPath)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            } catch (_: Exception) {}
                         }
                     }
 
@@ -5045,6 +5164,9 @@ class MainActivity : AppCompatActivity() {
         wakeScreen()
         if (::weatherManager.isInitialized) {
             weatherManager.refreshWeather(force = false)
+        }
+        if (!isPrivateMode) {
+            HazeIncognitoAuthManager.applyWindowSecurity(this, isViewingPrivate = false)
         }
         if (isPrivateMode && HazeIncognitoAuthManager.isProtectionEnabled(this) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
             HazeIncognitoAuthManager.requestUnlock(this, onSuccess = {
@@ -6839,7 +6961,7 @@ class MainActivity : AppCompatActivity() {
         val surfaceColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#F8F9FA")
         val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val secondaryTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val secondaryTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val accent = Color.parseColor(accentColor)
 
         val cardLayout = LinearLayout(this).apply {

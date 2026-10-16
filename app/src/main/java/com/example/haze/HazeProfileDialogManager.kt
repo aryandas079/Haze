@@ -126,7 +126,7 @@ object HazeProfileDialogManager {
         val bgColor = if (isDark) Color.parseColor("#1C1C1C") else Color.WHITE
         val headerCardColor = if (isDark) Color.parseColor("#282828") else Color.parseColor("#EEF2FB")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val dividerColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
 
         val dialog = BottomSheetDialog(activity)
@@ -414,7 +414,7 @@ object HazeProfileDialogManager {
         val bgColor = if (isDark) Color.parseColor("#1C1C1C") else Color.WHITE
         val headerCardColor = if (isDark) Color.parseColor("#282828") else Color.parseColor("#EEF2FB")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
 
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))

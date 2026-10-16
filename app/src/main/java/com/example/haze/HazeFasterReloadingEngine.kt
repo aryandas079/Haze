@@ -302,12 +302,12 @@ object HazeFasterReloadingEngine {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
-        val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
+        val accentColor = if (isDark) Color.parseColor("#8AB4F8") else Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+        val bgColor = if (isDark) Color.parseColor("#121212") else Color.WHITE
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val cardBgColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#F8F9FA")
-        val borderColor = if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#DADCE0")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
+        val cardBgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#F8F9FA")
+        val borderColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#DADCE0")
 
         val dialog = android.app.Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
         dialog.window?.let { w ->
@@ -415,7 +415,7 @@ object HazeFasterReloadingEngine {
             text = if (isEnabled(activity)) "Faster Reloading Engine: Active" else "Faster Reloading Engine: Disabled"
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(if (isEnabled(activity)) Color.parseColor("#188038") else subTextColor)
+            setTextColor(if (isEnabled(activity)) (if (isDark) Color.parseColor("#81C995") else Color.parseColor("#188038")) else subTextColor)
             setPadding(0, 0, 0, dpToPx(activity, 12))
         }
         card.addView(tvStatus)
@@ -482,7 +482,7 @@ object HazeFasterReloadingEngine {
                     textSize = 10f
                     setTypeface(null, Typeface.BOLD)
                     setPadding(dpToPx(activity, 8), dpToPx(activity, 2), dpToPx(activity, 8), dpToPx(activity, 2))
-                    setTextColor(if (isWarmed) Color.parseColor("#188038") else accentColor)
+                    setTextColor(if (isWarmed) (if (isDark) Color.parseColor("#81C995") else Color.parseColor("#188038")) else accentColor)
                     background = GradientDrawable().apply {
                         cornerRadius = dpToPx(activity, 6).toFloat()
                         setColor(if (isWarmed) (if (isDark) Color.parseColor("#133B1E") else Color.parseColor("#E6F4EA")) else (if (isDark) Color.parseColor("#1C2B46") else Color.parseColor("#E8F0FE")))
@@ -496,7 +496,7 @@ object HazeFasterReloadingEngine {
                 val tvUrl = TextView(activity).apply {
                     text = c.url
                     textSize = 11.5f
-                    setTextColor(subTextColor)
+                    setTextColor(if (isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8"))
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                     setPadding(0, dpToPx(activity, 2), 0, dpToPx(activity, 6))
