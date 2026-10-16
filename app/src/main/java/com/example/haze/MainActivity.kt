@@ -598,7 +598,7 @@ class MainActivity : AppCompatActivity() {
             Shortcut("Instagram", "https://instagram.com", "https://www.google.com/s2/favicons?domain=instagram.com&sz=128", "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z", "#E1306C"),
             Shortcut("Reddit", "https://www.reddit.com", "https://www.google.com/s2/favicons?domain=reddit.com&sz=128", "M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.221.685-.356 1.093-.356.999 0 1.81.811 1.81 1.81 0 .633-.323 1.189-.81 1.512.03.208.051.42.051.633 0 4.316-5.013 7.82-11.196 7.82s-11.196-3.504-11.196-7.82c0-.213.02-.425.05-.633-.487-.323-.81-.879-.81-1.512 0-.999.811-1.81 1.81-1.81.408 0 .785.135 1.093.356 1.194-.856 2.85-1.418 4.674-1.488l.8-3.747 2.597.547a1.25 1.25 0 0 1 2.498-.056l.547-2.556a.625.625 0 0 1 .75-.484l3.14.662a1.248 1.248 0 0 1 1.205-.884z", "#FF4500"),
             Shortcut("Spotify", "https://spotify.com", "https://www.google.com/s2/favicons?domain=spotify.com&sz=128", "M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.778-.179-.899-.599-.12-.42.18-.78.6-.9 4.56-1.02 8.52-.6 11.76 1.44.36.18.48.66.24 1.02zm1.44-3.84c-.301.481-.921.601-1.401.3-3.24-1.98-8.16-2.58-11.94-1.38-.54.18-1.14-.12-1.32-.66-.18-.54.12-1.14.66-1.32 4.38-1.32 9.84-.66 13.68 1.62.48.3.66.96.3 1.44zm.12-4.08C15.24 7.32 8.88 7.08 5.16 8.22c-.66.2-1.38-.16-1.58-.82-.2-.66.16-1.38.82-1.58 4.32-1.32 11.4-1.02 15.66 1.5.6.36.78 1.14.42 1.74-.36.6-1.14.78-1.74.42z", "#1DB954"),
-            Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128", "M12.09,2.15C11.96,2.15 11.83,2.23 11.78,2.37L10.27,6.86C8.84,6.44 7.42,6.03 10,6.03C10,6.03 6.9,6.5 5.5,7C4.1,7.5 3.03,8.6 2.5,10C1.97,11.4 1.7,13.2 1.5,15.5C1.3,17.8 1.1,20.5 1,22.5C2.5,22.5 4,22.5 5.5,22.5C5.7,20.5 5.9,18 6.1,15.5C6.3,13 6.5,11.2 7,10.2C7.5,9.2 8.8,8.8 9.1,8.6C10,8.4 11.1,8.7 12.3,9.5L14,14.5L16.2,9.2C17.5,8.9 18.8,8.8 20,8.8C20.5,8.8 21,8.9 21.5,9C21.7,10.5 21.9,12.5 22.1,15C22.3,17.5 22.5,20 22.7,22.5C24.2,22.5 25.7,22.5 27.2,22.5C27.1,20.5 26.9,17.8 26.7,15.5C26.5,13.2 26.2,11.4 25.7,10C25.2,8.6 24.1,7.5 22.7,7C21.3,6.5 19.8,6.2 18.3,6.1L16.8,2.37C16.75,2.23 16.62,2.15 16.49,2.15C16.36,2.15 16.23,2.23 16.18,2.37L14,9.5L12.09,2.37C12.04,2.23 11.91,2.15 12.09,2.15Z", "#202124")
+            Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.3 14.5l-1.8-4.9-1.5 4.9H10l-2.4-7.8h1.8l1.5 5.5 1.6-5.5h1.8l1.6 5.5 1.5-5.5h1.8l-2.4 7.8h-1.9z", "#202124")
         )
     }
 
@@ -817,7 +817,13 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun showMaxShortcutsToast() {
             runOnUiThread {
-                Toast.makeText(this@MainActivity, "Maximum shortcuts reached. Long-press an existing shortcut to remove it.", Toast.LENGTH_LONG).show()
+                val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
+                val maxCapacity = if (shortcutsMode == "1") 4 else 9
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Shortcut Limit Reached")
+                    .setMessage("Your shortcuts area is full ($maxCapacity/$maxCapacity).\n\nPress and hold any shortcut to remove it and make room for a new one.")
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         }
         @JavascriptInterface
@@ -2848,6 +2854,19 @@ class MainActivity : AppCompatActivity() {
                 }
             }, 200)
         }
+        if (intent.hasExtra("test_remove_shortcut")) {
+            val idx = intent.getIntExtra("test_remove_shortcut", 0)
+            webContainer.postDelayed({ showRemoveShortcutDialog(idx) }, 300)
+        }
+        if (intent.hasExtra("test_set_shortcuts_mode")) {
+            val mode = intent.getStringExtra("test_set_shortcuts_mode") ?: "2"
+            prefs.edit().putString("shortcuts_mode", mode).apply()
+            webContainer.postDelayed({ reloadHomeTabs() }, 300)
+        }
+        if (intent.getBooleanExtra("test_reset_shortcuts", false)) {
+            prefs.edit().remove("shortcuts_initialized_v4").remove("custom_shortcuts_json").apply()
+            webContainer.postDelayed({ reloadHomeTabs() }, 300)
+        }
         if (intent.getBooleanExtra("test_gesture_swipe_down", false)) {
             webContainer.postDelayed({
                 val loc = IntArray(2)
@@ -2891,12 +2910,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getCustomShortcuts(): List<Shortcut> {
-        if (!prefs.getBoolean("favicons_initialized_v2", false)) {
-            saveCustomShortcuts(defaultShortcuts)
-            prefs.edit().putBoolean("favicons_initialized_v2", true).apply()
-            return defaultShortcuts
+        val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
+        val maxCap = if (shortcutsMode == "1") 4 else 9
+
+        // V4 Initialization: Preload 4 for 1 row, 9 for 2 rows, default to 2 rows
+        if (!prefs.getBoolean("shortcuts_initialized_v4", false)) {
+            val initialMode = if (shortcutsMode == "off") "2" else shortcutsMode
+            val initialCap = if (initialMode == "1") 4 else 9
+            val initialShortcuts = defaultShortcuts.take(initialCap)
+            saveCustomShortcuts(initialShortcuts)
+            prefs.edit()
+                .putBoolean("shortcuts_initialized_v4", true)
+                .putString("shortcuts_mode", initialMode)
+                .apply()
+            return initialShortcuts
         }
-        val jsonStr = prefs.getString("custom_shortcuts_json", null) ?: return defaultShortcuts
+
+        val jsonStr = prefs.getString("custom_shortcuts_json", null) ?: return defaultShortcuts.take(maxCap)
         return try {
             val arr = JSONArray(jsonStr)
             val list = mutableListOf<Shortcut>()
@@ -2906,12 +2936,16 @@ class MainActivity : AppCompatActivity() {
                 val url = obj.getString("url")
                 var iconUrl = obj.optString("iconUrl", "")
                 
+                var svg = obj.optString("svg", "")
+                var color = obj.optString("color", "")
                 if (iconUrl.isEmpty() || !iconUrl.startsWith("data:image/png;base64,")) {
                     val defaultItem = DefaultShortcuts.list.find { 
                         it.name.equals(name, ignoreCase = true) || it.url.equals(url, ignoreCase = true) 
                     }
                     if (defaultItem != null) {
                         iconUrl = defaultItem.iconUrl
+                        if (svg.isEmpty()) svg = defaultItem.svgPath
+                        if (color.isEmpty()) color = defaultItem.fillColor
                     } else if (iconUrl.isEmpty()) {
                         val host = try { Uri.parse(url).host?.removePrefix("www.") ?: url } catch (e: Exception) { url }
                         iconUrl = "https://www.google.com/s2/favicons?domain=$host&sz=128"
@@ -2922,13 +2956,17 @@ class MainActivity : AppCompatActivity() {
                     name = name, 
                     url = url, 
                     iconUrl = iconUrl,
-                    svgPath = obj.optString("svg", ""),
-                    fillColor = obj.optString("color", "")
+                    svgPath = svg,
+                    fillColor = color
                 ))
             }
-            if (list.isEmpty()) defaultShortcuts else list
+            if (list.isEmpty()) {
+                val fallback = defaultShortcuts.take(maxCap)
+                saveCustomShortcuts(fallback)
+                fallback
+            } else list
         } catch (e: Exception) {
-            defaultShortcuts
+            defaultShortcuts.take(maxCap)
         }
     }
 
@@ -2965,28 +3003,34 @@ class MainActivity : AppCompatActivity() {
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
         val currentShortcuts = getCustomShortcuts()
-        if (currentShortcuts.size >= maxCapacity) {
+        if (currentShortcuts.take(maxCapacity).size >= maxCapacity) {
             AlertDialog.Builder(this)
                 .setTitle("Shortcut Limit Reached")
-                .setMessage("Your shortcuts grid is full ($maxCapacity/$maxCapacity).\n\nTo make room for a new shortcut:\n• Press and hold (long-press) any shortcut you don't need\n• Tap 'Remove'\n\nOnce removed, this Add (+) button will immediately activate!")
-                .setPositiveButton("Got It", null)
+                .setMessage("Your shortcuts area is full ($maxCapacity/$maxCapacity).\n\nPress and hold any shortcut to remove it and make room for a new one.")
+                .setPositiveButton("OK", null)
                 .show()
             return
         }
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(64, 40, 64, 40)
+            setPadding(dpToPx(24), dpToPx(16), dpToPx(24), dpToPx(8))
         }
         
-        val nameInput = EditText(this).apply { hint = "Name (e.g. Amazon)" }
-        val urlInput = EditText(this).apply { hint = "URL (e.g. https://amazon.com)" }
+        val nameInput = EditText(this).apply { 
+            hint = "Name (e.g. Amazon)"
+            isSingleLine = true
+        }
+        val urlInput = EditText(this).apply { 
+            hint = "URL (e.g. amazon.com)"
+            isSingleLine = true
+        }
         
         layout.addView(nameInput)
         layout.addView(urlInput)
 
         AlertDialog.Builder(this)
-            .setTitle("Add Custom Shortcut")
+            .setTitle("Add Shortcut")
             .setView(layout)
             .setPositiveButton("Add") { _, _ ->
                 val name = nameInput.text.toString().trim()
@@ -3002,7 +3046,8 @@ class MainActivity : AppCompatActivity() {
                     saveCustomShortcuts(customShortcuts)
                     
                     reloadHomeTabs()
-                    Toast.makeText(this, "Shortcut added!", Toast.LENGTH_SHORT).show()
+                    triggerStrongHaptic(isHeavy = false)
+                    Toast.makeText(this, "Shortcut added", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -3010,17 +3055,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRemoveShortcutDialog(index: Int) {
+        val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
+        val maxCapacity = if (shortcutsMode == "1") 4 else 9
         val customShortcuts = getCustomShortcuts().toMutableList()
-        if (index in 0 until customShortcuts.size) {
-            val s = customShortcuts[index]
+        val activeShortcuts = customShortcuts.take(maxCapacity)
+        if (index in 0 until activeShortcuts.size) {
+            val s = activeShortcuts[index]
             AlertDialog.Builder(this)
                 .setTitle("Remove Shortcut")
-                .setMessage("Do you want to remove '${s.name}' from your home screen?")
+                .setMessage("Remove '${s.name}' from your home screen shortcuts?")
                 .setPositiveButton("Remove") { _, _ ->
-                    customShortcuts.removeAt(index)
+                    val removeTarget = customShortcuts.indexOfFirst { it.url == s.url && it.name == s.name }
+                    if (removeTarget != -1) {
+                        customShortcuts.removeAt(removeTarget)
+                    } else if (index in 0 until customShortcuts.size) {
+                        customShortcuts.removeAt(index)
+                    }
                     saveCustomShortcuts(customShortcuts)
                     reloadHomeTabs()
-                    Toast.makeText(this, "Shortcut removed!", Toast.LENGTH_SHORT).show()
+                    triggerStrongHaptic(isHeavy = false)
+                    Toast.makeText(this, "'${s.name}' removed", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -3074,20 +3128,32 @@ class MainActivity : AppCompatActivity() {
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
         val customShortcuts = getCustomShortcuts()
         val activeShortcuts = customShortcuts.take(maxCapacity)
-        val isFull = customShortcuts.size >= maxCapacity
+        val isFull = activeShortcuts.size >= maxCapacity
         
         val displayShortcutsHtml = StringBuilder()
         for (i in activeShortcuts.indices) {
             val s = activeShortcuts[i]
-            val iconContent = if (s.iconUrl.isNotEmpty()) {
-                """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" />"""
+            val iconContent = if (s.name.equals("Google", ignoreCase = true)) {
+                """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>"""
+            } else if (s.svgPath.isNotEmpty()) {
+                val effectiveFill = if (isDark && (s.fillColor == "#202124" || s.fillColor == "#000000" || s.fillColor.isEmpty())) "#FFFFFF" else s.fillColor.ifEmpty { accentColor }
+                """<svg viewBox="0 0 24 24" style="fill: $effectiveFill; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
+            } else if (s.iconUrl.isNotEmpty()) {
+                """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:28px; height:28px; align-items:center; justify-content:center; font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
             } else {
-                """<svg viewBox="0 0 24 24" style="fill: ${s.fillColor}; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
+                """<div style="font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
             }
             displayShortcutsHtml.append("""
                 <div class="shortcut" 
-                     onclick="Android.triggerHaptic(false); Android.navigateTo('${s.url}')" 
-                     oncontextmenu="Android.triggerHaptic(true); event.preventDefault(); Android.confirmRemoveShortcut($i); return false;">
+                     ontouchstart="onShortcutTouchStart($i, this, event)"
+                     ontouchmove="onShortcutTouchMove(this, event)"
+                     ontouchend="onShortcutTouchEnd(this)"
+                     ontouchcancel="onShortcutTouchEnd(this)"
+                     onmousedown="onShortcutTouchStart($i, this, event)"
+                     onmouseup="onShortcutTouchEnd(this)"
+                     onmouseleave="onShortcutTouchEnd(this)"
+                     onclick="onShortcutClick($i, '${s.url}', event)" 
+                     oncontextmenu="event.preventDefault(); if (window.Android) { Android.triggerHaptic(true); Android.confirmRemoveShortcut($i); } return false;">
                     <div class="shortcut-box">$iconContent</div>
                     <div class="shortcut-label">${s.name}</div>
                 </div>
@@ -3096,10 +3162,13 @@ class MainActivity : AppCompatActivity() {
         
         if (shortcutsMode != "off") {
             val addClickAction = if (isFull) "Android.triggerHaptic(true); Android.showMaxShortcutsToast()" else "Android.triggerHaptic(false); Android.openAddShortcutDialog()"
-            val addStyle = if (isFull) "opacity: 0.35; filter: grayscale(100%); cursor: not-allowed;" else "opacity: 1;"
+            val addStyle = if (isFull) "opacity: 0.45; cursor: pointer;" else "opacity: 1;"
             
             displayShortcutsHtml.append("""
-                <div class="shortcut" onclick="$addClickAction" style="$addStyle">
+                <div class="shortcut" 
+                     onclick="$addClickAction" 
+                     style="$addStyle"
+                     oncontextmenu="event.preventDefault(); return false;">
                     <div class="shortcut-box"><svg viewBox="0 0 24 24" style="fill: $accentColor; width:26px; height:26px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></div>
                     <div class="shortcut-label">Add</div>
                 </div>
@@ -3295,17 +3364,19 @@ class MainActivity : AppCompatActivity() {
                     .shortcuts {
                         display: ${if (shortcutsMode == "off") "none" else "grid"};
                         grid-template-columns: repeat(5, 1fr);
-                        gap: 10px; margin-top: 10px;
+                        gap: 12px 10px; margin-top: 12px;
                         justify-items: center;
                         width: 94%; max-width: 440px;
                     }
                     .shortcut {
                         display: flex; flex-direction: column; align-items: center;
                         text-decoration: none; cursor: pointer; width: 100%;
-                        transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.22s cubic-bezier(0.2, 0, 0, 1);
+                        transition: transform 0.18s cubic-bezier(0.2, 0, 0, 1), opacity 0.18s ease;
+                        user-select: none; -webkit-user-select: none;
+                        -webkit-tap-highlight-color: transparent;
                     }
-                    .shortcut:active {
-                        transform: scale(0.92);
+                    .shortcut.pressed, .shortcut:active {
+                        transform: scale(0.90);
                     }
                     .shortcut-box {
                         width: 52px; height: 52px; border-radius: 16px;
@@ -3313,6 +3384,7 @@ class MainActivity : AppCompatActivity() {
                         display: flex; justify-content: center; align-items: center;
                         margin-bottom: 6px;
                         $effectiveCardBorder
+                        transition: background 0.2s ease, transform 0.18s ease;
                     }
                     .shortcut-label {
                         color: $effectiveLabelColor;
@@ -3322,6 +3394,71 @@ class MainActivity : AppCompatActivity() {
                         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
                     }
                 </style>
+                <script>
+                    var longPressTimer = null;
+                    var isLongPressActive = false;
+                    var startTouchX = 0;
+                    var startTouchY = 0;
+
+                    function onShortcutTouchStart(index, elem, e) {
+                        isLongPressActive = false;
+                        if (e && e.touches && e.touches.length > 0) {
+                            startTouchX = e.touches[0].clientX;
+                            startTouchY = e.touches[0].clientY;
+                        } else if (e) {
+                            startTouchX = e.clientX || 0;
+                            startTouchY = e.clientY || 0;
+                        }
+                        elem.classList.add('pressed');
+                        if (longPressTimer) clearTimeout(longPressTimer);
+                        longPressTimer = setTimeout(function() {
+                            isLongPressActive = true;
+                            elem.classList.remove('pressed');
+                            if (window.Android && window.Android.triggerHaptic) {
+                                window.Android.triggerHaptic(true);
+                            }
+                            if (window.Android && window.Android.confirmRemoveShortcut) {
+                                window.Android.confirmRemoveShortcut(index);
+                            }
+                        }, 450);
+                    }
+
+                    function onShortcutTouchMove(elem, e) {
+                        if (!longPressTimer) return;
+                        if (e && e.touches && e.touches.length > 0) {
+                            var dx = Math.abs(e.touches[0].clientX - startTouchX);
+                            var dy = Math.abs(e.touches[0].clientY - startTouchY);
+                            if (dx > 12 || dy > 12) {
+                                clearTimeout(longPressTimer);
+                                longPressTimer = null;
+                                elem.classList.remove('pressed');
+                            }
+                        }
+                    }
+
+                    function onShortcutTouchEnd(elem) {
+                        if (longPressTimer) {
+                            clearTimeout(longPressTimer);
+                            longPressTimer = null;
+                        }
+                        elem.classList.remove('pressed');
+                    }
+
+                    function onShortcutClick(index, url, e) {
+                        if (isLongPressActive) {
+                            isLongPressActive = false;
+                            if (e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                            }
+                            return false;
+                        }
+                        if (window.Android) {
+                            window.Android.triggerHaptic(false);
+                            window.Android.navigateTo(url);
+                        }
+                    }
+                </script>
             </head>
             <body>
                 <div class="container">
@@ -4310,7 +4447,7 @@ class MainActivity : AppCompatActivity() {
         webView.setOnLongClickListener {
             val currentUrl = webView.url ?: ""
             if (currentUrl == HAZE_HOME_URL || currentUrl.startsWith("haze://") || currentUrl.isEmpty()) {
-                return@setOnLongClickListener true
+                return@setOnLongClickListener false
             }
             val result = webView.hitTestResult
             when (result.type) {
@@ -7319,6 +7456,24 @@ class MainActivity : AppCompatActivity() {
                     rbOff.isChecked -> "off"
                     rb1Row.isChecked -> "1"
                     else -> "2"
+                }
+                if (mode == "2") {
+                    val current = getCustomShortcuts().toMutableList()
+                    if (current.size < 9) {
+                        val existingUrls = current.map { it.url.lowercase() }.toSet()
+                        for (def in defaultShortcuts) {
+                            if (current.size >= 9) break
+                            if (!existingUrls.contains(def.url.lowercase())) {
+                                current.add(def)
+                            }
+                        }
+                        saveCustomShortcuts(current)
+                    }
+                } else if (mode == "1") {
+                    val current = getCustomShortcuts().toMutableList()
+                    if (current.isEmpty()) {
+                        saveCustomShortcuts(defaultShortcuts.take(4))
+                    }
                 }
                 prefs.edit()
                     .putBoolean("is_dark", rbDark.isChecked)
