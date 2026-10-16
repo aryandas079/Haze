@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/tabGroupDetailRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F8FAFD">
+
+    <!-- Top App Bar for Tab Group -->
+    <LinearLayout
+        android:id="@+id/tabGroupDetailHeader"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:background="#FFFFFF"
+        android:elevation="2dp">
+
+        <ImageButton
+            android:id="@+id/btnGroupDetailBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_arrow_back"
+            app:tint="#1F1F1F"
+            android:contentDescription="Back" />
+
+        <View
+            android:id="@+id/vGroupDetailColorIndicator"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_circle_icon_container" />
+
+        <TextView
+            android:id="@+id/tvGroupDetailTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="2 tabs"
+            android:textColor="#1F1F1F"
+            android:textSize="18sp"
+            android:fontFamily="sans-serif-medium"
+            android:ellipsize="end"
+            android:maxLines="1" />
+
+        <!-- Add Tab into Group Button -->
+        <ImageButton
+            android:id="@+id/btnGroupDetailNewTab"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_add"
+            app:tint="#1F1F1F"
+            android:contentDescription="New tab in group" />
+
+        <!-- Group Options Menu Button -->
+        <ImageButton
+            android:id="@+id/btnGroupDetailMenu"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_more_vert"
+            app:tint="#1F1F1F"
+            android:contentDescription="Group options" />
+    </LinearLayout>
+
+    <!-- Member Tabs Grid -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvGroupMemberTabs"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="8dp"
+        android:clipToPadding="false" />
+
+</LinearLayout>

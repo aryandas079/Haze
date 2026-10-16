@@ -48,6 +48,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
+import com.google.android.material.card.MaterialCardView
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -5122,11 +5124,11 @@ class MainActivity : AppCompatActivity() {
                 val adapter = if (viewingPrivate) privateAdapter else personalAdapter
                 if (adapter.isSelectionMode) return 0
                 val pos = viewHolder.bindingAdapterPosition
-                val items = adapter.displayedList
+                val items = adapter.displayedItems
                 if (pos !in items.indices) return 0
-                val tab = items[pos]
+                val item = items[pos]
                 val dragFlags = ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
-                val swipeFlags = if (tab.isPinned) 0 else (ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT)
+                val swipeFlags = if (item.isPinned) 0 else (ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT)
                 return makeMovementFlags(dragFlags, swipeFlags)
             }
 
@@ -5134,7 +5136,7 @@ class MainActivity : AppCompatActivity() {
                 val adapter = if (viewingPrivate) privateAdapter else personalAdapter
                 val fromPos = viewHolder.bindingAdapterPosition
                 val toPos = target.bindingAdapterPosition
-                if (fromPos !in adapter.displayedList.indices || toPos !in adapter.displayedList.indices) return false
+                if (fromPos !in adapter.displayedItems.indices || toPos !in adapter.displayedItems.indices) return false
                 if (dragFrom == -1) dragFrom = fromPos
                 dragTo = toPos
 
@@ -5166,15 +5168,24 @@ class MainActivity : AppCompatActivity() {
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val adapter = if (viewingPrivate) privateAdapter else personalAdapter
                 val pos = viewHolder.bindingAdapterPosition
-                val items = adapter.displayedList
+                val items = adapter.displayedItems
                 if (pos in items.indices) {
-                    val swipedTab = items[pos]
-                    if (swipedTab.isPinned) {
+                    val item = items[pos]
+                    if (item.isPinned) {
                         adapter.notifyItemChanged(pos)
                         Toast.makeText(this@MainActivity, "Pinned tabs cannot be swiped away", Toast.LENGTH_SHORT).show()
                         return
                     }
-                    onTabClosed(swipedTab, viewingPrivate)
+                    when (item) {
+                        is TabSwitcherItem.Single -> {
+                            onTabClosed(item.tab, viewingPrivate)
+                        }
+                        is TabSwitcherItem.Group -> {
+                            for (t in item.tabs.toList()) {
+                                onTabClosed(t, viewingPrivate)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -5509,21 +5520,40 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showGroupPromptDialog(tab1: Tab, tab2: Tab, adapter: TabsAdapter) {
-        AlertDialog.Builder(this)
-            .setTitle("Group Tabs?")
-            .setMessage("Do you want to group '${tab1.title}' with '${tab2.title}'?")
-            .setPositiveButton("Group") { _, _ ->
-                val group = tab2.group ?: TabGroup(
-                    id = System.currentTimeMillis().toString(),
-                    name = "New Group",
-                    color = groupColors.random()
-                )
-                tab1.group = group
-                tab2.group = group
-                adapter.notifyDataSetChanged()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        val defaultTitle = tab2.group?.name ?: "2 tabs"
+        val defaultColor = tab2.group?.color ?: HazeTabGroupDialogManager.GROUP_COLORS[1]
+        HazeTabGroupDialogManager.showNewTabGroupDialog(
+            context = this,
+            initialTitle = defaultTitle,
+            initialColor = defaultColor,
+            isEditing = false
+        ) { title, color ->
+            val group = tab2.group ?: TabGroup(
+                id = System.currentTimeMillis().toString(),
+                name = title,
+                color = color
+            )
+            group.name = title
+            group.color = color
+            tab1.group = group
+            tab2.group = group
+            adapter.notifyDataSetChanged()
+        }
+    }
+
+    sealed class TabSwitcherItem {
+        abstract val id: Long
+        abstract val isPinned: Boolean
+
+        data class Single(val tab: Tab) : TabSwitcherItem() {
+            override val id: Long get() = tab.id
+            override val isPinned: Boolean get() = tab.isPinned
+        }
+
+        data class Group(val group: TabGroup, val tabs: MutableList<Tab>) : TabSwitcherItem() {
+            override val id: Long get() = group.id.hashCode().toLong()
+            override val isPinned: Boolean get() = tabs.any { it.isPinned }
+        }
     }
 
     inner class TabsAdapter(
@@ -5540,7 +5570,7 @@ class MainActivity : AppCompatActivity() {
         var isSelectionMode: Boolean = false
         var onSelectionChanged: ((Int) -> Unit)? = null
 
-        val displayedList: List<Tab>
+        val displayedItems: List<TabSwitcherItem>
             get() {
                 val base = if (filterQuery.isEmpty()) {
                     originalList
@@ -5554,22 +5584,48 @@ class MainActivity : AppCompatActivity() {
                     TabSortMode.DOMAIN -> base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { HazeTabSystemManager.getDomain(it.url).lowercase() })
                     TabSortMode.DEFAULT -> base.sortedWith(compareByDescending<Tab> { it.isPinned }.thenBy { it.group?.id ?: "" })
                 }
-                if (filterQuery.isNotEmpty() || tabMode != HazeTabSystemManager.TAB_MODE_LIST) return sorted
 
-                val seenCollapsedGroupIds = mutableSetOf<String>()
-                val result = mutableListOf<Tab>()
+                if (tabMode == HazeTabSystemManager.TAB_MODE_LIST) {
+                    val seenCollapsedGroupIds = mutableSetOf<String>()
+                    val result = mutableListOf<TabSwitcherItem>()
+                    for (tab in sorted) {
+                        val grp = tab.group
+                        if (grp != null && grp.isCollapsed) {
+                            if (!seenCollapsedGroupIds.contains(grp.id)) {
+                                seenCollapsedGroupIds.add(grp.id)
+                                result.add(TabSwitcherItem.Single(tab))
+                            }
+                        } else {
+                            result.add(TabSwitcherItem.Single(tab))
+                        }
+                    }
+                    return result
+                }
+
+                // Cards & Tiles View: Cluster member tabs into unified Tab Group card (Image 1)
+                val seenGroupIds = mutableSetOf<String>()
+                val result = mutableListOf<TabSwitcherItem>()
                 for (tab in sorted) {
                     val grp = tab.group
-                    if (grp != null && grp.isCollapsed) {
-                        if (!seenCollapsedGroupIds.contains(grp.id)) {
-                            seenCollapsedGroupIds.add(grp.id)
-                            result.add(tab)
+                    if (grp != null) {
+                        if (!seenGroupIds.contains(grp.id)) {
+                            seenGroupIds.add(grp.id)
+                            val memberTabs = sorted.filter { it.group?.id == grp.id }.toMutableList()
+                            result.add(TabSwitcherItem.Group(grp, memberTabs))
                         }
                     } else {
-                        result.add(tab)
+                        result.add(TabSwitcherItem.Single(tab))
                     }
                 }
                 return result
+            }
+
+        val displayedList: List<Tab>
+            get() = displayedItems.flatMap { item ->
+                when (item) {
+                    is TabSwitcherItem.Single -> listOf(item.tab)
+                    is TabSwitcherItem.Group -> item.tabs
+                }
             }
 
         fun filter(query: String) {
@@ -5578,61 +5634,72 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun onItemMoved(fromPosition: Int, toPosition: Int) {
-            val items = displayedList
+            val items = displayedItems
             if (fromPosition in items.indices && toPosition in items.indices) {
-                val fromTab = items[fromPosition]
-                val toTab = items[toPosition]
-                val originalFromIndex = originalList.indexOf(fromTab)
-                val originalToIndex = originalList.indexOf(toTab)
-                if (originalFromIndex != -1 && originalToIndex != -1) {
-                    java.util.Collections.swap(originalList, originalFromIndex, originalToIndex)
-                    notifyItemMoved(fromPosition, toPosition)
+                val fromItem = items[fromPosition]
+                val toItem = items[toPosition]
+                val fromTab = when (fromItem) { is TabSwitcherItem.Single -> fromItem.tab; is TabSwitcherItem.Group -> fromItem.tabs.firstOrNull() }
+                val toTab = when (toItem) { is TabSwitcherItem.Single -> toItem.tab; is TabSwitcherItem.Group -> toItem.tabs.firstOrNull() }
+                if (fromTab != null && toTab != null) {
+                    val originalFromIndex = originalList.indexOf(fromTab)
+                    val originalToIndex = originalList.indexOf(toTab)
+                    if (originalFromIndex != -1 && originalToIndex != -1) {
+                        java.util.Collections.swap(originalList, originalFromIndex, originalToIndex)
+                        notifyItemMoved(fromPosition, toPosition)
+                    }
                 }
             }
         }
 
         fun onDragCompleted(fromPosition: Int, toPosition: Int) {
-            val items = displayedList
+            val items = displayedItems
             if (fromPosition in items.indices && toPosition in items.indices && fromPosition != toPosition) {
-                val draggedTab = items[fromPosition]
-                val targetTab = items[toPosition]
+                val fromItem = items[fromPosition]
+                val toItem = items[toPosition]
 
-                if (targetTab.group != null && draggedTab.group?.id != targetTab.group?.id) {
+                if (fromItem is TabSwitcherItem.Single && toItem is TabSwitcherItem.Single) {
+                    val draggedTab = fromItem.tab
+                    val targetTab = toItem.tab
+
+                    HazeTabGroupDialogManager.showNewTabGroupDialog(
+                        context = this@MainActivity,
+                        initialTitle = "2 tabs",
+                        initialColor = HazeTabGroupDialogManager.GROUP_COLORS[1]
+                    ) { title, color ->
+                        val newGroup = TabGroup(
+                            id = System.currentTimeMillis().toString(),
+                            name = title,
+                            color = color
+                        )
+                        draggedTab.group = newGroup
+                        targetTab.group = newGroup
+                        notifyDataSetChanged()
+                    }
+                } else if (fromItem is TabSwitcherItem.Single && toItem is TabSwitcherItem.Group) {
+                    val draggedTab = fromItem.tab
+                    val targetGroup = toItem.group
                     val oldGroup = draggedTab.group
-                    draggedTab.group = targetTab.group
+                    draggedTab.group = targetGroup
                     notifyDataSetChanged()
                     com.google.android.material.snackbar.Snackbar.make(
                         findViewById(R.id.main),
-                        "Added '${draggedTab.title}' to group '${targetTab.group?.name}'",
+                        "Added '${draggedTab.title}' to group '${targetGroup.name}'",
                         com.google.android.material.snackbar.Snackbar.LENGTH_LONG
                     ).setAction("UNDO") {
                         draggedTab.group = oldGroup
                         notifyDataSetChanged()
                     }.show()
-                } else if (draggedTab.group == null && targetTab.group == null) {
-                    val newGroup = TabGroup(
-                        id = System.currentTimeMillis().toString(),
-                        name = "Group (${HazeTabSystemManager.getDomain(targetTab.url)})",
-                        color = groupColors.random()
-                    )
-                    draggedTab.group = newGroup
-                    targetTab.group = newGroup
+                } else if (fromItem is TabSwitcherItem.Group && toItem is TabSwitcherItem.Single) {
+                    val targetTab = toItem.tab
+                    val sourceGroup = fromItem.group
+                    targetTab.group = sourceGroup
                     notifyDataSetChanged()
-                    com.google.android.material.snackbar.Snackbar.make(
-                        findViewById(R.id.main),
-                        "Grouped '${draggedTab.title}' with '${targetTab.title}'",
-                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
-                    ).setAction("UNDO") {
-                        draggedTab.group = null
-                        targetTab.group = null
-                        notifyDataSetChanged()
-                    }.show()
                 }
             }
         }
 
-        inner class TabViewHolder(val view: View, val isGrid: Boolean) : RecyclerView.ViewHolder(view) {
-            // Row views
+        inner class TabViewHolder(val view: View, val viewType: Int) : RecyclerView.ViewHolder(view) {
+            // Row views (viewType == 0)
             val rowContainer: LinearLayout? = view.findViewById(R.id.tabRowContainer)
             val groupHeader: LinearLayout? = view.findViewById(R.id.groupHeader)
             val groupColorBox: View? = view.findViewById(R.id.groupColorBox)
@@ -5651,8 +5718,8 @@ class MainActivity : AppCompatActivity() {
             val tabRowThumbnail: ImageView? = view.findViewById(R.id.tabRowThumbnail)
             val cardTabRowThumbnail: androidx.cardview.widget.CardView? = view.findViewById(R.id.cardTabRowThumbnail)
 
-            // Grid views
-            val cardTabGrid: com.google.android.material.card.MaterialCardView? = view.findViewById(R.id.cardTabGrid)
+            // Grid views (viewType == 1)
+            val cardTabGrid: MaterialCardView? = view.findViewById(R.id.cardTabGrid)
             val gridTabIcon: ImageView? = view.findViewById(R.id.gridTabIcon)
             val gridTabTitle: TextView? = view.findViewById(R.id.gridTabTitle)
             val gridTabPinIcon: ImageView? = view.findViewById(R.id.gridTabPinIcon)
@@ -5661,58 +5728,230 @@ class MainActivity : AppCompatActivity() {
             val gridTabThumbnail: ImageView? = view.findViewById(R.id.gridTabThumbnail)
             val gridTabUrl: TextView? = view.findViewById(R.id.gridTabUrl)
             val gridGroupIndicator: View? = view.findViewById(R.id.gridGroupIndicator)
+
+            // Group Card views (viewType == 2, Image 1)
+            val cardGroupContainer: MaterialCardView? = view.findViewById(R.id.cardGroupContainer)
+            val tvGroupTitle: TextView? = view.findViewById(R.id.tvGroupTitle)
+            val btnGroupMenu: ImageButton? = view.findViewById(R.id.btnGroupMenu)
+            val vGroupColorOuterRing: View? = view.findViewById(R.id.vGroupColorOuterRing)
+            val vGroupColorInnerDot: View? = view.findViewById(R.id.vGroupColorInnerDot)
+
+            val miniCard0: androidx.cardview.widget.CardView? = view.findViewById(R.id.miniCard0)
+            val miniThumb0: ImageView? = view.findViewById(R.id.miniThumb0)
+            val miniFavicon0: ImageView? = view.findViewById(R.id.miniFavicon0)
+            val placeholder0: View? = view.findViewById(R.id.placeholder0)
+
+            val miniCard1: androidx.cardview.widget.CardView? = view.findViewById(R.id.miniCard1)
+            val miniThumb1: ImageView? = view.findViewById(R.id.miniThumb1)
+            val miniFavicon1: ImageView? = view.findViewById(R.id.miniFavicon1)
+            val placeholder1: View? = view.findViewById(R.id.placeholder1)
+
+            val miniCard2: androidx.cardview.widget.CardView? = view.findViewById(R.id.miniCard2)
+            val miniThumb2: ImageView? = view.findViewById(R.id.miniThumb2)
+            val miniFavicon2: ImageView? = view.findViewById(R.id.miniFavicon2)
+            val placeholder2: View? = view.findViewById(R.id.placeholder2)
+
+            val miniCard3: androidx.cardview.widget.CardView? = view.findViewById(R.id.miniCard3)
+            val miniThumb3: ImageView? = view.findViewById(R.id.miniThumb3)
+            val miniFavicon3: ImageView? = view.findViewById(R.id.miniFavicon3)
+            val placeholder3: View? = view.findViewById(R.id.placeholder3)
         }
 
-        override fun getItemViewType(position: Int): Int =
-            if (tabMode == HazeTabSystemManager.TAB_MODE_LIST) 0 else 1
+        override fun getItemViewType(position: Int): Int {
+            if (tabMode == HazeTabSystemManager.TAB_MODE_LIST) return 0
+            val item = displayedItems.getOrNull(position) ?: return 1
+            return when (item) {
+                is TabSwitcherItem.Single -> 1
+                is TabSwitcherItem.Group -> 2
+            }
+        }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TabViewHolder {
-            val layoutRes = if (viewType == 1) R.layout.item_tab_grid else R.layout.item_tab_row
+            val layoutRes = when (viewType) {
+                2 -> R.layout.item_tab_group_card
+                1 -> R.layout.item_tab_grid
+                else -> R.layout.item_tab_row
+            }
             val view = layoutInflater.inflate(layoutRes, parent, false)
-            return TabViewHolder(view, viewType == 1)
+            return TabViewHolder(view, viewType)
         }
 
         override fun onBindViewHolder(holder: TabViewHolder, position: Int) {
-            val currentItems = displayedList
-            if (position >= currentItems.size) return
-            val tab = currentItems[position]
+            val items = displayedItems
+            if (position >= items.size) return
+            val currentItem = items[position]
             val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
-            val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
+            val isDark = prefs.getBoolean("is_dark", false) || isPrivateList
 
-            if (holder.isGrid) {
-                // Adjust card height for Cards view (300dp) vs Tile view (216dp)
+            if (holder.viewType == 2) {
+                // Tab Group Card in Cards/Tiles view (Image 1)
+                val groupItem = currentItem as? TabSwitcherItem.Group ?: return
+                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(300f) else dpToPx(216f)
+                holder.cardGroupContainer?.layoutParams?.height = cardHeight
+                holder.cardGroupContainer?.setCardBackgroundColor(groupItem.group.color)
+
+                holder.tvGroupTitle?.text = groupItem.group.name
+
+                // Header group dot indicator
+                holder.vGroupColorInnerDot?.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.WHITE)
+                }
+                holder.vGroupColorOuterRing?.background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.TRANSPARENT)
+                    setStroke(dpToPx(1.5f), Color.WHITE)
+                }
+
+                // 3-dots overflow menu
+                holder.btnGroupMenu?.setOnClickListener { v ->
+                    triggerStrongHaptic(v)
+                    val popup = androidx.appcompat.widget.PopupMenu(this@MainActivity, v)
+                    popup.menu.add("New tab in group")
+                    popup.menu.add("Edit group name and color")
+                    popup.menu.add("Ungroup tabs")
+                    popup.menu.add("Close group")
+                    popup.setOnMenuItemClickListener { menuItem ->
+                        when (menuItem.title) {
+                            "New tab in group" -> {
+                                val newTab = addNewTab(HAZE_HOME_URL)
+                                newTab.group = groupItem.group
+                                notifyDataSetChanged()
+                                true
+                            }
+                            "Edit group name and color" -> {
+                                showEditGroupDialog(groupItem.group)
+                                true
+                            }
+                            "Ungroup tabs" -> {
+                                for (t in groupItem.tabs) {
+                                    t.group = null
+                                }
+                                notifyDataSetChanged()
+                                true
+                            }
+                            "Close group" -> {
+                                for (t in groupItem.tabs.toList()) {
+                                    onCloseClick(t)
+                                }
+                                notifyDataSetChanged()
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    popup.show()
+                }
+
+                // Populate 2x2 Mini-Grid Slots (Matching Image 1)
+                val memberTabs = groupItem.tabs
+                val cards = listOf(holder.miniCard0, holder.miniCard1, holder.miniCard2, holder.miniCard3)
+                val thumbs = listOf(holder.miniThumb0, holder.miniThumb1, holder.miniThumb2, holder.miniThumb3)
+                val favs = listOf(holder.miniFavicon0, holder.miniFavicon1, holder.miniFavicon2, holder.miniFavicon3)
+                val placeholders = listOf(holder.placeholder0, holder.placeholder1, holder.placeholder2, holder.placeholder3)
+
+                for (i in 0 until 4) {
+                    val c = cards[i]
+                    val t = thumbs[i]
+                    val f = favs[i]
+                    val p = placeholders[i]
+
+                    if (i < memberTabs.size) {
+                        val tab = memberTabs[i]
+                        c?.visibility = View.VISIBLE
+                        p?.visibility = View.GONE
+
+                        tab.browserTab.captureThumbnail { bmp: Bitmap? ->
+                            if (bmp != null) t?.setImageBitmap(bmp)
+                            else t?.setImageResource(R.drawable.haze_logo)
+                        }
+
+                        if (isHomeTab(tab)) {
+                            f?.setImageResource(R.drawable.ic_haze_logo)
+                        } else if (tab.favicon != null) {
+                            f?.setImageBitmap(tab.favicon)
+                        } else {
+                            f?.setImageResource(R.drawable.ic_globe)
+                        }
+                    } else {
+                        c?.visibility = View.GONE
+                        p?.visibility = View.VISIBLE
+                        val darkerShade = ColorUtils.blendARGB(groupItem.group.color, Color.BLACK, 0.18f)
+                        p?.background = GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = dpToPx(14f).toFloat()
+                            setColor(darkerShade)
+                        }
+                    }
+                }
+
+                // Clicking Group Card expands the group in full detail dialog
+                val openGroupAction = View.OnClickListener {
+                    triggerStrongHaptic(it)
+                    HazeTabGroupDialogManager.showTabGroupDetailDialog(
+                        activity = this@MainActivity,
+                        group = groupItem.group,
+                        groupTabs = groupItem.tabs,
+                        isPrivate = isPrivateList,
+                        onTabSelected = { selectedTab ->
+                            onItemClick(selectedTab)
+                        },
+                        onTabClosed = { closedTab ->
+                            onCloseClick(closedTab)
+                        },
+                        onNewTabInGroup = {
+                            val newTab = addNewTab(HAZE_HOME_URL)
+                            newTab.group = groupItem.group
+                            notifyDataSetChanged()
+                        },
+                        onGroupModified = {
+                            notifyDataSetChanged()
+                        }
+                    )
+                }
+
+                holder.cardGroupContainer?.setOnClickListener(openGroupAction)
+                holder.view.findViewById<View>(R.id.groupCardHeader)?.setOnClickListener(openGroupAction)
+                holder.view.findViewById<View>(R.id.gridMiniThumbnails)?.setOnClickListener(openGroupAction)
+
+            } else if (holder.viewType == 1) {
+                // Single Tab Card in Cards/Tiles view (Image 3)
+                val tab = (currentItem as? TabSwitcherItem.Single)?.tab ?: return
+                val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
+
                 val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(300f) else dpToPx(216f)
                 holder.cardTabGrid?.layoutParams?.height = cardHeight
 
                 holder.gridTabTitle?.text = tab.title
                 holder.gridTabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
                 holder.gridTabPinIcon?.visibility = if (tab.isPinned) View.VISIBLE else View.GONE
-                
-                if (tab.group != null) {
-                    holder.gridGroupIndicator?.visibility = View.VISIBLE
-                    holder.gridGroupIndicator?.setBackgroundColor(tab.group!!.color)
-                } else {
-                    holder.gridGroupIndicator?.visibility = View.GONE
-                }
+                holder.gridGroupIndicator?.visibility = View.GONE
 
-                tab.browserTab.captureThumbnail { bmp ->
+                tab.browserTab.captureThumbnail { bmp: Bitmap? ->
                     if (bmp != null) holder.gridTabThumbnail?.setImageBitmap(bmp)
                     else holder.gridTabThumbnail?.setImageResource(R.drawable.haze_logo)
                 }
 
                 val mCard = holder.cardTabGrid
-                val isDark = prefs.getBoolean("is_dark", false) || isPrivateList
                 val headerLayout = holder.view.findViewById<LinearLayout>(R.id.gridHeaderLayout)
-
                 val iconContainer = holder.view.findViewById<View>(R.id.gridTabIconContainer)
 
                 if (isActive) {
-                    // Active Chrome Card Styling
-                    mCard?.strokeColor = Color.TRANSPARENT
-                    mCard?.strokeWidth = 0
+                    // Active Chrome Card Styling (Image 3 Right: Blue Header + 3.5dp Blue Border)
+                    mCard?.strokeColor = accentColor
+                    mCard?.strokeWidth = dpToPx(3.5f)
                     mCard?.cardElevation = dpToPx(4f).toFloat()
-                    mCard?.setCardBackgroundColor(accentColor)
-                    headerLayout?.background = null
+                    mCard?.setCardBackgroundColor(if (isDark) Color.parseColor("#1E2024") else Color.WHITE)
+
+                    headerLayout?.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadii = floatArrayOf(
+                            dpToPx(20f).toFloat(), dpToPx(20f).toFloat(),
+                            dpToPx(20f).toFloat(), dpToPx(20f).toFloat(),
+                            0f, 0f, 0f, 0f
+                        )
+                        setColor(accentColor)
+                    }
 
                     iconContainer?.setBackgroundResource(R.drawable.bg_circle_icon_container)
                     holder.gridTabTitle?.setTextColor(Color.WHITE)
@@ -5729,8 +5968,9 @@ class MainActivity : AppCompatActivity() {
                         holder.gridTabIcon?.setColorFilter(Color.WHITE)
                     }
                 } else {
-                    // Inactive Chrome Card Styling
+                    // Inactive Chrome Card Styling (Image 3 Left: Grey Header + 1.5dp Subtle Border)
                     val inactiveCardBg = if (isDark) Color.parseColor("#1E2024") else Color.WHITE
+                    val inactiveHeaderBg = if (isDark) Color.parseColor("#2A2C30") else Color.parseColor("#E8EAED")
                     val inactiveStroke = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#E0E5EC")
                     val inactiveTitleColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
                     val inactiveCloseColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
@@ -5739,9 +5979,18 @@ class MainActivity : AppCompatActivity() {
                     mCard?.strokeWidth = dpToPx(1.5f)
                     mCard?.cardElevation = dpToPx(1f).toFloat()
                     mCard?.setCardBackgroundColor(inactiveCardBg)
-                    headerLayout?.background = null
 
-                    iconContainer?.background = null
+                    headerLayout?.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadii = floatArrayOf(
+                            dpToPx(20f).toFloat(), dpToPx(20f).toFloat(),
+                            dpToPx(20f).toFloat(), dpToPx(20f).toFloat(),
+                            0f, 0f, 0f, 0f
+                        )
+                        setColor(inactiveHeaderBg)
+                    }
+
+                    iconContainer?.setBackgroundResource(R.drawable.bg_circle_icon_container)
                     holder.gridTabTitle?.setTextColor(inactiveTitleColor)
                     holder.gridTabClose?.setColorFilter(inactiveCloseColor)
                     holder.gridTabPinIcon?.setColorFilter(inactiveCloseColor)
@@ -5792,8 +6041,6 @@ class MainActivity : AppCompatActivity() {
                 holder.itemView.setOnLongClickListener(tabLongClickListener)
                 holder.cardTabGrid?.isLongClickable = true
                 holder.cardTabGrid?.setOnLongClickListener(tabLongClickListener)
-                holder.view.findViewById<View>(R.id.gridHeaderLayout)?.setOnLongClickListener(tabLongClickListener)
-                holder.view.findViewById<View>(R.id.gridTabThumbnail)?.setOnLongClickListener(tabLongClickListener)
 
                 val tabClickListener = View.OnClickListener {
                     triggerStrongHaptic(it)
@@ -5813,18 +6060,18 @@ class MainActivity : AppCompatActivity() {
                 holder.itemView.setOnClickListener(tabClickListener)
                 holder.gridTabThumbnail?.setOnClickListener(tabClickListener)
                 holder.view.findViewById<View>(R.id.gridHeaderLayout)?.setOnClickListener(tabClickListener)
-                holder.gridTabTitle?.setOnClickListener(tabClickListener)
-                holder.gridTabUrl?.setOnClickListener(tabClickListener)
-                holder.gridTabIcon?.setOnClickListener(tabClickListener)
-                holder.gridTabSelectCheckbox?.setOnClickListener(tabClickListener)
 
                 holder.gridTabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
                     onCloseClick(tab)
                 }
+
             } else {
-                // List / Vertical tab row
-                val prevTab = if (position > 0) currentItems[position - 1] else null
+                // List View (viewType == 0)
+                val tab = (currentItem as? TabSwitcherItem.Single)?.tab ?: return
+                val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
+
+                val prevTab = if (position > 0) (items[position - 1] as? TabSwitcherItem.Single)?.tab else null
                 val isFirstInGroup = tab.group != null && (prevTab == null || prevTab.group?.id != tab.group?.id)
                 if (tab.group != null && isFirstInGroup) {
                     holder.groupHeader?.visibility = View.VISIBLE
@@ -5833,7 +6080,7 @@ class MainActivity : AppCompatActivity() {
                     val count = originalList.count { it.group?.id == tab.group!!.id }
                     holder.groupCountText?.text = "($count tab${if (count > 1) "s" else ""})"
                     holder.groupChevron?.setImageResource(if (tab.group!!.isCollapsed) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up)
-                    
+
                     if (tab.group!!.isCollapsed) {
                         val groupTabs = originalList.filter { it.group?.id == tab.group!!.id }
                         val summary = groupTabs.take(3).joinToString(", ") { it.title.take(12) } + if (groupTabs.size > 3) "..." else ""
@@ -5889,14 +6136,12 @@ class MainActivity : AppCompatActivity() {
                 holder.tabTitle?.text = tab.title
                 holder.tabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
 
-                // List View Thumbnail Preview
                 holder.cardTabRowThumbnail?.visibility = View.VISIBLE
-                tab.browserTab.captureThumbnail { bmp ->
+                tab.browserTab.captureThumbnail { bmp: Bitmap? ->
                     if (bmp != null) holder.tabRowThumbnail?.setImageBitmap(bmp)
                     else holder.tabRowThumbnail?.setImageResource(R.drawable.haze_logo)
                 }
 
-                // Multi-select Checkbox vs Close Button in List
                 if (isSelectionMode) {
                     holder.tabClose?.visibility = View.GONE
                     holder.rowTabSelectCheckbox?.visibility = View.VISIBLE
@@ -5919,19 +6164,6 @@ class MainActivity : AppCompatActivity() {
                     holder.rowTabSelectCheckbox?.visibility = View.GONE
                 }
 
-                val listLongClickListener = View.OnLongClickListener { v ->
-                    val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
-                    if (enabled && !isSelectionMode) {
-                        triggerStrongHaptic(v, isHeavy = true)
-                        showTabOptionsMenu(tab)
-                        true
-                    } else false
-                }
-                holder.itemView.isLongClickable = true
-                holder.itemView.setOnLongClickListener(listLongClickListener)
-                holder.rowContainer?.isLongClickable = true
-                holder.rowContainer?.setOnLongClickListener(listLongClickListener)
-
                 val listClickListener = View.OnClickListener {
                     triggerStrongHaptic(it)
                     if (isSelectionMode) {
@@ -5948,10 +6180,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 holder.rowContainer?.setOnClickListener(listClickListener)
                 holder.itemView.setOnClickListener(listClickListener)
-                holder.tabTitle?.setOnClickListener(listClickListener)
-                holder.tabUrl?.setOnClickListener(listClickListener)
-                holder.tabIcon?.setOnClickListener(listClickListener)
-                holder.rowTabSelectCheckbox?.setOnClickListener(listClickListener)
 
                 holder.tabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
@@ -5960,60 +6188,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        override fun getItemCount(): Int = displayedList.size
+        override fun getItemCount(): Int = displayedItems.size
 
         private fun showEditGroupDialog(group: TabGroup) {
-            val options = arrayOf(
-                "Rename Group",
-                "Change Group Color",
-                "Close All Tabs in Group",
-                "Ungroup All Tabs"
-            )
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(group.name)
-                .setItems(options) { _, which ->
-                    triggerStrongHaptic(addressBar)
-                    when (which) {
-                        0 -> { // Rename
-                            val input = EditText(this@MainActivity).apply { setText(group.name) }
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("Rename Group")
-                                .setView(input)
-                                .setPositiveButton("Save") { _, _ ->
-                                    val newName = input.text.toString().trim()
-                                    if (newName.isNotEmpty()) {
-                                        group.name = newName
-                                        notifyDataSetChanged()
-                                    }
-                                }
-                                .setNegativeButton("Cancel", null)
-                                .show()
-                        }
-                        1 -> { // Change Color
-                            val colorNames = arrayOf("Red", "Blue", "Green", "Yellow", "Orange", "Cyan", "Purple")
-                            AlertDialog.Builder(this@MainActivity)
-                                .setTitle("Pick Group Color")
-                                .setItems(colorNames) { _, colorIdx ->
-                                    group.color = groupColors.getOrElse(colorIdx) { groupColors[0] }
-                                    notifyDataSetChanged()
-                                }
-                                .show()
-                        }
-                        2 -> { // Close All Tabs in Group
-                            val toRemove = originalList.filter { it.group?.id == group.id }
-                            for (t in toRemove) {
-                                onCloseClick(t)
-                            }
-                            notifyDataSetChanged()
-                        }
-                        3 -> { // Ungroup All Tabs
-                            originalList.forEach { if (it.group?.id == group.id) it.group = null }
-                            notifyDataSetChanged()
-                        }
-                    }
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            HazeTabGroupDialogManager.showNewTabGroupDialog(
+                context = this@MainActivity,
+                initialTitle = group.name,
+                initialColor = group.color,
+                isEditing = true
+            ) { newTitle, newColor ->
+                group.name = newTitle
+                group.color = newColor
+                notifyDataSetChanged()
+            }
         }
 
         private fun showTabOptionsMenu(tab: Tab) {
