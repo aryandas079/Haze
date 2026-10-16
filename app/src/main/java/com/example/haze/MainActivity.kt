@@ -21,6 +21,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -467,7 +468,7 @@ class MainActivity : AppCompatActivity() {
     data class ClosedTabInfo(val title: String, val url: String, val timestamp: Long = System.currentTimeMillis(), val isPrivate: Boolean = false)
     data class Tab(
         val id: Long = System.currentTimeMillis(),
-        val browserTab: IBrowserTab,
+        var browserTab: IBrowserTab,
         val swipeRefreshLayout: androidx.swiperefreshlayout.widget.SwipeRefreshLayout? = null,
         var title: String = "New Tab",
         var url: String = "haze://home",
@@ -3347,6 +3348,80 @@ class MainActivity : AppCompatActivity() {
         return tab
     }
 
+    fun addNewTabForWindow(resultMsg: Message?): Tab {
+        val browserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPrivateMode)
+        val renderView = browserTab.renderView
+        renderView.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, 
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+        val swipeRefreshLayout = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setColorSchemeColors(accentColor)
+            setOnChildScrollUpCallback { _, _ ->
+                val web = (browserTab as? ChromiumBrowserTab)?.webView
+                web?.canScrollVertically(-1) == true
+            }
+            setOnRefreshListener {
+                triggerStrongHaptic()
+                browserTab.reload()
+            }
+        }
+        swipeRefreshLayout.addView(renderView)
+
+        val tab = Tab(
+            id = browserTab.id,
+            browserTab = browserTab,
+            swipeRefreshLayout = swipeRefreshLayout,
+            isPrivate = isPrivateMode,
+            url = ""
+        )
+        
+        currentTabsList.add(tab)
+        webContainer.addView(swipeRefreshLayout)
+        
+        setupBrowserTab(browserTab)
+        
+        if (isPrivateMode) activePrivateTabIndex = currentTabsList.size - 1
+        else activeNormalTabIndex = currentTabsList.size - 1
+        
+        switchTab(activeTabIndex)
+
+        val transport = resultMsg?.obj as? WebView.WebViewTransport
+        transport?.webView = tab.webView
+        resultMsg?.sendToTarget()
+
+        return tab
+    }
+
+    private fun recoverCrashedTab(tab: Tab) {
+        val oldUrl = tab.url
+        val isPriv = tab.isPrivate
+        runCatching {
+            tab.swipeRefreshLayout?.removeAllViews()
+            (tab.browserTab as? ChromiumBrowserTab)?.webView?.destroy()
+        }
+        val newBrowserTab = ChromiumEngineManager.getEngine(this).createTab(this, isPriv)
+        val renderView = newBrowserTab.renderView
+        renderView.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, 
+            FrameLayout.LayoutParams.MATCH_PARENT
+        )
+        tab.swipeRefreshLayout?.addView(renderView)
+        tab.browserTab = newBrowserTab
+        setupBrowserTab(newBrowserTab)
+        if (oldUrl.isNotEmpty() && oldUrl != HAZE_HOME_URL) {
+            newBrowserTab.navigationController.loadUrl(oldUrl)
+        } else {
+            newBrowserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
+        }
+    }
+
     fun duplicateTab(tab: Tab): Tab {
         val newTab = addNewTab(tab.url)
         newTab.title = tab.title
@@ -3902,7 +3977,25 @@ class MainActivity : AppCompatActivity() {
 
             override fun onRenderProcessGone(tab: IBrowserTab, didCrash: Boolean): Boolean {
                 runOnUiThread {
-                    tab.reload()
+                    val ownerTab = getTabForInterface(tab, null)
+                    if (ownerTab != null) {
+                        recoverCrashedTab(ownerTab)
+                    } else {
+                        tab.reload()
+                    }
+                }
+                return true
+            }
+
+            override fun onCreateWindow(resultMsg: Message?, isDialog: Boolean, isUserGesture: Boolean): Boolean {
+                val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
+                val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)
+                if (shieldActive && blockPopups && !isUserGesture && isDialog) {
+                    HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, getActiveTab()?.url ?: "", getActiveTab()?.url, isPrivateMode)
+                    return false
+                }
+                runOnUiThread {
+                    addNewTabForWindow(resultMsg)
                 }
                 return true
             }
@@ -3910,7 +4003,7 @@ class MainActivity : AppCompatActivity() {
             override fun onNewWindowRequested(url: String, isUserGesture: Boolean, isDialog: Boolean): Boolean {
                 val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
                 val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)
-                if (shieldActive && blockPopups && !isUserGesture) {
+                if (shieldActive && blockPopups && !isUserGesture && isDialog) {
                     HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, url, getActiveTab()?.url, isPrivateMode)
                     return false
                 }
@@ -4295,7 +4388,7 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         val msg = if (didCrash) "Web renderer crashed. Reloading page..." else "Renderer reclaimed by OS. Reloading..."
                         Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
-                        tab.browserTab.reload()
+                        recoverCrashedTab(tab)
                     }
                     return true
                 }
@@ -4690,51 +4783,22 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
                 val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)
-                if (shieldActive && blockPopups && !isUserGesture) {
+                if (shieldActive && blockPopups && !isUserGesture && isDialog) {
                     HazePrivacyShieldEngine.recordPopupBlocked(this@MainActivity, view?.url ?: "", view?.url, isPrivateMode)
                     return false
                 }
 
-                // 1. Check if user clicked an anchor/link element with target="_blank"
+                // 1. Direct window transport into a real tab
+                if (resultMsg != null) {
+                    addNewTabForWindow(resultMsg)
+                    return true
+                }
+
+                // 2. Check if user clicked an anchor/link element with target="_blank"
                 val hitTest = view?.hitTestResult
                 val hitUrl = hitTest?.extra
                 if (!hitUrl.isNullOrEmpty() && (hitUrl.startsWith("http://") || hitUrl.startsWith("https://") || hitUrl.startsWith("haze://"))) {
                     addNewTab(hitUrl)
-                    return true
-                }
-
-                // 2. Window.open(...) or async script navigation via WebViewTransport
-                val transport = resultMsg?.obj as? WebView.WebViewTransport
-                if (transport != null && resultMsg != null) {
-                    val tempWebView = WebView(this@MainActivity)
-                    tempWebView.settings.javaScriptEnabled = true
-                    tempWebView.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
-                            val destUrl = request?.url?.toString()
-                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
-                                runOnUiThread {
-                                    addNewTab(destUrl)
-                                    tempWebView.destroy()
-                                }
-                                return true
-                            }
-                            return false
-                        }
-
-                        @Suppress("DEPRECATION")
-                        override fun shouldOverrideUrlLoading(v: WebView?, destUrl: String?): Boolean {
-                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
-                                runOnUiThread {
-                                    addNewTab(destUrl)
-                                    tempWebView.destroy()
-                                }
-                                return true
-                            }
-                            return false
-                        }
-                    }
-                    transport.webView = tempWebView
-                    resultMsg.sendToTarget()
                     return true
                 }
 

@@ -65,6 +65,11 @@ interface IEngineObserver {
     fun onNewWindowRequested(url: String, isUserGesture: Boolean, isDialog: Boolean): Boolean = false
 
     /**
+     * Called when a page requests a new window with a WebViewTransport message.
+     */
+    fun onCreateWindow(resultMsg: android.os.Message?, isDialog: Boolean, isUserGesture: Boolean): Boolean = false
+
+    /**
      * Called when a download is requested by a website.
      */
     fun onDownloadRequested(

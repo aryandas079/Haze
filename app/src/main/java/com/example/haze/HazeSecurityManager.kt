@@ -162,12 +162,6 @@ object HazeSecurityManager {
         if (host.contains("accounts.google.com")) {
             return applyGoogleAutoLoginHint(context, targetUrl)
         }
-        if (isSearchOrDeepLink(targetUrl)) {
-            return targetUrl
-        }
-        if (!HazeAccountManager.hasCompletedGoogleWebLogin(context)) {
-            return getGoogleServiceLoginUrl(context, targetUrl)
-        }
         return targetUrl
     }
 
@@ -186,50 +180,6 @@ object HazeSecurityManager {
     }
 
     fun getGoogleServiceLoginUrl(context: Context, targetUrl: String): String {
-        val user = HazeAccountManager.getUser(context) ?: return targetUrl
-        val uri = try { Uri.parse(targetUrl) } catch (_: Exception) { return targetUrl }
-        val host = uri.host?.lowercase() ?: return targetUrl
-
-        // Never intercept search queries or deep links
-        if (isSearchOrDeepLink(targetUrl)) {
-            return targetUrl
-        }
-
-        // If it's already an accounts.google.com URL, apply the login hints
-        if (host.contains("accounts.google.com")) {
-            return applyGoogleAutoLoginHint(context, targetUrl)
-        }
-
-        val encodedTarget = Uri.encode(targetUrl)
-
-        // For Gmail / mail.google.com
-        if (host == "gmail.com" || host == "mail.google.com" || targetUrl.contains("mail.google.com")) {
-            return "https://accounts.google.com/ServiceLogin?service=mail&Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=$encodedTarget"
-        }
-
-        // For YouTube Music
-        if (host == "music.youtube.com" || targetUrl.contains("music.youtube.com")) {
-            return "https://accounts.google.com/ServiceLogin?service=youtube&Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=$encodedTarget"
-        }
-
-        // For YouTube (only redirect root visits to service login)
-        if (host == "youtube.com" || host.endsWith(".youtube.com") || host == "m.youtube.com") {
-            val path = uri.path ?: ""
-            if (path.isEmpty() || path == "/" || path == "/index") {
-                return "https://accounts.google.com/ServiceLogin?service=youtube&Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=$encodedTarget"
-            }
-            return targetUrl
-        }
-
-        // For Google Home (only redirect root visits to service login)
-        if (host == "google.com" || host == "www.google.com") {
-            val path = uri.path ?: ""
-            if (path.isEmpty() || path == "/" || path == "/index") {
-                return "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=$encodedTarget"
-            }
-            return targetUrl
-        }
-
         return targetUrl
     }
 

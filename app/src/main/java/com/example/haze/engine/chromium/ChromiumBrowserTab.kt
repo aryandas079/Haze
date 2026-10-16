@@ -96,7 +96,7 @@ class ChromiumBrowserTab(
             allowFileAccess = false
             allowContentAccess = false
             mediaPlaybackRequiresUserGesture = false
-            javaScriptCanOpenWindowsAutomatically = false
+            javaScriptCanOpenWindowsAutomatically = true
             setSupportMultipleWindows(true)
             defaultTextEncodingName = config.defaultEncoding
 
@@ -541,8 +541,7 @@ class ChromiumBrowserTab(
                     val prefs = ctx.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
                     val blockPopups = prefs.getBoolean(HazePrivacyShieldEngine.PREF_BLOCK_POPUPS, true)
                     val shieldActive = HazePrivacyShieldEngine.isShieldEnabled(ctx)
-
-                    if (shieldActive && blockPopups && !isUserGesture) {
+                    if (shieldActive && blockPopups && !isUserGesture && isDialog) {
                         // Suppress unsolicited background popup/popunder!
                         HazePrivacyShieldEngine.recordPopupBlocked(ctx, url, url, isPrivate)
                         return false
@@ -556,34 +555,8 @@ class ChromiumBrowserTab(
                     return observer?.onNewWindowRequested(hitUrl, isUserGesture, isDialog) ?: false
                 }
 
-                val transport = resultMsg?.obj as? WebView.WebViewTransport
-                if (transport != null && resultMsg != null) {
-                    val appCtx = view?.context?.applicationContext ?: webView.context.applicationContext
-                    val tempWebView = WebView(appCtx)
-                    tempWebView.settings.javaScriptEnabled = true
-                    tempWebView.webViewClient = object : WebViewClient() {
-                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
-                            val destUrl = request?.url?.toString()
-                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
-                                observer?.onNewWindowRequested(destUrl, isUserGesture, isDialog)
-                                tempWebView.destroy()
-                                return true
-                            }
-                            return false
-                        }
-
-                        @Suppress("DEPRECATION")
-                        override fun shouldOverrideUrlLoading(v: WebView?, destUrl: String?): Boolean {
-                            if (!destUrl.isNullOrEmpty() && !destUrl.startsWith("about:")) {
-                                observer?.onNewWindowRequested(destUrl, isUserGesture, isDialog)
-                                tempWebView.destroy()
-                                return true
-                            }
-                            return false
-                        }
-                    }
-                    transport.webView = tempWebView
-                    resultMsg.sendToTarget()
+                // 2. Delegate to observer to route the window transport directly into a real tab
+                if (resultMsg != null && observer?.onCreateWindow(resultMsg, isDialog, isUserGesture) == true) {
                     return true
                 }
                 return false
@@ -1185,71 +1158,41 @@ class ChromiumBrowserTab(
                 if (window.__hazeYouTubeEngineInjected) return;
                 window.__hazeYouTubeEngineInjected = true;
 
-                // 1. JSON Player Response Interceptor: Strip all ad placements and ad breaks from YouTube API
-                function cleanPlayerJson(data) {
-                    if (!data || typeof data !== 'object') return data;
+                // 1. Automatic Fallback for Empty Home Feed
+                // If YouTube mobile serves the blank "Try searching to get started" state on root,
+                // seamlessly route to /feed/trending (Explore/Trending) so the user gets a rich feed of videos immediately.
+                function checkAndPopulateFeed() {
                     try {
-                        if (data.adPlacements) delete data.adPlacements;
-                        if (data.playerAds) delete data.playerAds;
-                        if (data.adSlots) delete data.adSlots;
-                        if (data.adBreakHeartbeatParams) delete data.adBreakHeartbeatParams;
-                        if (data.playerResponse) cleanPlayerJson(data.playerResponse);
+                        var path = window.location.pathname;
+                        if (path === '/' || path === '') {
+                            var text = document.body ? document.body.innerText : '';
+                            if (text && text.indexOf('Try searching to get started') !== -1) {
+                                var trendingBtn = document.querySelector('a[href*="/feed/trending"], a[href*="/feed/explore"], [aria-label*="Explore"], [aria-label*="Trending"]');
+                                if (trendingBtn) {
+                                    trendingBtn.click();
+                                } else {
+                                    window.location.replace('/feed/trending');
+                                }
+                            }
+                        }
                     } catch(_) {}
-                    return data;
                 }
 
-                try {
-                    var origFetch = window.fetch;
-                    window.fetch = function(input, init) {
-                        var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
-                        var isPlayerReq = url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1 || url.indexOf('/youtubei/v1/next') !== -1);
-                        if (isPlayerReq) {
-                            return origFetch.apply(this, arguments).then(function(res) {
-                                var clone = res.clone();
-                                return clone.json().then(function(json) {
-                                    cleanPlayerJson(json);
-                                    var modifiedStr = JSON.stringify(json);
-                                    return new Response(modifiedStr, {
-                                        status: res.status,
-                                        statusText: res.statusText,
-                                        headers: res.headers
-                                    });
-                                }).catch(function() {
-                                    return res;
-                                });
-                            });
-                        }
-                        return origFetch.apply(this, arguments);
-                    };
-                } catch(_) {}
-
-                try {
-                    var origXhrOpen = XMLHttpRequest.prototype.open;
-                    var origXhrSend = XMLHttpRequest.prototype.send;
-                    XMLHttpRequest.prototype.open = function(method, url) {
-                        this.__hazeYtUrl = url || '';
-                        return origXhrOpen.apply(this, arguments);
-                    };
-                    XMLHttpRequest.prototype.send = function() {
-                        var url = this.__hazeYtUrl;
-                        if (url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('v1/player') !== -1 || url.indexOf('/youtubei/v1/next') !== -1)) {
-                            var self = this;
-                            var origOnLoad = self.onload;
-                            self.onload = function() {
-                                try {
-                                    if (self.responseText && self.responseText.indexOf('adPlacements') !== -1) {
-                                        var json = JSON.parse(self.responseText);
-                                        cleanPlayerJson(json);
-                                        Object.defineProperty(self, 'responseText', { get: function() { return JSON.stringify(json); }, configurable: true });
-                                        Object.defineProperty(self, 'response', { get: function() { return JSON.stringify(json); }, configurable: true });
-                                    }
-                                } catch(_) {}
-                                if (origOnLoad) return origOnLoad.apply(this, arguments);
-                            };
-                        }
-                        return origXhrSend.apply(this, arguments);
-                    };
-                } catch(_) {}
+                if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                    setTimeout(checkAndPopulateFeed, 350);
+                } else {
+                    window.addEventListener('DOMContentLoaded', function() { setTimeout(checkAndPopulateFeed, 350); });
+                }
+                var feedObserver = new MutationObserver(function() {
+                    checkAndPopulateFeed();
+                });
+                if (document.body) {
+                    feedObserver.observe(document.body, { childList: true, subtree: true });
+                } else {
+                    window.addEventListener('DOMContentLoaded', function() {
+                        if (document.body) feedObserver.observe(document.body, { childList: true, subtree: true });
+                    });
+                }
 
                 // 2. High-performance Video Ad Skipper & Auto-Fast-Forwarder
                 var adSelectors = [

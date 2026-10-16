@@ -233,7 +233,6 @@ object HazeAccountManager {
             val expires = "Fri, 31 Dec 2038 23:59:59 GMT"
             cookieManager.setCookie("https://.google.com", "ACCOUNT_CHOOSER=${android.net.Uri.encode(user.email)}; Domain=.google.com; Path=/; Secure; SameSite=None; Expires=$expires")
             cookieManager.setCookie("https://accounts.google.com", "Email=${android.net.Uri.encode(user.email)}; Domain=accounts.google.com; Path=/; Secure; SameSite=None; Expires=$expires")
-            cookieManager.setCookie("https://.youtube.com", "LOGIN_INFO=${android.net.Uri.encode(user.email)}; Domain=.youtube.com; Path=/; Secure; SameSite=None; Expires=$expires")
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 cookieManager.flush()
             }
