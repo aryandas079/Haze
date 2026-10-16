@@ -1517,19 +1517,28 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun applySuggestionTheme(isDark: Boolean) {
+        val cardColor = if (isPrivateMode) {
+            Color.parseColor("#1E1E1E")
+        } else if (isDark) {
+            Color.parseColor("#1E1E1E")
+        } else {
+            Color.WHITE
+        }
+        val strokeColor = if (isPrivateMode || isDark) {
+            Color.parseColor("#333333")
+        } else {
+            Color.parseColor("#E0E0E0")
+        }
+
         val bgCard = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dpToPx(20f).toFloat()
-            if (isDark) {
-                setColor(Color.parseColor("#1E222A"))
-                setStroke(dpToPx(1f), Color.parseColor("#2E3644"))
-            } else {
-                setColor(Color.WHITE)
-                setStroke(dpToPx(1f), Color.parseColor("#E0E0E0"))
-            }
+            cornerRadius = dpToPx(24f).toFloat()
+            setColor(cardColor)
+            setStroke(dpToPx(1f), strokeColor)
         }
         searchSuggestionStrip.background = bgCard
         searchSuggestionStrip.clipToOutline = true
+        searchSuggestionStrip.elevation = dpToPx(6f).toFloat()
     }
 
     private fun adjustSuggestionStripHeight(itemCount: Int, hasClipboard: Boolean = false) {
@@ -1615,17 +1624,17 @@ class MainActivity : AppCompatActivity() {
         val tvSub = rowContainer.findViewById<TextView>(R.id.tvSuggestionSubtitle)
         val btnFill = rowContainer.findViewById<ImageButton>(R.id.btnFillQuery)
 
-        val rowBgColor = if (isDark) Color.parseColor("#1E222A") else Color.WHITE
-        val rippleColor = if (isDark) Color.parseColor("#26FFFFFF") else Color.parseColor("#1F000000")
+        val cardBgColor = if (isPrivateMode || isDark) Color.parseColor("#1E1E1E") else Color.WHITE
+        val rippleColor = if (isPrivateMode || isDark) Color.parseColor("#26FFFFFF") else Color.parseColor("#14000000")
         foreground.background = RippleDrawable(
             ColorStateList.valueOf(rippleColor),
-            ColorDrawable(rowBgColor),
+            ColorDrawable(cardBgColor),
             ColorDrawable(Color.WHITE)
         )
 
-        val titleColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
-        val subColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val iconColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val titleColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
+        val subColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val iconColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
         ivIcon.setImageResource(item.iconRes)
         ivIcon.setColorFilter(iconColor)
@@ -1638,7 +1647,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             tvSub.visibility = View.GONE
         }
-        btnFill.setColorFilter(subColor)
+        btnFill.setColorFilter(iconColor)
 
         btnFill.setOnClickListener {
             triggerStrongHaptic(it)

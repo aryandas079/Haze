@@ -244,8 +244,8 @@ class HazeOmniboxManager(
             val bgCard = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#1E222A"))
-                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#2E3644"))
+                setColor(Color.parseColor("#1E1E1E"))
+                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#333333"))
             }
             card.background = bgCard
             tvAction.setTextColor(Color.WHITE)
@@ -253,8 +253,8 @@ class HazeOmniboxManager(
 
             val pillBgDark = GradientDrawable().apply {
                 cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#282D37"))
-                setStroke(1, Color.parseColor("#3E4654"))
+                setColor(Color.parseColor("#282828"))
+                setStroke(1, Color.parseColor("#3E3E3E"))
             }
             btnClipCall.background = pillBgDark
             btnClipSearch.background = pillBgDark.constantState?.newDrawable()?.mutate()
@@ -421,8 +421,8 @@ class HazeOmniboxManager(
     ) {
         chipContainer.removeAllViews()
         val currentEngineName = prefs.getString("search_engine", "Google") ?: "Google"
-        val isDark = prefs.getBoolean("is_dark", false)
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
 
         val allEngines = getAllEngines()
         val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
@@ -452,8 +452,8 @@ class HazeOmniboxManager(
                 if (isSelected) {
                     setColor(accentColor)
                 } else {
-                    setColor(if (isDark) Color.parseColor("#252830") else Color.parseColor("#F1F3F4"))
-                    setStroke(1, if (isDark) Color.parseColor("#383C48") else Color.parseColor("#DADCE0"))
+                    setColor(if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#F1F3F4"))
+                    setStroke(1, if (isDark) Color.parseColor("#333333") else Color.parseColor("#DADCE0"))
                 }
             }
             chip.background = bg
