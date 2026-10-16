@@ -3251,8 +3251,14 @@ class MainActivity : AppCompatActivity() {
             if (activeMediaTab !== previousTab) {
                 try {
                     previousTab.browserTab.onPause()
+                    if (HazePerformanceManager.isPerformanceModeEnabled(this)) {
+                        HazePerformanceManager.freezeTab(previousTab)
+                    }
                 } catch (_: Exception) {}
             }
+        }
+        if (HazePerformanceManager.isPerformanceModeEnabled(this)) {
+            HazePerformanceManager.unfreezeTab(nextTab)
         }
         if (previousTab != null &&
             previousTab !== nextTab &&
@@ -4224,6 +4230,11 @@ class MainActivity : AppCompatActivity() {
                     // Data Saver: block autoplay and reduce video quality
                     if (HazeDataSaverManager.isDataSaverEnabled(this@MainActivity)) {
                         view?.evaluateJavascript(HazeDataSaverManager.DATA_SAVER_INJECTION_SCRIPT, null)
+                    }
+
+                    // Performance mode: battery optimization & reduced JS workload
+                    if (HazePerformanceManager.isPerformanceModeEnabled(this@MainActivity)) {
+                        view?.evaluateJavascript(HazePerformanceManager.PERFORMANCE_OPTIMIZATION_SCRIPT, null)
                     }
                 }
 
@@ -6956,6 +6967,53 @@ class MainActivity : AppCompatActivity() {
             triggerStrongHaptic(it)
             popupWindow.dismiss()
             HazeDataSaverManager.showDataSaverDialog(this)
+        }
+
+        // ==========================================
+        // 24. PERFORMANCE BLOCK SETUP IN DROPDOWN
+        // ==========================================
+        popupView.findViewById<View>(R.id.performanceDivider)?.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
+        val performanceBlock = popupView.findViewById<LinearLayout>(R.id.performanceBlock)
+        val ivPerformanceIcon = popupView.findViewById<ImageView>(R.id.ivPerformanceIcon)
+        val tvPerformanceTitle = popupView.findViewById<TextView>(R.id.tvPerformanceTitle)
+        val switchPerformance = popupView.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchPerformance)
+        val tvRamSavedLabel = popupView.findViewById<TextView>(R.id.tvRamSavedLabel)
+        val tvBatterySavedLabel = popupView.findViewById<TextView>(R.id.tvBatterySavedLabel)
+        val tvTrackersBlockedLabel = popupView.findViewById<TextView>(R.id.tvTrackersBlockedLabel)
+        val tvPerformanceHint = popupView.findViewById<TextView>(R.id.tvPerformanceHint)
+
+        performanceBlock?.background = GradientDrawable().apply {
+            cornerRadius = dpToPx(14).toFloat()
+            setColor(cardBg)
+        }
+
+        val isPerfModeOn = HazePerformanceManager.isPerformanceModeEnabled(this)
+        switchPerformance?.isChecked = isPerfModeOn
+        val perfTint = if (isPerfModeOn) Color.parseColor("#FBBC04") else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+        ivPerformanceIcon?.setColorFilter(perfTint)
+        tvPerformanceTitle?.setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+        tvRamSavedLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
+        tvTrackersBlockedLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
+        tvPerformanceHint?.setTextColor(if (isDark) Color.parseColor("#888888") else Color.parseColor("#80868B"))
+
+        // Update stats
+        val perfStats = HazePerformanceManager.getPerformanceStats(this)
+        tvRamSavedLabel?.text = "RAM saved:       ${perfStats.ramSavedFormatted}"
+        tvBatterySavedLabel?.text = "Battery saved:    ${perfStats.batterySavedFormatted}"
+        tvTrackersBlockedLabel?.text = "Trackers blocked: ${perfStats.trackersBlockedFormatted}"
+
+        switchPerformance?.setOnCheckedChangeListener { _, isChecked ->
+            triggerStrongHaptic()
+            HazePerformanceManager.setPerformanceModeEnabled(this, isChecked)
+            val newTint = if (isChecked) Color.parseColor("#FBBC04") else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
+            ivPerformanceIcon?.setColorFilter(newTint)
+            Toast.makeText(this, if (isChecked) "Performance mode enabled" else "Performance mode disabled", Toast.LENGTH_SHORT).show()
+        }
+
+        performanceBlock?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            HazePerformanceManager.showPerformanceDialog(this)
         }
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)

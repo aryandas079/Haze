@@ -188,6 +188,110 @@
         android:background="#E5E5E5"
         android:layout_marginBottom="10dp" />
 
+    <!-- 24. Performance Block in Dropdown -->
+    <LinearLayout
+        android:id="@+id/performanceBlock"
+        android:layout_width="296dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:layout_marginBottom="10dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_alignParentStart="true"
+                android:layout_centerVertical="true">
+
+                <ImageView
+                    android:id="@+id/ivPerformanceIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_bolt"
+                    android:layout_marginEnd="8dp"
+                    app:tint="#FBBC04" />
+
+                <TextView
+                    android:id="@+id/tvPerformanceTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Performance"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#202124" />
+            </LinearLayout>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchPerformance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true" />
+        </RelativeLayout>
+
+        <!-- Stats row: RAM saved & Battery saved -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="2dp">
+
+            <TextView
+                android:id="@+id/tvRamSavedLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="RAM saved:       742 MB"
+                android:textSize="11.5sp"
+                android:textColor="#5F6368" />
+
+            <TextView
+                android:id="@+id/tvBatterySavedLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Battery saved:    18%"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:textColor="#188038" />
+        </LinearLayout>
+
+        <!-- Trackers blocked line -->
+        <TextView
+            android:id="@+id/tvTrackersBlockedLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Trackers blocked: 392"
+            android:textSize="11.5sp"
+            android:textColor="#5F6368"
+            android:layout_marginBottom="4dp" />
+
+        <!-- Subtitle / active protections hint -->
+        <TextView
+            android:id="@+id/tvPerformanceHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tab freezing • GPU acceleration • Lite mode"
+            android:textSize="10.5sp"
+            android:textColor="#80868B" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/performanceDivider"
+        android:layout_width="296dp"
+        android:layout_height="1dp"
+        android:background="#E5E5E5"
+        android:layout_marginBottom="10dp" />
+
     <!-- 4-Column Grid -->
     <GridLayout
         android:id="@+id/menuGrid"
