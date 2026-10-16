@@ -85,6 +85,7 @@ object HazePasswordManager {
     private var rootContainer: FrameLayout? = null
     private var activeAutofillBanner: View? = null
     private var lastAutofillPromptDomain: String = ""
+    private var activeImportLauncher: (() -> Unit)? = null
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -150,151 +151,48 @@ object HazePasswordManager {
 
     fun purgeDefaultEntriesIfPresent(context: Context) {
         val prefs = getPrefs(context)
-        if (prefs.getBoolean("pm_cleaned_defaults_v6", false)) return
+        if (prefs.getBoolean("pm_purged_all_dummies_v9", false)) return
         val db = HazeDatabase.getInstance(context)
+        // Purge dummy mock data completely so vault starts 100% clean
         db.clearAllPasswords()
         db.clearAllCreditCards()
         db.clearAllAddresses()
         prefs.edit()
-            .putBoolean("pm_cleaned_defaults_v6", true)
+            .putBoolean("pm_purged_all_dummies_v9", true)
             .remove(PREF_SEEDED_DEFAULTS)
-            .remove(PREF_GPM_IMPORTED)
             .apply()
     }
 
     // =========================================================================
-    // GOOGLE PASSWORD MANAGER & CHROME DIRECT SYNC / IMPORT
+    // GOOGLE PASSWORD MANAGER & CHROME INTEGRATION
     // =========================================================================
 
-    const val PREF_GPM_IMPORTED = "gpm_imported_v6"
-
-    fun hasImportedGooglePasswordManager(context: Context): Boolean {
-        return getPrefs(context).getBoolean(PREF_GPM_IMPORTED, false)
+    fun openGooglePasswordManagerWeb(activity: MainActivity) {
+        activeManagerDialog?.dismiss()
+        activity.addNewTab("https://passwords.google.com")
     }
 
-    fun importGooglePasswordManagerData(context: Context, force: Boolean = false): Boolean {
-        val prefs = getPrefs(context)
-        if (!force && prefs.getBoolean(PREF_GPM_IMPORTED, false)) {
-            return false
-        }
-
-        val user = HazeAccountManager.getUser(context)
-        val userEmail = user?.email?.ifBlank { "manojdasexplorer@gmail.com" } ?: "manojdasexplorer@gmail.com"
-        val userName = user?.displayName?.ifBlank { "Manoj Das" } ?: "Manoj Das"
-
-        val db = HazeDatabase.getInstance(context)
-
-        // 1. Google Password Manager & Chrome Passwords
-        val gpmPasswords = listOf(
-            Triple("1flex.nl", "Aryan Das", "1flexSecure#2026"),
-            Triple("amazon.in", userName, "AmazonIndia#2026"),
-            Triple("amazon.com", userName, "AmazonPass#2026"),
-            Triple("google.com", userEmail, "GoogleAuth#2026"),
-            Triple("accounts.google.com", userEmail, "GoogleAuth#2026"),
-            Triple("flipkart.com", userName, "Flipkart#2026!"),
-            Triple("github.com", "aryandas079", "GitHubDev#2026!"),
-            Triple("microsoft.com", "manojdasexplorer@outlook.com", "MicrosoftLive#2026"),
-            Triple("netflix.com", userEmail, "NetflixWatch#2026"),
-            Triple("spotify.com", "Aryan Das", "SpotifyTune#2026"),
-            Triple("swiggy.com", "Aryan Das", "SwiggyFood#2026"),
-            Triple("zomato.com", userName, "ZomatoOrder#2026"),
-            Triple("irctc.co.in", "manojdasexplorer", "IrctcRail#2026"),
-            Triple("facebook.com", userName, "MetaSocial#2026"),
-            Triple("instagram.com", "Aryan Das", "InstaGram#2026!"),
-            Triple("twitter.com", "aryandas079", "TwitterX#2026!"),
-            Triple("linkedin.com", "Aryan Das", "LinkedInWork#2026"),
-            Triple("paypal.com", userEmail, "PayPalSecure#2026"),
-            Triple("hotstar.com", userName, "HotstarStream#2026"),
-            Triple("jiocinema.com", "Aryan Das", "JioCinema#2026")
-        )
-
-        for ((site, username, pass) in gpmPasswords) {
-            val clean = cleanDomain(site)
-            val existing = db.getPasswords().any {
-                it.site.equals(clean, ignoreCase = true) && it.username.equals(username, ignoreCase = true)
+    fun openAutofillSettings(context: Context) {
+        runCatching {
+            val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                data = android.net.Uri.parse("package:${context.packageName}")
             }
-            if (!existing) {
-                db.upsertPassword(
-                    site = clean,
-                    title = clean.substringBefore("."),
-                    username = username,
-                    encryptedPassword = encrypt(pass),
-                    note = "Synced from Google Password Manager & Chrome"
-                )
+            context.startActivity(intent)
+        }.onFailure {
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_SETTINGS))
+            }.onFailure {
+                Toast.makeText(context, "Google Password Manager Autofill is active", Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
-        // 2. Google Pay & Chrome Payment Methods
-        val cardsToImport = listOf(
-            Triple("Mastercard", "5241880012349729", Pair("12", "30")),
-            Triple("Visa", "4532110056784124", Pair("08", "28")),
-            Triple("RuPay", "6521990089126521", Pair("10", "29"))
-        )
-        val existingCards = db.getCreditCards()
-        for ((nickname, rawNumber, exp) in cardsToImport) {
-            val last4 = rawNumber.takeLast(4)
-            val hasCard = existingCards.any {
-                val num = runCatching { decrypt(it.encryptedCardNumber) }.getOrNull() ?: ""
-                num.endsWith(last4)
-            }
-            if (!hasCard) {
-                db.upsertCreditCard(
-                    cardholderName = if (nickname == "Visa") "Aryan Das" else userName,
-                    encryptedNumber = encrypt(rawNumber),
-                    expiryMonth = exp.first,
-                    expiryYear = exp.second,
-                    cardNickname = nickname
-                )
-            }
+    fun triggerChromeCsvImport(activity: MainActivity) {
+        if (activeImportLauncher != null) {
+            activeImportLauncher?.invoke()
+        } else {
+            Toast.makeText(activity, "Select your exported Chrome passwords .csv file", Toast.LENGTH_SHORT).show()
         }
-
-        // 3. Google Autofill & Chrome Addresses
-        val addressesToImport = listOf(
-            mapOf(
-                "name" to "Aryan Das",
-                "line1" to "Hno 16, Sukanta Lane",
-                "line2" to "Satsang Ashram Road",
-                "city" to "Silchar",
-                "state" to "Assam",
-                "zip" to "788005",
-                "country" to "India",
-                "phone" to "+91 94358 85077"
-            ),
-            mapOf(
-                "name" to userName,
-                "line1" to "Hno 16, Sukanta Lane",
-                "line2" to "Satsang Ashram Road",
-                "city" to "Silchar",
-                "state" to "Assam",
-                "zip" to "788005",
-                "country" to "India",
-                "phone" to "+91 94350 71500"
-            )
-        )
-        val existingAddresses = db.getAddresses()
-        for (addr in addressesToImport) {
-            val phone = addr["phone"] ?: ""
-            val line1 = addr["line1"] ?: ""
-            val name = addr["name"] ?: ""
-            val hasAddr = existingAddresses.any {
-                it.phoneNumber == phone || (it.fullName.equals(name, true) && it.addressLine1.equals(line1, true))
-            }
-            if (!hasAddr) {
-                db.upsertAddress(
-                    fullName = name,
-                    addressLine1 = line1,
-                    addressLine2 = addr["line2"] ?: "",
-                    city = addr["city"] ?: "",
-                    state = addr["state"] ?: "",
-                    postalCode = addr["zip"] ?: "",
-                    country = addr["country"] ?: "India",
-                    phoneNumber = phone
-                )
-            }
-        }
-
-        prefs.edit().putBoolean(PREF_GPM_IMPORTED, true).apply()
-        return true
     }
 
     // =========================================================================
@@ -352,10 +250,8 @@ object HazePasswordManager {
     // =========================================================================
 
     fun show(context: MainActivity, importLauncher: () -> Unit = {}) {
+        activeImportLauncher = importLauncher
         purgeDefaultEntriesIfPresent(context)
-        if (!hasImportedGooglePasswordManager(context)) {
-            importGooglePasswordManagerData(context, force = true)
-        }
         authenticateUser(
             activity = context,
             title = "Unlock Passwords & Autofill",
@@ -419,49 +315,7 @@ object HazePasswordManager {
         headerRow.addView(closeBtn, LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)))
         root.addView(headerRow)
 
-        // Google & Chrome Sync Card
-        val syncCard = createCard(context, isDark)
-        val syncRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 16))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                importGooglePasswordManagerData(context, force = true)
-                Toast.makeText(context, "Synced all passwords, cards, and addresses from Google & Chrome!", Toast.LENGTH_SHORT).show()
-                renderRootScreen(context)
-            }
-        }
-        val syncIcon = ImageView(context).apply {
-            setImageResource(R.drawable.ic_refresh)
-            setColorFilter(Color.parseColor("#1A73E8"))
-        }
-        syncRow.addView(syncIcon, LinearLayout.LayoutParams(dp(context, 24), dp(context, 24)))
-        val syncCol = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(context, 16), 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-        }
-        val syncTitle = TextView(context).apply {
-            text = "Sync with Google & Chrome"
-            textSize = 15.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.parseColor("#1A73E8"))
-        }
-        val syncSub = TextView(context).apply {
-            text = "Import all saved passwords, addresses, and payment cards"
-            textSize = 12f
-            setTextColor(secondaryColor)
-            setPadding(0, dp(context, 2), 0, 0)
-        }
-        syncCol.addView(syncTitle)
-        syncCol.addView(syncSub)
-        syncRow.addView(syncCol)
-        syncCard.addView(syncRow)
-        root.addView(syncCard)
-
-        // Main 3-Item Card (Matching Screenshot 1)
+        // Main 3-Item Card (Matching Reference UI)
         val card = createCard(context, isDark)
         val passCount = db.getPasswords().size
         val cardCount = db.getCreditCards().size
@@ -472,7 +326,7 @@ object HazePasswordManager {
             context = context,
             iconRes = R.drawable.ic_key,
             title = "Google Password Manager",
-            subtitle = if (passCount > 0) "$passCount saved passwords • Synced with Google & Chrome" else "Manage passwords and passkeys",
+            subtitle = if (passCount > 0) "$passCount saved passwords in vault" else "View & manage passwords in Google Account",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderPasswordsScreen(context) }
@@ -485,7 +339,7 @@ object HazePasswordManager {
             context = context,
             iconRes = R.drawable.ic_credit_card,
             title = "Payment methods",
-            subtitle = if (cardCount > 0) "$cardCount payment cards • Synced with Google Pay" else "Save and fill payment methods",
+            subtitle = if (cardCount > 0) "$cardCount saved payment cards" else "Save and fill payment methods",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderPaymentMethodsScreen(context) }
@@ -498,7 +352,7 @@ object HazePasswordManager {
             context = context,
             iconRes = R.drawable.ic_person,
             title = "Addresses and more",
-            subtitle = if (addrCount > 0) "$addrCount addresses • Synced with Google Autofill" else "Save and fill delivery addresses",
+            subtitle = if (addrCount > 0) "$addrCount saved addresses" else "Save and fill delivery addresses",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderAddressesScreen(context) }
@@ -655,6 +509,78 @@ object HazePasswordManager {
         topCard.addView(rowAsk)
         topCard.addView(createDivider(context, isDark, 18))
 
+        // Google Password Manager (Google Account)
+        val gpmRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 14))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { openGooglePasswordManagerWeb(context) }
+        }
+        val gpmCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(context, 12) }
+        }
+        val gpmTv = TextView(context).apply {
+            text = "Google Password Manager (Google Account)"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+        }
+        val gpmSub = TextView(context).apply {
+            text = "Open passwords.google.com to view & edit all Google Account passwords"
+            textSize = 12f
+            setTextColor(Color.parseColor("#1A73E8"))
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        gpmCol.addView(gpmTv)
+        gpmCol.addView(gpmSub)
+        gpmRow.addView(gpmCol)
+        val gpmChevron = ImageView(context).apply {
+            setImageResource(R.drawable.ic_chevron_right)
+            setColorFilter(secondaryColor)
+        }
+        gpmRow.addView(gpmChevron, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
+        topCard.addView(gpmRow)
+        topCard.addView(createDivider(context, isDark, 18))
+
+        // Import passwords from Google Chrome
+        val importRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 14))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { triggerChromeCsvImport(context) }
+        }
+        val importCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(context, 12) }
+        }
+        val importTv = TextView(context).apply {
+            text = "Import passwords from Google Chrome"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+        }
+        val importSub = TextView(context).apply {
+            text = "Import real passwords exported from Chrome (.csv file)"
+            textSize = 12f
+            setTextColor(secondaryColor)
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        importCol.addView(importTv)
+        importCol.addView(importSub)
+        importRow.addView(importCol)
+        val importChevron = ImageView(context).apply {
+            setImageResource(R.drawable.ic_chevron_right)
+            setColorFilter(secondaryColor)
+        }
+        importRow.addView(importChevron, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
+        topCard.addView(importRow)
+        topCard.addView(createDivider(context, isDark, 18))
+
         // More settings row
         val moreRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -663,14 +589,7 @@ object HazePasswordManager {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                runCatching {
-                    val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
-                        data = android.net.Uri.parse("package:${context.packageName}")
-                    }
-                    context.startActivity(intent)
-                }.onFailure {
-                    Toast.makeText(context, "Google Password Manager autofill is active", Toast.LENGTH_SHORT).show()
-                }
+                openAutofillSettings(context)
             }
         }
         val moreTv = TextView(context).apply {
@@ -757,25 +676,23 @@ object HazePasswordManager {
             setPadding(dp(context, 4), 0, 0, 0)
             setOnClickListener { v ->
                 val popup = PopupMenu(context, v)
-                popup.menu.add("Sync with Google Password Manager")
+                popup.menu.add("Import from Chrome (.csv)")
+                popup.menu.add("Open passwords.google.com")
                 popup.menu.add("Password security check")
                 popup.menu.add("Generate strong password")
                 popup.menu.add("Add passkey record")
                 popup.menu.add("Clear all passwords")
                 popup.setOnMenuItemClickListener { menuItem ->
                     when (menuItem.title) {
-                        "Sync with Google Password Manager" -> {
-                            importGooglePasswordManagerData(context, force = true)
-                            Toast.makeText(context, "Passwords synced from Google Password Manager", Toast.LENGTH_SHORT).show()
-                            renderPasswordsScreen(context)
-                        }
+                        "Import from Chrome (.csv)" -> triggerChromeCsvImport(context)
+                        "Open passwords.google.com" -> openGooglePasswordManagerWeb(context)
                         "Password security check" -> showSecurityCheckDialog(context)
                         "Generate strong password" -> showPasswordGeneratorDialog(context)
                         "Add passkey record" -> showAddPasskeyDialog(context) { renderPasswordsScreen(context) }
                         "Clear all passwords" -> {
                             AlertDialog.Builder(context)
                                 .setTitle("Clear all passwords?")
-                                .setMessage("This will remove all saved passwords and passkeys from Haze.")
+                                .setMessage("This will remove all saved passwords from Haze vault.")
                                 .setPositiveButton("Clear") { _, _ ->
                                     db.clearAllPasswords()
                                     renderPasswordsScreen(context)
@@ -843,14 +760,61 @@ object HazePasswordManager {
             }
 
             if (filtered.isEmpty()) {
-                val emptyTv = TextView(context).apply {
-                    text = if (query.isBlank()) "No passwords saved yet." else "No passwords match \"$query\""
-                    textSize = 14f
+                val emptyCol = LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+                }
+                val emptyIv = ImageView(context).apply {
+                    setImageResource(R.drawable.ic_key)
+                    setColorFilter(secondaryColor)
+                }
+                emptyCol.addView(emptyIv, LinearLayout.LayoutParams(dp(context, 48), dp(context, 48)))
+
+                val emptyTitle = TextView(context).apply {
+                    text = if (query.isBlank()) "No passwords in local vault" else "No passwords match \"$query\""
+                    textSize = 16f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(textColor)
+                    setPadding(0, dp(context, 12), 0, dp(context, 4))
+                }
+                emptyCol.addView(emptyTitle)
+
+                val emptySub = TextView(context).apply {
+                    text = if (query.isBlank()) {
+                        "Haze automatically prompts to save your real passwords whenever you log in on any website.\n\nYou can also import your existing passwords from Google Chrome or view your Google Account passwords."
+                    } else "Try searching for a different domain or username."
+                    textSize = 13f
                     setTextColor(secondaryColor)
                     gravity = Gravity.CENTER
-                    setPadding(dp(context, 16), dp(context, 32), dp(context, 16), dp(context, 32))
                 }
-                passwordsListCard.addView(emptyTv)
+                emptyCol.addView(emptySub)
+
+                if (query.isBlank()) {
+                    val btnRow = LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER
+                        setPadding(0, dp(context, 16), 0, 0)
+                    }
+                    val impBtn = Button(context).apply {
+                        text = "Import Chrome CSV"
+                        textSize = 12f
+                        setTextColor(Color.WHITE)
+                        background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
+                        setOnClickListener { triggerChromeCsvImport(context) }
+                    }
+                    val gBtn = Button(context).apply {
+                        text = "passwords.google.com"
+                        textSize = 12f
+                        setTextColor(textColor)
+                        background = roundedBackground(context, searchBg, 12)
+                        setOnClickListener { openGooglePasswordManagerWeb(context) }
+                    }
+                    btnRow.addView(impBtn, LinearLayout.LayoutParams(-2, dp(context, 40)).apply { marginEnd = dp(context, 8) })
+                    btnRow.addView(gBtn, LinearLayout.LayoutParams(-2, dp(context, 40)))
+                    emptyCol.addView(btnRow)
+                }
+                passwordsListCard.addView(emptyCol)
                 return
             }
 
@@ -1098,14 +1062,12 @@ object HazePasswordManager {
             setPadding(dp(context, 4), 0, 0, 0)
             setOnClickListener { v ->
                 val popup = PopupMenu(context, v)
-                popup.menu.add("Sync with Google Pay")
+                popup.menu.add("+ Add payment card")
                 popup.menu.add("Clear all payment cards")
                 popup.setOnMenuItemClickListener { menuItem ->
                     when (menuItem.title) {
-                        "Sync with Google Pay" -> {
-                            importGooglePasswordManagerData(context, force = true)
-                            Toast.makeText(context, "Payment methods synced from Google Pay", Toast.LENGTH_SHORT).show()
-                            renderPaymentMethodsScreen(context)
+                        "+ Add payment card" -> {
+                            showAddCreditCardDialog(context) { renderPaymentMethodsScreen(context) }
                         }
                         "Clear all payment cards" -> {
                             AlertDialog.Builder(context)
@@ -1134,14 +1096,47 @@ object HazePasswordManager {
         val cards = db.getCreditCards()
 
         if (cards.isEmpty()) {
-            val emptyTv = TextView(context).apply {
-                text = "No saved payment methods."
-                textSize = 14f
+            val emptyCol = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+            }
+            val emptyIv = ImageView(context).apply {
+                setImageResource(R.drawable.ic_credit_card)
+                setColorFilter(secondaryColor)
+            }
+            emptyCol.addView(emptyIv, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
+
+            val emptyTitle = TextView(context).apply {
+                text = "No saved payment methods"
+                textSize = 15.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(textColor)
+                setPadding(0, dp(context, 12), 0, dp(context, 4))
+            }
+            emptyCol.addView(emptyTitle)
+
+            val emptySub = TextView(context).apply {
+                text = "When you check out on shopping websites, Haze will offer to securely save your payment card for faster future checkouts."
+                textSize = 12.5f
                 setTextColor(secondaryColor)
                 gravity = Gravity.CENTER
-                setPadding(dp(context, 16), dp(context, 32), dp(context, 16), dp(context, 32))
             }
-            cardsContainer.addView(emptyTv)
+            emptyCol.addView(emptySub)
+
+            val addCardBtn = Button(context).apply {
+                text = "+ Add payment card"
+                textSize = 12.5f
+                setTextColor(Color.WHITE)
+                background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
+                setOnClickListener {
+                    showAddCreditCardDialog(context) { renderPaymentMethodsScreen(context) }
+                }
+            }
+            val lp = LinearLayout.LayoutParams(-2, dp(context, 40)).apply { topMargin = dp(context, 16) }
+            emptyCol.addView(addCardBtn, lp)
+
+            cardsContainer.addView(emptyCol)
         } else {
             cards.forEachIndexed { idx, cardItem ->
                 val cardRow = LinearLayout(context).apply {
@@ -1368,16 +1363,27 @@ object HazePasswordManager {
             setColorFilter(textColor)
             setOnClickListener { v ->
                 val popup = PopupMenu(context, v)
-                popup.menu.add("Sync with Google Addresses")
-                popup.menu.add("Refresh addresses")
+                popup.menu.add("+ Add address")
+                popup.menu.add("Clear all addresses")
                 popup.setOnMenuItemClickListener { menuItem ->
                     when (menuItem.title) {
-                        "Sync with Google Addresses" -> {
-                            importGooglePasswordManagerData(context, force = true)
-                            Toast.makeText(context, "Addresses synced from Google Account", Toast.LENGTH_SHORT).show()
-                            renderAddressesScreen(context)
+                        "+ Add address" -> {
+                            showAddAddressDialog(context) { renderAddressesScreen(context) }
                         }
-                        "Refresh addresses" -> renderAddressesScreen(context)
+                        "Clear all addresses" -> {
+                            val list = db.getAddresses()
+                            if (list.isNotEmpty()) {
+                                AlertDialog.Builder(context)
+                                    .setTitle("Delete saved addresses?")
+                                    .setMessage("Are you sure you want to remove all saved autofill addresses?")
+                                    .setPositiveButton("Clear all") { _, _ ->
+                                        list.forEach { db.deleteAddress(it.id) }
+                                        renderAddressesScreen(context)
+                                    }
+                                    .setNegativeButton("Cancel", null)
+                                    .show()
+                            }
+                        }
                     }
                     true
                 }
@@ -1392,14 +1398,47 @@ object HazePasswordManager {
         val addresses = db.getAddresses()
 
         if (addresses.isEmpty()) {
-            val emptyTv = TextView(context).apply {
-                text = "No addresses saved."
-                textSize = 14f
+            val emptyCol = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+            }
+            val emptyIv = ImageView(context).apply {
+                setImageResource(R.drawable.ic_person)
+                setColorFilter(secondaryColor)
+            }
+            emptyCol.addView(emptyIv, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
+
+            val emptyTitle = TextView(context).apply {
+                text = "No saved addresses"
+                textSize = 15.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(textColor)
+                setPadding(0, dp(context, 12), 0, dp(context, 4))
+            }
+            emptyCol.addView(emptyTitle)
+
+            val emptySub = TextView(context).apply {
+                text = "When you fill out shipping or contact forms, Haze will offer to save your address details for automatic autofill next time."
+                textSize = 12.5f
                 setTextColor(secondaryColor)
                 gravity = Gravity.CENTER
-                setPadding(dp(context, 16), dp(context, 32), dp(context, 16), dp(context, 32))
             }
-            addrCard.addView(emptyTv)
+            emptyCol.addView(emptySub)
+
+            val addAddrBtn = Button(context).apply {
+                text = "+ Add address"
+                textSize = 12.5f
+                setTextColor(Color.WHITE)
+                background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
+                setOnClickListener {
+                    showAddAddressDialog(context) { renderAddressesScreen(context) }
+                }
+            }
+            val lp = LinearLayout.LayoutParams(-2, dp(context, 40)).apply { topMargin = dp(context, 16) }
+            emptyCol.addView(addAddrBtn, lp)
+
+            addrCard.addView(emptyCol)
         } else {
             addresses.forEachIndexed { idx, addr ->
                 val addrRow = LinearLayout(context).apply {
@@ -2871,24 +2910,60 @@ object HazePasswordManager {
             BufferedReader(InputStreamReader(input, StandardCharsets.UTF_8)).useLines { lines ->
                 val iterator = lines.iterator()
                 if (!iterator.hasNext()) return@useLines
-                val headers = iterator.next().split(",").map { it.trim().lowercase() }
+                val headerLine = iterator.next()
+                val headers = parseCsvLine(headerLine).map { it.trim().lowercase() }
                 val urlIndex = headers.indexOfFirst { it == "url" || it == "origin" || it == "website" }
-                val userIndex = headers.indexOfFirst { it == "username" || it == "user" }
+                val nameIndex = headers.indexOfFirst { it == "name" || it == "title" }
+                val userIndex = headers.indexOfFirst { it == "username" || it == "user" || it == "login" || it == "email" }
                 val passwordIndex = headers.indexOfFirst { it == "password" || it == "pass" }
+                val noteIndex = headers.indexOfFirst { it == "note" || it == "notes" }
                 if (urlIndex < 0 || userIndex < 0 || passwordIndex < 0) return@useLines
                 val db = HazeDatabase.getInstance(context)
                 while (iterator.hasNext()) {
-                    val row = iterator.next().split(",")
+                    val line = iterator.next().trim()
+                    if (line.isBlank()) continue
+                    val row = parseCsvLine(line)
                     val site = row.getOrNull(urlIndex)?.trim().orEmpty()
                     val username = row.getOrNull(userIndex)?.trim().orEmpty()
                     val password = row.getOrNull(passwordIndex)?.trim().orEmpty()
+                    val title = if (nameIndex >= 0) row.getOrNull(nameIndex)?.trim().orEmpty() else ""
+                    val note = if (noteIndex >= 0) row.getOrNull(noteIndex)?.trim().orEmpty() else ""
                     if (site.isBlank() || password.isBlank()) continue
                     val clean = cleanDomain(site)
-                    if (db.upsertPassword(clean, clean.substringBefore("."), username, encrypt(password)) >= 0) imported++
+                    val finalTitle = title.ifBlank { clean.substringBefore(".") }
+                    if (db.upsertPassword(clean, finalTitle, username, encrypt(password), note = note) >= 0) imported++
                 }
             }
         }
         return imported
+    }
+
+    private fun parseCsvLine(line: String): List<String> {
+        val tokens = mutableListOf<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                c == '\"' -> {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] == '\"') {
+                        sb.append('\"')
+                        i++
+                    } else {
+                        inQuotes = !inQuotes
+                    }
+                }
+                c == ',' && !inQuotes -> {
+                    tokens.add(sb.toString())
+                    sb.setLength(0)
+                }
+                else -> sb.append(c)
+            }
+            i++
+        }
+        tokens.add(sb.toString())
+        return tokens
     }
 
     private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
