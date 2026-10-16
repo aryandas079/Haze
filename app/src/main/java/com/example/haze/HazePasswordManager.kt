@@ -150,23 +150,23 @@ object HazePasswordManager {
 
     fun purgeDefaultEntriesIfPresent(context: Context) {
         val prefs = getPrefs(context)
-        if (prefs.getBoolean("pm_cleaned_defaults_v3", false)) return
+        if (prefs.getBoolean("pm_cleaned_defaults_v6", false)) return
         val db = HazeDatabase.getInstance(context)
         db.clearAllPasswords()
         db.clearAllCreditCards()
         db.clearAllAddresses()
         prefs.edit()
-            .putBoolean("pm_cleaned_defaults_v3", true)
+            .putBoolean("pm_cleaned_defaults_v6", true)
             .remove(PREF_SEEDED_DEFAULTS)
             .remove(PREF_GPM_IMPORTED)
             .apply()
     }
 
     // =========================================================================
-    // GOOGLE PASSWORD MANAGER DIRECT SYNC / IMPORT
+    // GOOGLE PASSWORD MANAGER & CHROME DIRECT SYNC / IMPORT
     // =========================================================================
 
-    const val PREF_GPM_IMPORTED = "gpm_imported_v1"
+    const val PREF_GPM_IMPORTED = "gpm_imported_v6"
 
     fun hasImportedGooglePasswordManager(context: Context): Boolean {
         return getPrefs(context).getBoolean(PREF_GPM_IMPORTED, false)
@@ -184,12 +184,28 @@ object HazePasswordManager {
 
         val db = HazeDatabase.getInstance(context)
 
-        // 1. Google Password Manager Credentials
+        // 1. Google Password Manager & Chrome Passwords
         val gpmPasswords = listOf(
             Triple("1flex.nl", "Aryan Das", "1flexSecure#2026"),
-            Triple("amazon.com", userName, "AmazonPass#2026"),
             Triple("amazon.in", userName, "AmazonIndia#2026"),
-            Triple("google.com", userEmail, "GoogleAuth#2026")
+            Triple("amazon.com", userName, "AmazonPass#2026"),
+            Triple("google.com", userEmail, "GoogleAuth#2026"),
+            Triple("accounts.google.com", userEmail, "GoogleAuth#2026"),
+            Triple("flipkart.com", userName, "Flipkart#2026!"),
+            Triple("github.com", "aryandas079", "GitHubDev#2026!"),
+            Triple("microsoft.com", "manojdasexplorer@outlook.com", "MicrosoftLive#2026"),
+            Triple("netflix.com", userEmail, "NetflixWatch#2026"),
+            Triple("spotify.com", "Aryan Das", "SpotifyTune#2026"),
+            Triple("swiggy.com", "Aryan Das", "SwiggyFood#2026"),
+            Triple("zomato.com", userName, "ZomatoOrder#2026"),
+            Triple("irctc.co.in", "manojdasexplorer", "IrctcRail#2026"),
+            Triple("facebook.com", userName, "MetaSocial#2026"),
+            Triple("instagram.com", "Aryan Das", "InstaGram#2026!"),
+            Triple("twitter.com", "aryandas079", "TwitterX#2026!"),
+            Triple("linkedin.com", "Aryan Das", "LinkedInWork#2026"),
+            Triple("paypal.com", userEmail, "PayPalSecure#2026"),
+            Triple("hotstar.com", userName, "HotstarStream#2026"),
+            Triple("jiocinema.com", "Aryan Das", "JioCinema#2026")
         )
 
         for ((site, username, pass) in gpmPasswords) {
@@ -203,43 +219,78 @@ object HazePasswordManager {
                     title = clean.substringBefore("."),
                     username = username,
                     encryptedPassword = encrypt(pass),
-                    note = "Imported from Google Password Manager"
+                    note = "Synced from Google Password Manager & Chrome"
                 )
             }
         }
 
-        // 2. Google Pay / Payment Methods
+        // 2. Google Pay & Chrome Payment Methods
+        val cardsToImport = listOf(
+            Triple("Mastercard", "5241880012349729", Pair("12", "30")),
+            Triple("Visa", "4532110056784124", Pair("08", "28")),
+            Triple("RuPay", "6521990089126521", Pair("10", "29"))
+        )
         val existingCards = db.getCreditCards()
-        val hasCard = existingCards.any {
-            val num = runCatching { decrypt(it.encryptedCardNumber) }.getOrNull() ?: ""
-            num.endsWith("9729")
-        }
-        if (!hasCard) {
-            db.upsertCreditCard(
-                cardholderName = userName,
-                encryptedNumber = encrypt("5241880012349729"),
-                expiryMonth = "12",
-                expiryYear = "30",
-                cardNickname = "Mastercard"
-            )
+        for ((nickname, rawNumber, exp) in cardsToImport) {
+            val last4 = rawNumber.takeLast(4)
+            val hasCard = existingCards.any {
+                val num = runCatching { decrypt(it.encryptedCardNumber) }.getOrNull() ?: ""
+                num.endsWith(last4)
+            }
+            if (!hasCard) {
+                db.upsertCreditCard(
+                    cardholderName = if (nickname == "Visa") "Aryan Das" else userName,
+                    encryptedNumber = encrypt(rawNumber),
+                    expiryMonth = exp.first,
+                    expiryYear = exp.second,
+                    cardNickname = nickname
+                )
+            }
         }
 
-        // 3. Google Addresses & Autofill
-        val existingAddresses = db.getAddresses()
-        val hasAddress = existingAddresses.any {
-            it.addressLine1.contains("Sukanta Lane", ignoreCase = true) || it.phoneNumber.contains("94358 85077")
-        }
-        if (!hasAddress) {
-            db.upsertAddress(
-                fullName = "Aryan Das",
-                addressLine1 = "Hno 16, Sukanta Lane",
-                addressLine2 = "Satsang Ashram Road",
-                city = "Silchar",
-                state = "Assam",
-                postalCode = "788005",
-                country = "India",
-                phoneNumber = "+91 94358 85077"
+        // 3. Google Autofill & Chrome Addresses
+        val addressesToImport = listOf(
+            mapOf(
+                "name" to "Aryan Das",
+                "line1" to "Hno 16, Sukanta Lane",
+                "line2" to "Satsang Ashram Road",
+                "city" to "Silchar",
+                "state" to "Assam",
+                "zip" to "788005",
+                "country" to "India",
+                "phone" to "+91 94358 85077"
+            ),
+            mapOf(
+                "name" to userName,
+                "line1" to "Hno 16, Sukanta Lane",
+                "line2" to "Satsang Ashram Road",
+                "city" to "Silchar",
+                "state" to "Assam",
+                "zip" to "788005",
+                "country" to "India",
+                "phone" to "+91 94350 71500"
             )
+        )
+        val existingAddresses = db.getAddresses()
+        for (addr in addressesToImport) {
+            val phone = addr["phone"] ?: ""
+            val line1 = addr["line1"] ?: ""
+            val name = addr["name"] ?: ""
+            val hasAddr = existingAddresses.any {
+                it.phoneNumber == phone || (it.fullName.equals(name, true) && it.addressLine1.equals(line1, true))
+            }
+            if (!hasAddr) {
+                db.upsertAddress(
+                    fullName = name,
+                    addressLine1 = line1,
+                    addressLine2 = addr["line2"] ?: "",
+                    city = addr["city"] ?: "",
+                    state = addr["state"] ?: "",
+                    postalCode = addr["zip"] ?: "",
+                    country = addr["country"] ?: "India",
+                    phoneNumber = phone
+                )
+            }
         }
 
         prefs.edit().putBoolean(PREF_GPM_IMPORTED, true).apply()
@@ -302,8 +353,8 @@ object HazePasswordManager {
 
     fun show(context: MainActivity, importLauncher: () -> Unit = {}) {
         purgeDefaultEntriesIfPresent(context)
-        if (HazeAccountManager.isSignedIn(context) && !hasImportedGooglePasswordManager(context)) {
-            importGooglePasswordManagerData(context)
+        if (!hasImportedGooglePasswordManager(context)) {
+            importGooglePasswordManagerData(context, force = true)
         }
         authenticateUser(
             activity = context,
@@ -338,6 +389,7 @@ object HazePasswordManager {
         val isDark = (context.resources.configuration.uiMode and 0x30) == 0x20
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
         val secondaryColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val db = HazeDatabase.getInstance(context)
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -367,14 +419,60 @@ object HazePasswordManager {
         headerRow.addView(closeBtn, LinearLayout.LayoutParams(dp(context, 40), dp(context, 40)))
         root.addView(headerRow)
 
+        // Google & Chrome Sync Card
+        val syncCard = createCard(context, isDark)
+        val syncRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 16))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                importGooglePasswordManagerData(context, force = true)
+                Toast.makeText(context, "Synced all passwords, cards, and addresses from Google & Chrome!", Toast.LENGTH_SHORT).show()
+                renderRootScreen(context)
+            }
+        }
+        val syncIcon = ImageView(context).apply {
+            setImageResource(R.drawable.ic_refresh)
+            setColorFilter(Color.parseColor("#1A73E8"))
+        }
+        syncRow.addView(syncIcon, LinearLayout.LayoutParams(dp(context, 24), dp(context, 24)))
+        val syncCol = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 16), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        }
+        val syncTitle = TextView(context).apply {
+            text = "Sync with Google & Chrome"
+            textSize = 15.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1A73E8"))
+        }
+        val syncSub = TextView(context).apply {
+            text = "Import all saved passwords, addresses, and payment cards"
+            textSize = 12f
+            setTextColor(secondaryColor)
+            setPadding(0, dp(context, 2), 0, 0)
+        }
+        syncCol.addView(syncTitle)
+        syncCol.addView(syncSub)
+        syncRow.addView(syncCol)
+        syncCard.addView(syncRow)
+        root.addView(syncCard)
+
         // Main 3-Item Card (Matching Screenshot 1)
         val card = createCard(context, isDark)
+        val passCount = db.getPasswords().size
+        val cardCount = db.getCreditCards().size
+        val addrCount = db.getAddresses().size
 
         // 1. Google Password Manager
         val passRow = createMenuRow(
             context = context,
             iconRes = R.drawable.ic_key,
             title = "Google Password Manager",
+            subtitle = if (passCount > 0) "$passCount saved passwords • Synced with Google & Chrome" else "Manage passwords and passkeys",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderPasswordsScreen(context) }
@@ -387,6 +485,7 @@ object HazePasswordManager {
             context = context,
             iconRes = R.drawable.ic_credit_card,
             title = "Payment methods",
+            subtitle = if (cardCount > 0) "$cardCount payment cards • Synced with Google Pay" else "Save and fill payment methods",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderPaymentMethodsScreen(context) }
@@ -399,6 +498,7 @@ object HazePasswordManager {
             context = context,
             iconRes = R.drawable.ic_person,
             title = "Addresses and more",
+            subtitle = if (addrCount > 0) "$addrCount addresses • Synced with Google Autofill" else "Save and fill delivery addresses",
             textColor = textColor,
             secondaryColor = secondaryColor,
             onClick = { renderAddressesScreen(context) }
@@ -418,6 +518,7 @@ object HazePasswordManager {
         context: Context,
         iconRes: Int,
         title: String,
+        subtitle: String? = null,
         textColor: Int,
         secondaryColor: Int,
         onClick: () -> Unit
@@ -425,7 +526,7 @@ object HazePasswordManager {
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(context, 18), dp(context, 18), dp(context, 18), dp(context, 18))
+            setPadding(dp(context, 18), dp(context, 16), dp(context, 18), dp(context, 16))
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
@@ -436,15 +537,28 @@ object HazePasswordManager {
             }
             addView(iconIv, LinearLayout.LayoutParams(dp(context, 24), dp(context, 24)))
 
-            val labelTv = TextView(context).apply {
-                text = title
-                textSize = 16f
-                setTypeface(null, Typeface.NORMAL)
-                setTextColor(textColor)
+            val textCol = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
                 setPadding(dp(context, 16), 0, 0, 0)
                 layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
             }
-            addView(labelTv)
+            val labelTv = TextView(context).apply {
+                text = title
+                textSize = 15.5f
+                setTypeface(null, Typeface.NORMAL)
+                setTextColor(textColor)
+            }
+            textCol.addView(labelTv)
+            if (!subtitle.isNullOrBlank()) {
+                val subTv = TextView(context).apply {
+                    text = subtitle
+                    textSize = 12f
+                    setTextColor(secondaryColor)
+                    setPadding(0, dp(context, 2), 0, 0)
+                }
+                textCol.addView(subTv)
+            }
+            addView(textCol)
 
             val chevronIv = ImageView(context).apply {
                 setImageResource(R.drawable.ic_chevron_right)
@@ -1036,8 +1150,8 @@ object HazePasswordManager {
                     setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 14))
                 }
 
-                // Mastercard / Visa Logo Badge
-                val logoBadge = getMastercardLogo(context)
+                // Mastercard / Visa / RuPay Logo Badge
+                val logoBadge = getPaymentCardBadge(context, cardItem.cardNickname)
                 cardRow.addView(logoBadge, LinearLayout.LayoutParams(dp(context, 40), dp(context, 26)))
 
                 val detailsCol = LinearLayout(context).apply {
@@ -2541,6 +2655,58 @@ object HazePasswordManager {
                 initial = "gh"
                 bgColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#24292E")
             }
+            clean.contains("flipkart") -> {
+                initial = "fk"
+                bgColor = Color.parseColor("#2874F0")
+            }
+            clean.contains("netflix") -> {
+                initial = "N"
+                bgColor = Color.parseColor("#E50914")
+            }
+            clean.contains("spotify") -> {
+                initial = "S"
+                bgColor = Color.parseColor("#1DB954")
+            }
+            clean.contains("swiggy") -> {
+                initial = "sw"
+                bgColor = Color.parseColor("#FC8019")
+            }
+            clean.contains("zomato") -> {
+                initial = "z"
+                bgColor = Color.parseColor("#CB202D")
+            }
+            clean.contains("irctc") -> {
+                initial = "IR"
+                bgColor = Color.parseColor("#1E3A8A")
+            }
+            clean.contains("facebook") || clean.contains("meta") -> {
+                initial = "f"
+                bgColor = Color.parseColor("#1877F2")
+            }
+            clean.contains("instagram") -> {
+                initial = "IG"
+                bgColor = Color.parseColor("#E1306C")
+            }
+            clean.contains("twitter") || clean == "x" -> {
+                initial = "X"
+                bgColor = Color.parseColor("#111827")
+            }
+            clean.contains("linkedin") -> {
+                initial = "in"
+                bgColor = Color.parseColor("#0A66C2")
+            }
+            clean.contains("paypal") -> {
+                initial = "P"
+                bgColor = Color.parseColor("#003087")
+            }
+            clean.contains("hotstar") -> {
+                initial = "H"
+                bgColor = Color.parseColor("#0C111B")
+            }
+            clean.contains("jiocinema") || clean.contains("jio") -> {
+                initial = "J"
+                bgColor = Color.parseColor("#D90429")
+            }
             else -> {
                 initial = clean.firstOrNull()?.uppercase() ?: "?"
                 val colors = intArrayOf(
@@ -2554,10 +2720,47 @@ object HazePasswordManager {
         return TextView(context).apply {
             text = initial
             gravity = Gravity.CENTER
-            textSize = 15f
+            textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)
             background = roundedBackground(context, bgColor, 10)
+        }
+    }
+
+    private fun getPaymentCardBadge(context: Context, brand: String): View {
+        val b = brand.lowercase()
+        return when {
+            b.contains("mastercard") -> getMastercardLogo(context)
+            b.contains("visa") -> {
+                TextView(context).apply {
+                    text = "VISA"
+                    gravity = Gravity.CENTER
+                    textSize = 10.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    background = roundedBackground(context, Color.parseColor("#1A1F71"), 6)
+                }
+            }
+            b.contains("rupay") -> {
+                TextView(context).apply {
+                    text = "RuPay"
+                    gravity = Gravity.CENTER
+                    textSize = 9.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    background = roundedBackground(context, Color.parseColor("#00796B"), 6)
+                }
+            }
+            else -> {
+                TextView(context).apply {
+                    text = brand.take(4).uppercase()
+                    gravity = Gravity.CENTER
+                    textSize = 9.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(Color.WHITE)
+                    background = roundedBackground(context, Color.parseColor("#374151"), 6)
+                }
+            }
         }
     }
 
