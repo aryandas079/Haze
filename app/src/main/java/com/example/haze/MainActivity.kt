@@ -6919,107 +6919,18 @@ class MainActivity : AppCompatActivity() {
         val menuStroke = if (isDark) Color.parseColor("#454638") else Color.parseColor("#DADCE0")
         menuLogo.setImageResource(if (isDark) R.drawable.haze_logo_dark else R.drawable.haze_logo)
         menuDivider.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
-        popupView.findViewById<View>(R.id.dataSaverDivider)?.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
         menuRoot.background = GradientDrawable().apply {
             cornerRadius = dpToPx(22).toFloat()
             setColor(menuSurface)
             setStroke(dpToPx(1), menuStroke)
         }
 
-        // ==========================================
-        // DATA SAVER BLOCK SETUP IN DROPDOWN
-        // ==========================================
-        val dataSaverBlock = popupView.findViewById<LinearLayout>(R.id.dataSaverBlock)
-        val ivDataSaverIcon = popupView.findViewById<ImageView>(R.id.ivDataSaverIcon)
-        val tvDataSaverTitle = popupView.findViewById<TextView>(R.id.tvDataSaverTitle)
-        val switchDataSaver = popupView.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchDataSaver)
-        val tvTrafficLabel = popupView.findViewById<TextView>(R.id.tvTrafficLabel)
-        val tvSavedLabel = popupView.findViewById<TextView>(R.id.tvSavedLabel)
-        val tvDataSaverHint = popupView.findViewById<TextView>(R.id.tvDataSaverHint)
-
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
-        val cardBg = if (isDark) Color.parseColor("#34352D") else Color.parseColor("#F1F3F4")
-        dataSaverBlock?.background = GradientDrawable().apply {
-            cornerRadius = dpToPx(14).toFloat()
-            setColor(cardBg)
-        }
-
-        val isDataSaverOn = HazeDataSaverManager.isDataSaverEnabled(this)
-        switchDataSaver?.isChecked = isDataSaverOn
-        ivDataSaverIcon?.setColorFilter(if (isDataSaverOn) accentColor else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")))
-        tvDataSaverTitle?.setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
-        tvTrafficLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
-        tvDataSaverHint?.setTextColor(if (isDark) Color.parseColor("#888888") else Color.parseColor("#80868B"))
-
-        // Update stats
-        val dataStats = HazeDataSaverManager.getDataUsageStats(this)
-        tvTrafficLabel?.text = "Normal traffic:  ${dataStats.normalTrafficFormatted}"
-        tvSavedLabel?.text = "Saved:  ${dataStats.savedFormatted}"
-
-        switchDataSaver?.setOnCheckedChangeListener { _, isChecked ->
-            triggerStrongHaptic()
-            HazeDataSaverManager.setDataSaverEnabled(this, isChecked)
-            ivDataSaverIcon?.setColorFilter(if (isChecked) accentColor else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")))
-            Toast.makeText(this, if (isChecked) "Data Saver enabled" else "Data Saver disabled", Toast.LENGTH_SHORT).show()
-        }
-
-        dataSaverBlock?.setOnClickListener {
-            triggerStrongHaptic(it)
-            popupWindow.dismiss()
-            HazeDataSaverManager.showDataSaverDialog(this)
-        }
-
-        // ==========================================
-        // 24. PERFORMANCE BLOCK SETUP IN DROPDOWN
-        // ==========================================
-        popupView.findViewById<View>(R.id.performanceDivider)?.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
-        val performanceBlock = popupView.findViewById<LinearLayout>(R.id.performanceBlock)
-        val ivPerformanceIcon = popupView.findViewById<ImageView>(R.id.ivPerformanceIcon)
-        val tvPerformanceTitle = popupView.findViewById<TextView>(R.id.tvPerformanceTitle)
-        val switchPerformance = popupView.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchPerformance)
-        val tvRamSavedLabel = popupView.findViewById<TextView>(R.id.tvRamSavedLabel)
-        val tvBatterySavedLabel = popupView.findViewById<TextView>(R.id.tvBatterySavedLabel)
-        val tvTrackersBlockedLabel = popupView.findViewById<TextView>(R.id.tvTrackersBlockedLabel)
-        val tvPerformanceHint = popupView.findViewById<TextView>(R.id.tvPerformanceHint)
-
-        performanceBlock?.background = GradientDrawable().apply {
-            cornerRadius = dpToPx(14).toFloat()
-            setColor(cardBg)
-        }
-
-        val isPerfModeOn = HazePerformanceManager.isPerformanceModeEnabled(this)
-        switchPerformance?.isChecked = isPerfModeOn
-        val perfTint = if (isPerfModeOn) Color.parseColor("#FBBC04") else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
-        ivPerformanceIcon?.setColorFilter(perfTint)
-        tvPerformanceTitle?.setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
-        tvRamSavedLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
-        tvTrackersBlockedLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
-        tvPerformanceHint?.setTextColor(if (isDark) Color.parseColor("#888888") else Color.parseColor("#80868B"))
-
-        // Update stats
-        val perfStats = HazePerformanceManager.getPerformanceStats(this)
-        tvRamSavedLabel?.text = "RAM saved:       ${perfStats.ramSavedFormatted}"
-        tvBatterySavedLabel?.text = "Battery saved:    ${perfStats.batterySavedFormatted}"
-        tvTrackersBlockedLabel?.text = "Trackers blocked: ${perfStats.trackersBlockedFormatted}"
-
-        switchPerformance?.setOnCheckedChangeListener { _, isChecked ->
-            triggerStrongHaptic()
-            HazePerformanceManager.setPerformanceModeEnabled(this, isChecked)
-            val newTint = if (isChecked) Color.parseColor("#FBBC04") else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368"))
-            ivPerformanceIcon?.setColorFilter(newTint)
-            Toast.makeText(this, if (isChecked) "Performance mode enabled" else "Performance mode disabled", Toast.LENGTH_SHORT).show()
-        }
-
-        performanceBlock?.setOnClickListener {
-            triggerStrongHaptic(it)
-            popupWindow.dismiss()
-            HazePerformanceManager.showPerformanceDialog(this)
-        }
-
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)
         
         val activeTab = currentTabsList.getOrNull(activeTabIndex)
         val isDesktopActive = activeTab?.isDesktop == true || activeTab?.browserTab?.isDesktop == true
+        val isDataSaverActive = HazeDataSaverManager.isDataSaverEnabled(this)
+        val isPerfActive = HazePerformanceManager.isPerformanceModeEnabled(this)
 
         val menuItems = mutableListOf(
             Pair("New Tab", R.drawable.ic_add),
@@ -7030,6 +6941,8 @@ class MainActivity : AppCompatActivity() {
             menuItems.add(Pair(pinTitle, R.drawable.ic_lock_shield))
         }
         menuItems.addAll(listOf(
+            Pair("Performance", R.drawable.ic_bolt),
+            Pair("Data Saver", R.drawable.ic_data_saver),
             Pair("Privacy Shield", R.drawable.ic_privacy_shield),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
@@ -7056,7 +6969,15 @@ class MainActivity : AppCompatActivity() {
             iconView.contentDescription = item.first
             textView.text = item.first
             itemView.contentDescription = item.first
-            if (item.first == "Mobile Site" || (item.first == "Desktop Site" && isDesktopActive)) {
+            if (item.first == "Performance" && isPerfActive) {
+                val activePerfTint = Color.parseColor("#FBBC04")
+                iconView.setColorFilter(activePerfTint)
+                textView.setTextColor(activePerfTint)
+            } else if (item.first == "Data Saver" && isDataSaverActive) {
+                val activeDataTint = Color.parseColor("#0A56D0")
+                iconView.setColorFilter(activeDataTint)
+                textView.setTextColor(activeDataTint)
+            } else if (item.first == "Mobile Site" || (item.first == "Desktop Site" && isDesktopActive)) {
                 val activeTint = Color.parseColor("#4A90E2")
                 iconView.setColorFilter(activeTint)
                 textView.setTextColor(activeTint)
@@ -7113,6 +7034,8 @@ class MainActivity : AppCompatActivity() {
                                 .show()
                         }
                     }
+                    "Performance" -> HazePerformanceManager.showPerformanceDialog(this)
+                    "Data Saver" -> HazeDataSaverManager.showDataSaverDialog(this)
                     "Privacy Shield" -> HazePrivacyShieldDashboard.showDashboard(this)
                     "Personalize" -> showPersonalizeDialog()
                     "Favorites" -> HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) }
