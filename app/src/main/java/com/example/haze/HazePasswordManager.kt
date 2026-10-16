@@ -488,25 +488,35 @@ object HazePasswordManager {
         }
         val askTitle = TextView(context).apply {
             text = "Ask to save passwords and passkeys"
-            textSize = 15f
+            textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
         }
         val askSub = TextView(context).apply {
             text = "Allow Haze to save your passwords and passkeys and keep them safe."
-            textSize = 12.5f
+            textSize = 12f
             setTextColor(secondaryColor)
             setPadding(0, dp(context, 2), 0, 0)
         }
         textCol.addView(askTitle)
         textCol.addView(askSub)
-        rowAsk.addView(textCol)
 
-        val askSwitch = createStyledSwitch(context, getPrefs(context).getBoolean(PREF_ASK_SAVE_PASSWORDS, true)) { checked ->
-            getPrefs(context).edit().putBoolean(PREF_ASK_SAVE_PASSWORDS, checked).apply()
+        val swAsk = Switch(context).apply {
+            isChecked = getPrefs(context).getBoolean(PREF_ASK_SAVE_PASSWORDS, true)
+            val thumbColor = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(Color.parseColor("#00BFA5"), Color.GRAY)
+            )
+            thumbTintList = thumbColor
+            setOnCheckedChangeListener { _, isChecked ->
+                getPrefs(context).edit().putBoolean(PREF_ASK_SAVE_PASSWORDS, isChecked).apply()
+            }
         }
-        rowAsk.addView(askSwitch)
+        rowAsk.addView(textCol)
+        rowAsk.addView(swAsk)
         topCard.addView(rowAsk)
+        topCard.addView(createDivider(context, isDark))
+
         topCard.addView(createDivider(context, isDark, 18))
 
         // Google Password Manager (Google Account)
@@ -524,7 +534,7 @@ object HazePasswordManager {
         }
         val gpmTv = TextView(context).apply {
             text = "Google Password Manager (Google Account)"
-            textSize = 15f
+            textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
         }
@@ -545,8 +555,7 @@ object HazePasswordManager {
         topCard.addView(gpmRow)
         topCard.addView(createDivider(context, isDark, 18))
 
-        // Import passwords from Google Chrome
-        val importRow = LinearLayout(context).apply {
+        val rowImport = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 14))
@@ -560,7 +569,7 @@ object HazePasswordManager {
         }
         val importTv = TextView(context).apply {
             text = "Import passwords from Google Chrome"
-            textSize = 15f
+            textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
         }
@@ -572,16 +581,15 @@ object HazePasswordManager {
         }
         importCol.addView(importTv)
         importCol.addView(importSub)
-        importRow.addView(importCol)
+        rowImport.addView(importCol)
         val importChevron = ImageView(context).apply {
             setImageResource(R.drawable.ic_chevron_right)
             setColorFilter(secondaryColor)
         }
-        importRow.addView(importChevron, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
-        topCard.addView(importRow)
+        rowImport.addView(importChevron, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
+        topCard.addView(rowImport)
         topCard.addView(createDivider(context, isDark, 18))
 
-        // More settings row
         val moreRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -592,20 +600,19 @@ object HazePasswordManager {
                 openAutofillSettings(context)
             }
         }
-        val moreTv = TextView(context).apply {
+        val moreTv2 = TextView(context).apply {
             text = "More settings"
             textSize = 15f
             setTextColor(textColor)
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
-        val moreChevron = ImageView(context).apply {
+        val moreChevron2 = ImageView(context).apply {
             setImageResource(R.drawable.ic_chevron_right)
             setColorFilter(secondaryColor)
         }
-        moreRow.addView(moreTv)
-        moreRow.addView(moreChevron, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
+        moreRow.addView(moreTv2)
+        moreRow.addView(moreChevron2, LinearLayout.LayoutParams(dp(context, 20), dp(context, 20)))
         topCard.addView(moreRow)
-
         root.addView(topCard)
 
         // Section: "Passwords and passkeys" Header with Search, Add, Menu
@@ -748,7 +755,9 @@ object HazePasswordManager {
         root.addView(secCheckCard)
 
         // Saved Passwords List Container
-        val passwordsListCard = createCard(context, isDark)
+        val passwordsListCard = createCard(context, isDark).apply {
+            setPadding(0, 0, 0, 0)
+        }
         root.addView(passwordsListCard)
 
         fun updateList(query: String) {
@@ -796,17 +805,21 @@ object HazePasswordManager {
                         gravity = Gravity.CENTER
                         setPadding(0, dp(context, 16), 0, 0)
                     }
-                    val impBtn = Button(context).apply {
-                        text = "Import Chrome CSV"
-                        textSize = 12f
+                    val impBtn = TextView(context).apply {
+                        text = "IMPORT CHROME CSV"
+                        textSize = 10f
+                        setTypeface(null, Typeface.BOLD)
                         setTextColor(Color.WHITE)
+                        gravity = Gravity.CENTER
                         background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
                         setOnClickListener { triggerChromeCsvImport(context) }
                     }
-                    val gBtn = Button(context).apply {
-                        text = "passwords.google.com"
-                        textSize = 12f
+                    val gBtn = TextView(context).apply {
+                        text = "PASSWORDS.GOOGLE.COM"
+                        textSize = 10f
+                        setTypeface(null, Typeface.BOLD)
                         setTextColor(textColor)
+                        gravity = Gravity.CENTER
                         background = roundedBackground(context, searchBg, 12)
                         setOnClickListener { openGooglePasswordManagerWeb(context) }
                     }
