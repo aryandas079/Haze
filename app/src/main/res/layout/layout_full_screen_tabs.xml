@@ -101,16 +101,6 @@
             android:orientation="horizontal">
 
             <ImageButton
-                android:id="@+id/btnPrivatePinAction"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Set PIN or Lock Incognito"
-                android:src="@drawable/ic_lock_shield"
-                app:tint="#FFFFFF"
-                android:visibility="gone" />
-
-            <ImageButton
                 android:id="@+id/btnToggleViewMode"
                 android:layout_width="40dp"
                 android:layout_height="40dp"

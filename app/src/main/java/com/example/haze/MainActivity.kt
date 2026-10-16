@@ -3060,7 +3060,8 @@ class MainActivity : AppCompatActivity() {
         val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
         val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
         val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
-        val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val hintColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val strokeColor = if (isPrivateMode || isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
         
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val containerBg = if (bgTheme != "default" && !isPrivateMode) Color.TRANSPARENT else bgColor
@@ -3092,10 +3093,11 @@ class MainActivity : AppCompatActivity() {
             val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
             cornerRadius = radiusPx
             setColor(barBgColor)
-            val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
             setStroke(1, strokeColor)
         }
         addressBarInner.background = shape
+        addressBarInner.elevation = 0f
+        addressBarInner.outlineProvider = null
         
         addressBar.setTextColor(textColor)
         addressBar.setHintTextColor(hintColor)
@@ -3104,13 +3106,16 @@ class MainActivity : AppCompatActivity() {
         
         findViewById<ImageView>(R.id.searchIcon).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.menuBtn).setColorFilter(hintColor)
+        findViewById<ImageButton>(R.id.btnVoiceSearch)?.setColorFilter(hintColor)
+        findViewById<ImageButton>(R.id.btnQrScan)?.setColorFilter(hintColor)
+        findViewById<ImageButton>(R.id.btnClearQuery)?.setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindClose).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindNext).setColorFilter(hintColor)
         findViewById<ImageButton>(R.id.btnFindPrev).setColorFilter(hintColor)
         
         val tabShape = GradientDrawable().apply {
             this.shape = GradientDrawable.OVAL
-            setColor(barBgColor)
+            setColor(if (isPrivateMode || isDark) Color.parseColor("#2D3033") else Color.parseColor("#E8EAED"))
         }
         btnTabsCircular.background = tabShape
         tabCountBtn.setTextColor(textColor)
@@ -3368,41 +3373,22 @@ class MainActivity : AppCompatActivity() {
     private fun updateChromeVisibility(url: String?) {
         addressBarContainer.visibility = View.VISIBLE
         val isHome = url == null || url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home") || url == "about:blank" || url.startsWith("about:") || url.isEmpty()
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
         
-        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-        
+        applyTheme()
+
         if (isHome) {
             addressBar.setText("")
         }
 
-        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
-        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
-        
-        addressBar.setTextColor(textColor)
-        
-        val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
-        val barShape = GradientDrawable().apply {
-            this.shape = GradientDrawable.RECTANGLE
-            val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
-            cornerRadius = radiusPx
-            setColor(barBgColor)
-            val strokeColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
-            setStroke(1, strokeColor)
-        }
-        addressBarInner.background = barShape
-        addressBarInner.elevation = 0f
-        addressBarInner.outlineProvider = null
-        
-        addressBarContainer.setBackgroundColor(if (isPrivateMode) bgColor else Color.TRANSPARENT)
-        addressBarContainer.elevation = 0f
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val hasBgPhoto = bgTheme != "default" && !isPrivateMode
-        val appBgImageView = findViewById<ImageView>(R.id.appBackgroundImageView)
-        val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
 
         if (isHome) {
             currentTabsList.getOrNull(activeTabIndex)?.browserTab?.setBackgroundColor(if (hasBgPhoto) Color.TRANSPARENT else bgColor)
+            val appBgImageView = findViewById<ImageView>(R.id.appBackgroundImageView)
+            val appBgOverlay = findViewById<View>(R.id.appBackgroundOverlay)
             if (hasBgPhoto) {
                 appBgImageView?.visibility = View.VISIBLE
                 appBgOverlay?.visibility = View.VISIBLE
@@ -3412,8 +3398,8 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             currentTabsList.getOrNull(activeTabIndex)?.browserTab?.setBackgroundColor(Color.WHITE)
-            appBgImageView?.visibility = View.GONE
-            appBgOverlay?.visibility = View.GONE
+            findViewById<ImageView>(R.id.appBackgroundImageView)?.visibility = View.GONE
+            findViewById<View>(R.id.appBackgroundOverlay)?.visibility = View.GONE
         }
 
         if (::topRightActions.isInitialized) {
@@ -4588,9 +4574,26 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         wakeScreen()
-        try {
-            currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onResume()
-        } catch (_: Exception) {}
+        if (isPrivateMode && HazeIncognitoAuthManager.isProtectionEnabled(this) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+            HazeIncognitoAuthManager.requestUnlock(this, onSuccess = {
+                try {
+                    currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onResume()
+                } catch (_: Exception) {}
+            }, onFailure = {
+                // If auth cancelled or failed, safely switch back to normal tabs so private session is protected
+                isPrivateMode = false
+                if (normalTabs.isEmpty()) {
+                    addNewTab(HAZE_HOME_URL)
+                } else {
+                    switchTab(activeNormalTabIndex.coerceIn(0, normalTabs.size - 1))
+                }
+                applyTheme()
+            })
+        } else {
+            try {
+                currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onResume()
+            } catch (_: Exception) {}
+        }
         val tab = activeMediaTab
         if (tab != null && isMediaPlaying && miniPlayerManager?.isActive != true) {
             showMiniPlayer(tab, createBrowsingTab = false)
@@ -4794,7 +4797,6 @@ class MainActivity : AppCompatActivity() {
 
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
         val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
-        val btnPrivatePinAction = dialog.findViewById<ImageButton>(R.id.btnPrivatePinAction)
         val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
         val btnTabsMoreOptions = dialog.findViewById<ImageButton>(R.id.btnTabsMoreOptions)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
@@ -4818,9 +4820,19 @@ class MainActivity : AppCompatActivity() {
 
         btnEmptyNewIncognito?.setOnClickListener {
             triggerStrongHaptic(it)
-            dialog.dismiss()
-            isPrivateMode = true
-            addNewTab(HAZE_HOME_URL)
+            if (HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                    dialog.dismiss()
+                    isPrivateMode = true
+                    addNewTab(HAZE_HOME_URL)
+                    applyTheme()
+                })
+            } else {
+                dialog.dismiss()
+                isPrivateMode = true
+                addNewTab(HAZE_HOME_URL)
+                applyTheme()
+            }
         }
 
         if (!filterQuery.isNullOrEmpty()) {
@@ -4832,9 +4844,19 @@ class MainActivity : AppCompatActivity() {
 
         btnNewTabSquircle?.setOnClickListener {
             triggerStrongHaptic(it)
-            dialog.dismiss()
-            isPrivateMode = viewingPrivate
-            addNewTab(HAZE_HOME_URL)
+            if (viewingPrivate && HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                    dialog.dismiss()
+                    isPrivateMode = true
+                    addNewTab(HAZE_HOME_URL)
+                    applyTheme()
+                })
+            } else {
+                dialog.dismiss()
+                isPrivateMode = viewingPrivate
+                addNewTab(HAZE_HOME_URL)
+                applyTheme()
+            }
         }
 
         fun updateViewModeIcon() {
@@ -4925,6 +4947,7 @@ class MainActivity : AppCompatActivity() {
             val idx = normalTabs.indexOf(clickedTab)
             dialog.dismiss()
             if (idx != -1) switchTab(idx)
+            applyTheme()
         }, { tabToClose ->
             if (tabToClose.isPinned) {
                 AlertDialog.Builder(this)
@@ -4939,10 +4962,21 @@ class MainActivity : AppCompatActivity() {
         }, false)
 
         privateAdapter = TabsAdapter(privateTabs, currentMode, { clickedTab ->
-            isPrivateMode = true
-            val idx = privateTabs.indexOf(clickedTab)
-            dialog.dismiss()
-            if (idx != -1) switchTab(idx)
+            if (HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                    isPrivateMode = true
+                    val idx = privateTabs.indexOf(clickedTab)
+                    dialog.dismiss()
+                    if (idx != -1) switchTab(idx)
+                    applyTheme()
+                })
+            } else {
+                isPrivateMode = true
+                val idx = privateTabs.indexOf(clickedTab)
+                dialog.dismiss()
+                if (idx != -1) switchTab(idx)
+                applyTheme()
+            }
         }, { tabToClose ->
             onTabClosed(tabToClose, true)
         }, true)
@@ -5206,8 +5240,6 @@ class MainActivity : AppCompatActivity() {
                 etTabSearch.setHintTextColor(Color.parseColor("#9AA0A6"))
                 btnClose.setColorFilter(Color.WHITE)
                 btnRecentlyClosed.setColorFilter(Color.parseColor("#9AA0A6"))
-                btnPrivatePinAction?.visibility = View.VISIBLE
-                btnPrivatePinAction?.setColorFilter(Color.WHITE)
                 val hasPin = HazeIncognitoAuthManager.hasPinConfigured(this@MainActivity)
                 tvEmptyIncognitoPin?.text = if (hasPin) "Incognito Protection Settings" else "Set PIN Protection"
                 btnToggleViewMode.setColorFilter(Color.WHITE)
@@ -5239,12 +5271,14 @@ class MainActivity : AppCompatActivity() {
                     rvActiveTabs.visibility = View.GONE
                     layoutEmptyIncognito?.visibility = View.GONE
                     layoutLockedIncognito?.visibility = View.VISIBLE
-                    btnUnlockIncognito?.setOnClickListener {
+                    val unlockAction = View.OnClickListener {
                         triggerStrongHaptic(it)
                         HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
                             updateUI(animate = true)
                         })
                     }
+                    btnUnlockIncognito?.setOnClickListener(unlockAction)
+                    layoutLockedIncognito?.setOnClickListener(unlockAction)
                 } else if (privateTabs.isEmpty()) {
                     layoutLockedIncognito?.visibility = View.GONE
                     rvActiveTabs.visibility = View.GONE
@@ -5288,7 +5322,6 @@ class MainActivity : AppCompatActivity() {
                 etTabSearch.setHintTextColor(subColor)
                 btnClose.setColorFilter(textColor)
                 btnRecentlyClosed.setColorFilter(subColor)
-                btnPrivatePinAction?.visibility = View.GONE
                 btnToggleViewMode.setColorFilter(textColor)
                 btnTabsMoreOptions.setColorFilter(textColor)
 
@@ -5356,11 +5389,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnPrivatePinAction?.setOnClickListener {
-            triggerStrongHaptic(it)
-            handlePrivatePinAction()
-        }
-
         btnEmptyIncognitoPin?.setOnClickListener {
             triggerStrongHaptic(it)
             handlePrivatePinAction()
@@ -5424,28 +5452,64 @@ class MainActivity : AppCompatActivity() {
         btnTogglePrivate.setOnClickListener {
             triggerStrongHaptic(it)
             if (!viewingPrivate) {
-                viewingPrivate = true
-                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
-                if (adapter.isSelectionMode) {
-                    barMultiSelect?.visibility = View.VISIBLE
-                    searchPillContainer?.visibility = View.GONE
+                if (HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                    HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                        viewingPrivate = true
+                        val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                        if (adapter.isSelectionMode) {
+                            barMultiSelect?.visibility = View.VISIBLE
+                            searchPillContainer?.visibility = View.GONE
+                        } else {
+                            barMultiSelect?.visibility = View.GONE
+                            searchPillContainer?.visibility = View.VISIBLE
+                        }
+                        updateUI(animate = true)
+                    }, onFailure = {
+                        // User cancelled/failed auth; keep viewing personal tabs
+                    })
                 } else {
-                    barMultiSelect?.visibility = View.GONE
-                    searchPillContainer?.visibility = View.VISIBLE
+                    viewingPrivate = true
+                    val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                    if (adapter.isSelectionMode) {
+                        barMultiSelect?.visibility = View.VISIBLE
+                        searchPillContainer?.visibility = View.GONE
+                    } else {
+                        barMultiSelect?.visibility = View.GONE
+                        searchPillContainer?.visibility = View.VISIBLE
+                    }
+                    updateUI(animate = true)
                 }
-                updateUI(animate = true)
             }
         }
 
         btnNewTabAction.setOnClickListener {
             triggerStrongHaptic(it)
-            dialog.dismiss()
-            isPrivateMode = viewingPrivate
-            addNewTab(HAZE_HOME_URL)
+            if (viewingPrivate && HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                    dialog.dismiss()
+                    isPrivateMode = true
+                    addNewTab(HAZE_HOME_URL)
+                    applyTheme()
+                })
+            } else {
+                dialog.dismiss()
+                isPrivateMode = viewingPrivate
+                addNewTab(HAZE_HOME_URL)
+                applyTheme()
+            }
         }
 
         updateUI()
         dialog.show()
+
+        if (viewingPrivate && HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+            HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                updateUI(animate = true)
+            }, onFailure = {
+                viewingPrivate = false
+                updateUI(animate = true)
+            })
+        }
     }
 
     private fun showGroupPromptDialog(tab1: Tab, tab2: Tab, adapter: TabsAdapter) {
@@ -6635,9 +6699,21 @@ class MainActivity : AppCompatActivity() {
                 when (item.first) {
                     "New Tab" -> addNewTab(HAZE_HOME_URL)
                     "New InPrivate" -> {
-                        isPrivateMode = true
-                        addNewTab(HAZE_HOME_URL)
-                        Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
+                        if (HazeIncognitoAuthManager.isProtectionEnabled(this) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
+                            HazeIncognitoAuthManager.requestUnlock(this, onSuccess = {
+                                isPrivateMode = true
+                                addNewTab(HAZE_HOME_URL)
+                                applyTheme()
+                                Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
+                            }, onFailure = {
+                                Toast.makeText(this, "Authentication required for InPrivate", Toast.LENGTH_SHORT).show()
+                            })
+                        } else {
+                            isPrivateMode = true
+                            addNewTab(HAZE_HOME_URL)
+                            applyTheme()
+                            Toast.makeText(this, "Private mode enabled", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     "Set Private PIN", "Lock Private" -> {
                         if (!HazeIncognitoAuthManager.hasPinConfigured(this)) {
