@@ -302,6 +302,11 @@ class MainActivity : AppCompatActivity() {
     lateinit var btnProfile: FrameLayout
     private lateinit var ivProfileAvatar: ImageView
 
+    private lateinit var topLeftWeather: LinearLayout
+    private lateinit var ivWeatherIcon: ImageView
+    private lateinit var tvWeatherTemp: TextView
+    private lateinit var weatherManager: HazeWeatherManager
+
     // Picture-in-Picture / Miniplayer & Media State
     var isMediaPlaying = false
     private var lastVideoWidth = 16
@@ -1224,6 +1229,12 @@ class MainActivity : AppCompatActivity() {
         topRightActions = findViewById(R.id.topRightActions)
         btnProfile = findViewById(R.id.btnProfile)
         ivProfileAvatar = findViewById(R.id.ivProfileAvatar)
+
+        topLeftWeather = findViewById(R.id.topLeftWeather)
+        ivWeatherIcon = findViewById(R.id.ivWeatherIcon)
+        tvWeatherTemp = findViewById(R.id.tvWeatherTemp)
+        weatherManager = HazeWeatherManager(this, prefs)
+        weatherManager.setupWeatherWidget(topLeftWeather, ivWeatherIcon, tvWeatherTemp)
         
         val profileGestureDetector = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapUp(e: android.view.MotionEvent): Boolean {
@@ -1457,6 +1468,9 @@ class MainActivity : AppCompatActivity() {
         if (::topRightActions.isInitialized) {
             topRightActions.visibility = View.GONE
         }
+        if (::topLeftWeather.isInitialized) {
+            topLeftWeather.visibility = View.GONE
+        }
         findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.GONE
         btnQrScan.visibility = View.VISIBLE
         findViewById<ImageButton>(R.id.btnVoiceSearch)?.visibility = View.VISIBLE
@@ -1547,6 +1561,25 @@ class MainActivity : AppCompatActivity() {
                     .start()
             } else {
                 topRightActions.visibility = View.GONE
+            }
+        }
+        if (::topLeftWeather.isInitialized) {
+            topLeftWeather.animate().cancel()
+            val shouldShow = isHome && !isPrivateMode
+            if (shouldShow) {
+                topLeftWeather.visibility = View.VISIBLE
+                topLeftWeather.alpha = 0f
+                topLeftWeather.bringToFront()
+                topLeftWeather.animate()
+                    .alpha(1f)
+                    .setDuration(260L)
+                    .setInterpolator(BUTTER_INTERPOLATOR)
+                    .start()
+                if (::weatherManager.isInitialized) {
+                    weatherManager.applyThemeToWidget(topLeftWeather, ivWeatherIcon, tvWeatherTemp)
+                }
+            } else {
+                topLeftWeather.visibility = View.GONE
             }
         }
         if (::floatingNavContainer.isInitialized) {
@@ -3724,6 +3757,15 @@ class MainActivity : AppCompatActivity() {
                 topRightActions.bringToFront()
             }
         }
+        if (::topLeftWeather.isInitialized) {
+            topLeftWeather.visibility = if (isHome && !isPrivateMode && !isSearchActive) View.VISIBLE else View.GONE
+            if (isHome && !isPrivateMode && !isSearchActive) {
+                topLeftWeather.bringToFront()
+                if (::weatherManager.isInitialized) {
+                    weatherManager.applyThemeToWidget(topLeftWeather, ivWeatherIcon, tvWeatherTemp)
+                }
+            }
+        }
         if (::floatingNavContainer.isInitialized) {
             val shouldShowNav = !isHome && !isSearchActive && customVideoView == null && miniPlayerManager?.isActive != true
             floatingNavContainer.visibility = if (shouldShowNav) View.VISIBLE else View.GONE
@@ -3740,6 +3782,7 @@ class MainActivity : AppCompatActivity() {
         if (miniPlayerManager?.isActive == true) {
             addressBarContainer.visibility = View.GONE
             if (::topRightActions.isInitialized) topRightActions.visibility = View.GONE
+            if (::topLeftWeather.isInitialized) topLeftWeather.visibility = View.GONE
             if (::floatingNavContainer.isInitialized) floatingNavContainer.visibility = View.GONE
         }
     }
@@ -4945,6 +4988,9 @@ class MainActivity : AppCompatActivity() {
                 if (::topRightActions.isInitialized) {
                     topRightActions.visibility = View.GONE
                 }
+                if (::topLeftWeather.isInitialized) {
+                    topLeftWeather.visibility = View.GONE
+                }
                 if (::floatingNavContainer.isInitialized) {
                     floatingNavContainer.visibility = View.GONE
                 }
@@ -4997,6 +5043,9 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         wakeScreen()
+        if (::weatherManager.isInitialized) {
+            weatherManager.refreshWeather(force = false)
+        }
         if (isPrivateMode && HazeIncognitoAuthManager.isProtectionEnabled(this) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked) {
             HazeIncognitoAuthManager.requestUnlock(this, onSuccess = {
                 try {
@@ -9839,6 +9888,17 @@ class MainActivity : AppCompatActivity() {
         currentTab.browserTab.evaluateJavascript(toggleScript) { result ->
             val isPlaying = result?.contains("playing") == true
             isMediaPlaying = isPlaying
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == HazeWeatherManager.LOCATION_PERMISSION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                if (::weatherManager.isInitialized) {
+                    weatherManager.refreshWeather(force = true)
+                }
+            }
         }
     }
 
