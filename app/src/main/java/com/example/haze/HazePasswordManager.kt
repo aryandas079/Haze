@@ -515,8 +515,6 @@ object HazePasswordManager {
         rowAsk.addView(textCol)
         rowAsk.addView(swAsk)
         topCard.addView(rowAsk)
-        topCard.addView(createDivider(context, isDark))
-
         topCard.addView(createDivider(context, isDark, 18))
 
         // Google Password Manager (Google Account)
@@ -615,11 +613,11 @@ object HazePasswordManager {
         topCard.addView(moreRow)
         root.addView(topCard)
 
-        // Section: "Passwords and passkeys" Header with Search, Add, Menu
+        // Section: "Passwords and passkeys" Header with Add & Menu
         val sectionRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(context, 6), 0, dp(context, 12))
+            setPadding(0, dp(context, 10), 0, dp(context, 10))
         }
         val secTitle = TextView(context).apply {
             text = "Passwords and passkeys"
@@ -630,43 +628,14 @@ object HazePasswordManager {
         }
         sectionRow.addView(secTitle)
 
-        // Pill Search
-        val searchBox = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = roundedBackground(context, searchBg, 18)
-            setPadding(dp(context, 10), dp(context, 4), dp(context, 10), dp(context, 4))
-            layoutParams = LinearLayout.LayoutParams(dp(context, 150), dp(context, 36)).apply {
-                marginEnd = dp(context, 8)
-            }
-        }
-        val searchIcon = ImageView(context).apply {
-            setImageResource(R.drawable.ic_search)
-            setColorFilter(secondaryColor)
-        }
-        searchBox.addView(searchIcon, LinearLayout.LayoutParams(dp(context, 16), dp(context, 16)))
-
-        val searchEt = EditText(context).apply {
-            hint = "Search"
-            setSingleLine(true)
-            textSize = 13f
-            setTextColor(textColor)
-            setHintTextColor(secondaryColor)
-            background = null
-            setPadding(dp(context, 6), 0, 0, 0)
-            layoutParams = LinearLayout.LayoutParams(0, -1, 1f)
-        }
-        searchBox.addView(searchEt)
-        sectionRow.addView(searchBox)
-
         // + Add button
         val addBtn = TextView(context).apply {
             text = "+ Add"
-            textSize = 13.5f
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
             background = roundedBackground(context, searchBg, 14)
-            setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+            setPadding(dp(context, 14), dp(context, 7), dp(context, 14), dp(context, 7))
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -713,7 +682,7 @@ object HazePasswordManager {
                 popup.show()
             }
         }
-        sectionRow.addView(menuBtn, LinearLayout.LayoutParams(dp(context, 32), dp(context, 36)))
+        sectionRow.addView(menuBtn, LinearLayout.LayoutParams(dp(context, 32), dp(context, 32)))
         root.addView(sectionRow)
 
         // Card: "Password security check"
@@ -754,6 +723,37 @@ object HazePasswordManager {
         secCheckCard.addView(secCheckRow)
         root.addView(secCheckCard)
 
+        // Full-width search bar (shown only when local passwords exist)
+        val allLocalPasswords = db.getPasswords().filter { !it.isPasskey }
+        val searchBox = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = roundedBackground(context, searchBg, 18)
+            setPadding(dp(context, 14), dp(context, 8), dp(context, 14), dp(context, 8))
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(context, 12)
+            }
+            visibility = if (allLocalPasswords.isEmpty()) View.GONE else View.VISIBLE
+        }
+        val searchIcon = ImageView(context).apply {
+            setImageResource(R.drawable.ic_search)
+            setColorFilter(secondaryColor)
+        }
+        searchBox.addView(searchIcon, LinearLayout.LayoutParams(dp(context, 18), dp(context, 18)))
+
+        val searchEt = EditText(context).apply {
+            hint = "Search passwords"
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(textColor)
+            setHintTextColor(secondaryColor)
+            background = null
+            setPadding(dp(context, 10), 0, 0, 0)
+            layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+        }
+        searchBox.addView(searchEt)
+        root.addView(searchBox)
+
         // Saved Passwords List Container
         val passwordsListCard = createCard(context, isDark).apply {
             setPadding(0, 0, 0, 0)
@@ -764,6 +764,8 @@ object HazePasswordManager {
             passwordsListCard.removeAllViews()
 
             val allPasswords = db.getPasswords().filter { !it.isPasskey }
+            searchBox.visibility = if (allPasswords.isEmpty()) View.GONE else View.VISIBLE
+
             val filtered = allPasswords.filter {
                 query.isBlank() || it.site.contains(query, true) || it.username.contains(query, true) || it.title.contains(query, true)
             }
@@ -771,21 +773,22 @@ object HazePasswordManager {
             if (filtered.isEmpty()) {
                 val emptyCol = LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER
-                    setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(dp(context, 20), dp(context, 28), dp(context, 20), dp(context, 28))
                 }
                 val emptyIv = ImageView(context).apply {
                     setImageResource(R.drawable.ic_key)
                     setColorFilter(secondaryColor)
                 }
-                emptyCol.addView(emptyIv, LinearLayout.LayoutParams(dp(context, 48), dp(context, 48)))
+                emptyCol.addView(emptyIv, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
 
                 val emptyTitle = TextView(context).apply {
                     text = if (query.isBlank()) "No passwords in local vault" else "No passwords match \"$query\""
                     textSize = 16f
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(textColor)
-                    setPadding(0, dp(context, 12), 0, dp(context, 4))
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(context, 12), 0, dp(context, 6))
                 }
                 emptyCol.addView(emptyTitle)
 
@@ -793,39 +796,37 @@ object HazePasswordManager {
                     text = if (query.isBlank()) {
                         "Haze automatically prompts to save your real passwords whenever you log in on any website.\n\nYou can also import your existing passwords from Google Chrome or view your Google Account passwords."
                     } else "Try searching for a different domain or username."
-                    textSize = 13f
+                    textSize = 12.5f
                     setTextColor(secondaryColor)
                     gravity = Gravity.CENTER
                 }
                 emptyCol.addView(emptySub)
 
                 if (query.isBlank()) {
-                    val btnRow = LinearLayout(context).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER
-                        setPadding(0, dp(context, 16), 0, 0)
+                    val btnCol = LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        setPadding(0, dp(context, 20), 0, 0)
                     }
-                    val impBtn = TextView(context).apply {
-                        text = "IMPORT CHROME CSV"
-                        textSize = 10f
-                        setTypeface(null, Typeface.BOLD)
-                        setTextColor(Color.WHITE)
-                        gravity = Gravity.CENTER
-                        background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
-                        setOnClickListener { triggerChromeCsvImport(context) }
-                    }
-                    val gBtn = TextView(context).apply {
-                        text = "PASSWORDS.GOOGLE.COM"
-                        textSize = 10f
-                        setTypeface(null, Typeface.BOLD)
-                        setTextColor(textColor)
-                        gravity = Gravity.CENTER
-                        background = roundedBackground(context, searchBg, 12)
-                        setOnClickListener { openGooglePasswordManagerWeb(context) }
-                    }
-                    btnRow.addView(impBtn, LinearLayout.LayoutParams(-2, dp(context, 40)).apply { marginEnd = dp(context, 8) })
-                    btnRow.addView(gBtn, LinearLayout.LayoutParams(-2, dp(context, 40)))
-                    emptyCol.addView(btnRow)
+                    val impBtn = createPillButton(
+                        context = context,
+                        text = "Import Chrome passwords (.csv)",
+                        bgColor = Color.parseColor("#1A73E8"),
+                        textColor = Color.WHITE,
+                        minWidthDp = 240
+                    ) { triggerChromeCsvImport(context) }
+
+                    val gBtn = createPillButton(
+                        context = context,
+                        text = "Open passwords.google.com",
+                        bgColor = searchBg,
+                        textColor = textColor,
+                        minWidthDp = 240
+                    ) { openGooglePasswordManagerWeb(context) }
+
+                    btnCol.addView(impBtn, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = dp(context, 10) })
+                    btnCol.addView(gBtn, LinearLayout.LayoutParams(-2, -2))
+                    emptyCol.addView(btnCol)
                 }
                 passwordsListCard.addView(emptyCol)
                 return
@@ -922,6 +923,7 @@ object HazePasswordManager {
         val isDark = (context.resources.configuration.uiMode and 0x30) == 0x20
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
         val secondaryColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val searchBg = if (isDark) Color.parseColor("#2C2C2C") else Color.parseColor("#EAEAEA")
         val db = HazeDatabase.getInstance(context)
 
         val root = LinearLayout(context).apply {
@@ -1043,11 +1045,11 @@ object HazePasswordManager {
 
         root.addView(settingsCard)
 
-        // Section: "Payment methods" Header with "+ Add new"
+        // Section: "Payment methods" Header with "+ Add"
         val secRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(context, 6), 0, dp(context, 12))
+            setPadding(0, dp(context, 10), 0, dp(context, 10))
         }
         val secTitle = TextView(context).apply {
             text = "Payment methods"
@@ -1057,11 +1059,12 @@ object HazePasswordManager {
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
         val addBtn = TextView(context).apply {
-            text = "+ Add new"
-            textSize = 14f
-            setTextColor(textColor)
+            text = "+ Add"
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
-            setPadding(dp(context, 12), dp(context, 6), dp(context, 6), dp(context, 6))
+            setTextColor(textColor)
+            background = roundedBackground(context, searchBg, 14)
+            setPadding(dp(context, 14), dp(context, 7), dp(context, 14), dp(context, 7))
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -1111,8 +1114,8 @@ object HazePasswordManager {
         if (cards.isEmpty()) {
             val emptyCol = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(context, 20), dp(context, 28), dp(context, 20), dp(context, 28))
             }
             val emptyIv = ImageView(context).apply {
                 setImageResource(R.drawable.ic_credit_card)
@@ -1125,7 +1128,8 @@ object HazePasswordManager {
                 textSize = 15.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(textColor)
-                setPadding(0, dp(context, 12), 0, dp(context, 4))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(context, 12), 0, dp(context, 6))
             }
             emptyCol.addView(emptyTitle)
 
@@ -1137,16 +1141,16 @@ object HazePasswordManager {
             }
             emptyCol.addView(emptySub)
 
-            val addCardBtn = Button(context).apply {
-                text = "+ Add payment card"
-                textSize = 12.5f
-                setTextColor(Color.WHITE)
-                background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
-                setOnClickListener {
-                    showAddCreditCardDialog(context) { renderPaymentMethodsScreen(context) }
-                }
+            val addCardBtn = createPillButton(
+                context = context,
+                text = "+ Add payment card",
+                bgColor = Color.parseColor("#1A73E8"),
+                textColor = Color.WHITE,
+                minWidthDp = 220
+            ) {
+                showAddCreditCardDialog(context) { renderPaymentMethodsScreen(context) }
             }
-            val lp = LinearLayout.LayoutParams(-2, dp(context, 40)).apply { topMargin = dp(context, 16) }
+            val lp = LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(context, 20) }
             emptyCol.addView(addCardBtn, lp)
 
             cardsContainer.addView(emptyCol)
@@ -1240,6 +1244,7 @@ object HazePasswordManager {
         val isDark = (context.resources.configuration.uiMode and 0x30) == 0x20
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
         val secondaryColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val searchBg = if (isDark) Color.parseColor("#2C2C2C") else Color.parseColor("#EAEAEA")
         val db = HazeDatabase.getInstance(context)
 
         val root = LinearLayout(context).apply {
@@ -1314,11 +1319,11 @@ object HazePasswordManager {
         topCard.addView(topRow)
         root.addView(topCard)
 
-        // Section: "Addresses" Header with + Add, Delete, ...
+        // Section: "Addresses" Header with + Add, ...
         val secRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(context, 6), 0, dp(context, 12))
+            setPadding(0, dp(context, 10), 0, dp(context, 10))
         }
         val secTitle = TextView(context).apply {
             text = "Addresses"
@@ -1332,10 +1337,11 @@ object HazePasswordManager {
         // + Add button
         val addBtn = TextView(context).apply {
             text = "+ Add"
-            textSize = 14f
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
-            setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6))
+            background = roundedBackground(context, searchBg, 14)
+            setPadding(dp(context, 14), dp(context, 7), dp(context, 14), dp(context, 7))
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -1344,36 +1350,12 @@ object HazePasswordManager {
         }
         secRow.addView(addBtn)
 
-        // Delete button
-        val delBtn = TextView(context).apply {
-            text = "🗑 Delete"
-            textSize = 14f
-            setTextColor(textColor)
-            setPadding(dp(context, 8), dp(context, 6), dp(context, 8), dp(context, 6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                val list = db.getAddresses()
-                if (list.isNotEmpty()) {
-                    AlertDialog.Builder(context)
-                        .setTitle("Delete saved addresses?")
-                        .setMessage("Are you sure you want to remove all saved autofill addresses?")
-                        .setPositiveButton("Clear all") { _, _ ->
-                            list.forEach { db.deleteAddress(it.id) }
-                            renderAddressesScreen(context)
-                        }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                }
-            }
-        }
-        secRow.addView(delBtn)
-
         // ... button
         val menuBtn = ImageButton(context).apply {
             setImageResource(R.drawable.ic_more_vert)
             setBackgroundColor(Color.TRANSPARENT)
             setColorFilter(textColor)
+            setPadding(dp(context, 4), 0, 0, 0)
             setOnClickListener { v ->
                 val popup = PopupMenu(context, v)
                 popup.menu.add("+ Add address")
@@ -1413,8 +1395,8 @@ object HazePasswordManager {
         if (addresses.isEmpty()) {
             val emptyCol = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(dp(context, 20), dp(context, 32), dp(context, 20), dp(context, 32))
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(context, 20), dp(context, 28), dp(context, 20), dp(context, 28))
             }
             val emptyIv = ImageView(context).apply {
                 setImageResource(R.drawable.ic_person)
@@ -1427,7 +1409,8 @@ object HazePasswordManager {
                 textSize = 15.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(textColor)
-                setPadding(0, dp(context, 12), 0, dp(context, 4))
+                gravity = Gravity.CENTER
+                setPadding(0, dp(context, 12), 0, dp(context, 6))
             }
             emptyCol.addView(emptyTitle)
 
@@ -1439,16 +1422,16 @@ object HazePasswordManager {
             }
             emptyCol.addView(emptySub)
 
-            val addAddrBtn = Button(context).apply {
-                text = "+ Add address"
-                textSize = 12.5f
-                setTextColor(Color.WHITE)
-                background = roundedBackground(context, Color.parseColor("#1A73E8"), 12)
-                setOnClickListener {
-                    showAddAddressDialog(context) { renderAddressesScreen(context) }
-                }
+            val addAddrBtn = createPillButton(
+                context = context,
+                text = "+ Add address",
+                bgColor = Color.parseColor("#1A73E8"),
+                textColor = Color.WHITE,
+                minWidthDp = 220
+            ) {
+                showAddAddressDialog(context) { renderAddressesScreen(context) }
             }
-            val lp = LinearLayout.LayoutParams(-2, dp(context, 40)).apply { topMargin = dp(context, 16) }
+            val lp = LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(context, 20) }
             emptyCol.addView(addAddrBtn, lp)
 
             addrCard.addView(emptyCol)
@@ -1460,7 +1443,7 @@ object HazePasswordManager {
                     setPadding(dp(context, 18), dp(context, 14), dp(context, 18), dp(context, 14))
                 }
 
-                // 👤 Contact icon
+                // Contact icon
                 val personIv = ImageView(context).apply {
                     setImageResource(R.drawable.ic_person)
                     setColorFilter(secondaryColor)
@@ -1967,11 +1950,14 @@ object HazePasswordManager {
         val passEt = createField("Password", true)
         val noteEt = createField("Secure Note (Optional)")
 
-        val genBtn = Button(context).apply {
-            text = "⚡ Generate Strong Password"
-            textSize = 12f
-            setTextColor(Color.parseColor("#0A56D0"))
-            background = null
+        val genBtn = TextView(context).apply {
+            text = "Generate strong password"
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1A73E8"))
+            setPadding(0, dp(context, 4), 0, dp(context, 8))
+            isClickable = true
+            isFocusable = true
             setOnClickListener {
                 passEt.setText(generatePassword(16))
                 passEt.transformationMethod = null
@@ -2907,6 +2893,31 @@ object HazePasswordManager {
             setColor(color)
             cornerRadius = dp(context, radius).toFloat()
         }
+
+    private fun createPillButton(
+        context: Context,
+        text: String,
+        bgColor: Int,
+        textColor: Int,
+        minWidthDp: Int = 0,
+        onClick: () -> Unit
+    ): TextView {
+        return TextView(context).apply {
+            this.text = text
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            gravity = Gravity.CENTER
+            background = roundedBackground(context, bgColor, 20)
+            setPadding(dp(context, 20), dp(context, 11), dp(context, 20), dp(context, 11))
+            if (minWidthDp > 0) {
+                minimumWidth = dp(context, minWidthDp)
+            }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
 
     private fun pageBackground(context: Context): Int =
         if ((context.resources.configuration.uiMode and 0x30) == 0x20) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
