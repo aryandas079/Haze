@@ -202,7 +202,7 @@ object HazeTabSystemManager {
     // 2. VIEW MODE SELECTOR
     // =========================================================================
     fun showViewModeSelector(activity: MainActivity, currentMode: Int, onSelected: (Int) -> Unit) {
-        val modes = arrayOf("Cards Mode (Large Preview)", "Grid Mode (2 Columns)", "List Mode (Compact Rows)")
+        val modes = arrayOf("Card View (Webpage Previews)", "Tile View (Responsive Grid)", "List View (Compact Rows)")
         val modeValues = intArrayOf(TAB_MODE_CARDS, TAB_MODE_GRID, TAB_MODE_LIST)
         val selectedIdx = modeValues.indexOf(currentMode).coerceAtLeast(0)
 

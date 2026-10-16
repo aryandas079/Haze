@@ -214,6 +214,12 @@ object HazeSettingsManager {
         cardPrivacy.addView(createRow(activity, "Google Password Manager", "Manage passwords, passkeys, and autofill credentials", textColor, subTextColor) {
             HazeSecurityManager.requestGooglePasswordManagerIntegration(activity)
         })
+        cardPrivacy.addView(createRow(activity, "Incognito Protection", HazeIncognitoAuthManager.getProtectionSummary(activity), textColor, subTextColor) {
+            HazeIncognitoAuthManager.showProtectionSettingsDialog(activity) {
+                dialog.dismiss()
+                showSettingsDialog(activity)
+            }
+        })
         cardPrivacy.addView(createRow(activity, "Clear Browsing Data", "Clear cache, cookies, history, and storage", textColor, subTextColor) {
             HazeClearDataManager.showClearDataDialog(activity)
         })

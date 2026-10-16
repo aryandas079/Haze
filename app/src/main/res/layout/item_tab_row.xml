@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
@@ -46,6 +47,18 @@
             android:textSize="12sp"
             android:textColor="#5F6368" />
 
+        <TextView
+            android:id="@+id/groupSummaryText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text=""
+            android:textSize="11sp"
+            android:textColor="#5F6368"
+            android:visibility="gone" />
+
         <ImageView
             android:id="@+id/groupChevron"
             android:layout_width="20dp"
@@ -74,10 +87,21 @@
         android:focusable="true"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
+
+        <ImageView
+            android:id="@+id/rowTabSelectCheckbox"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="8dp"
+            android:src="@drawable/ic_check"
+            android:background="@drawable/bg_circle_icon_container"
+            android:padding="4dp"
+            android:visibility="gone"
+            android:contentDescription="Select Tab" />
 
         <View
             android:id="@+id/groupSideIndicator"
@@ -97,7 +121,7 @@
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="14dp"
             android:layout_weight="1"
             android:orientation="vertical">
 
@@ -109,7 +133,8 @@
                 android:maxLines="1"
                 android:text="New Tab"
                 android:textColor="#202124"
-                android:textSize="16sp" />
+                android:textSize="15sp"
+                android:fontFamily="sans-serif-medium" />
 
             <TextView
                 android:id="@+id/tabUrl"
@@ -121,6 +146,24 @@
                 android:textColor="#5F6368"
                 android:textSize="12sp" />
         </LinearLayout>
+
+        <androidx.cardview.widget.CardView
+            android:id="@+id/cardTabRowThumbnail"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="#F1F3F5">
+
+            <ImageView
+                android:id="@+id/tabRowThumbnail"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                android:contentDescription="Thumbnail Preview" />
+        </androidx.cardview.widget.CardView>
 
         <ImageView
             android:id="@+id/tabPinIcon"

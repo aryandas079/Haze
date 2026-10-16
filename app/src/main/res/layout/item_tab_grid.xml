@@ -65,6 +65,16 @@
                 android:visibility="gone"
                 android:contentDescription="Pinned" />
 
+            <ImageView
+                android:id="@+id/gridTabSelectCheckbox"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:src="@drawable/ic_check"
+                android:background="@drawable/bg_circle_icon_container"
+                android:padding="4dp"
+                android:visibility="gone"
+                android:contentDescription="Select Tab" />
+
             <ImageButton
                 android:id="@+id/gridTabClose"
                 android:layout_width="28dp"

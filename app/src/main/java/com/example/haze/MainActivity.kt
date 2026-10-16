@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -37,6 +38,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.VelocityTracker
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.*
@@ -859,7 +861,7 @@ class MainActivity : AppCompatActivity() {
                 android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "Haze:WakeUpLock"
             )
-            wl?.acquire(5000L)
+            wl?.acquire(60000L)
         } catch (_: Exception) {}
     }
 
@@ -2219,6 +2221,47 @@ class MainActivity : AppCompatActivity() {
                 saveCustomShortcuts(list)
                 changed = true
             }
+        }
+        if (intent.hasExtra("test_create_tabs")) {
+            val count = intent.getIntExtra("test_create_tabs", 3)
+            val testUrls = listOf(
+                "https://www.google.com" to "Google",
+                "https://www.wikipedia.org" to "Wikipedia",
+                "https://github.com" to "GitHub",
+                "https://www.reddit.com" to "Reddit"
+            )
+            val makeGroup = intent.getBooleanExtra("test_create_group", false)
+            val testGroup = if (makeGroup) TabGroup("grp_test", "Research", groupColors[1]) else null
+            for (i in 0 until count) {
+                val pair = testUrls[i % testUrls.size]
+                val t = addNewBackgroundTab(pair.first)
+                t.title = pair.second
+                if (makeGroup && (i == 0 || i == 1)) {
+                    t.group = testGroup
+                }
+            }
+        }
+        if (intent.getBooleanExtra("open_tab_switcher", false)) {
+            val viewMode = intent.getIntExtra("tab_view_mode", -1)
+            if (viewMode != -1) {
+                prefs.edit().putInt(HazeTabSystemManager.PREF_TAB_VIEW_MODE, viewMode).apply()
+            }
+            if (intent.hasExtra("is_private_mode")) {
+                isPrivateMode = intent.getBooleanExtra("is_private_mode", false)
+            }
+            window.decorView.postDelayed({
+                showFullScreenTabs()
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_privacy_settings", false)) {
+            window.decorView.postDelayed({
+                HazeSettingsManager.showSettingsDialog(this)
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_incognito_protection_settings", false)) {
+            window.decorView.postDelayed({
+                HazeIncognitoAuthManager.showProtectionSettingsDialog(this) {}
+            }, 300)
         }
         if (intent.getBooleanExtra("open_privacy_shield", false)) {
             val scrollY = intent.getIntExtra("privacy_shield_scroll_y", 0)
@@ -4544,6 +4587,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        wakeScreen()
         try {
             currentTabsList.getOrNull(activeTabIndex)?.browserTab?.onResume()
         } catch (_: Exception) {}
@@ -4559,6 +4603,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        HazeIncognitoAuthManager.onAppBackgrounded(this)
         saveSessionState()
         if (!isMediaPlaying && miniPlayerManager?.isActive != true) {
             try {
@@ -4729,6 +4774,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
+        @Suppress("DEPRECATION")
+        dialog.window?.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
         dialog.setContentView(R.layout.layout_full_screen_tabs)
 
         val tabsRootContainer = dialog.findViewById<LinearLayout>(R.id.tabsRootContainer)
@@ -4742,6 +4794,7 @@ class MainActivity : AppCompatActivity() {
 
         val btnClose = dialog.findViewById<ImageButton>(R.id.btnCloseTabs)
         val btnRecentlyClosed = dialog.findViewById<ImageButton>(R.id.btnRecentlyClosedTabs)
+        val btnSelectTabs = dialog.findViewById<ImageButton>(R.id.btnSelectTabs)
         val btnToggleViewMode = dialog.findViewById<ImageButton>(R.id.btnToggleViewMode)
         val btnTabsMoreOptions = dialog.findViewById<ImageButton>(R.id.btnTabsMoreOptions)
         val tvCurrentModeLabel = dialog.findViewById<TextView>(R.id.tvCurrentModeLabel)
@@ -4751,6 +4804,15 @@ class MainActivity : AppCompatActivity() {
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
         val layoutEmptyIncognito = dialog.findViewById<LinearLayout>(R.id.layoutEmptyIncognito)
         val btnEmptyNewIncognito = dialog.findViewById<TextView>(R.id.btnEmptyNewIncognito)
+        val layoutLockedIncognito = dialog.findViewById<LinearLayout>(R.id.layoutLockedIncognito)
+        val btnUnlockIncognito = dialog.findViewById<TextView>(R.id.btnUnlockIncognito)
+
+        val barMultiSelect = dialog.findViewById<LinearLayout>(R.id.barMultiSelect)
+        val btnMultiSelectAll = dialog.findViewById<ImageButton>(R.id.btnMultiSelectAll)
+        val tvMultiSelectCount = dialog.findViewById<TextView>(R.id.tvMultiSelectCount)
+        val btnMultiSelectGroup = dialog.findViewById<ImageButton>(R.id.btnMultiSelectGroup)
+        val btnMultiSelectClose = dialog.findViewById<ImageButton>(R.id.btnMultiSelectClose)
+        val btnMultiSelectDone = dialog.findViewById<TextView>(R.id.btnMultiSelectDone)
 
         btnEmptyNewIncognito?.setOnClickListener {
             triggerStrongHaptic(it)
@@ -4821,9 +4883,18 @@ class MainActivity : AppCompatActivity() {
             if (list.isEmpty()) {
                 if (isPriv) {
                     ChromiumEngineManager.getEngine(this@MainActivity).clearPrivateSession()
-                    addNewTab(HAZE_HOME_URL)
+                    HazeIncognitoAuthManager.isIncognitoSessionUnlocked = false
+                    if (normalTabs.isNotEmpty()) {
+                        isPrivateMode = false
+                        switchTab(activeNormalTabIndex.coerceIn(0, normalTabs.size - 1))
+                    } else {
+                        addNewTab(HAZE_HOME_URL)
+                        activeNormalTabIndex = 0
+                    }
                 } else {
+                    // Normal Tab Safety Rule: Invariant: Haze must always retain or create at least one usable normal tab when all normal tabs are closed (never 0 normal tabs).
                     addNewTab(HAZE_HOME_URL)
+                    activeNormalTabIndex = 0
                 }
             } else {
                 if (isPriv) {
@@ -4876,8 +4947,12 @@ class MainActivity : AppCompatActivity() {
 
         fun setupLayoutManager() {
             rvActiveTabs.layoutManager = when (currentMode) {
-                HazeTabSystemManager.TAB_MODE_GRID -> androidx.recyclerview.widget.GridLayoutManager(this, 2)
-                else -> LinearLayoutManager(this)
+                HazeTabSystemManager.TAB_MODE_GRID -> {
+                    val orientation = resources.configuration.orientation
+                    val spanCount = if (orientation == Configuration.ORIENTATION_LANDSCAPE) 3 else 2
+                    androidx.recyclerview.widget.GridLayoutManager(this@MainActivity, spanCount)
+                }
+                else -> LinearLayoutManager(this@MainActivity)
             }
         }
         setupLayoutManager()
@@ -4941,13 +5016,216 @@ class MainActivity : AppCompatActivity() {
             etTabSearch.setText("")
         }
 
+        fun updateSelectionUI() {
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            val count = adapter.selectedTabIds.size
+            tvMultiSelectCount?.text = "$count selected"
+            val hasSelection = count >= 1
+            btnMultiSelectGroup?.alpha = if (hasSelection) 1f else 0.4f
+            btnMultiSelectGroup?.isEnabled = hasSelection
+            btnMultiSelectClose?.alpha = if (hasSelection) 1f else 0.4f
+            btnMultiSelectClose?.isEnabled = hasSelection
+        }
+
+        personalAdapter.onSelectionChanged = { updateSelectionUI() }
+        privateAdapter.onSelectionChanged = { updateSelectionUI() }
+
+        btnSelectTabs?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            adapter.isSelectionMode = !adapter.isSelectionMode
+            if (adapter.isSelectionMode) {
+                barMultiSelect?.visibility = View.VISIBLE
+                searchPillContainer?.visibility = View.GONE
+                adapter.selectedTabIds.clear()
+                updateSelectionUI()
+            } else {
+                barMultiSelect?.visibility = View.GONE
+                searchPillContainer?.visibility = View.VISIBLE
+                adapter.selectedTabIds.clear()
+            }
+            adapter.notifyDataSetChanged()
+        }
+
+        btnMultiSelectDone?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            adapter.isSelectionMode = false
+            adapter.selectedTabIds.clear()
+            barMultiSelect?.visibility = View.GONE
+            searchPillContainer?.visibility = View.VISIBLE
+            adapter.notifyDataSetChanged()
+        }
+
+        btnMultiSelectAll?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            if (adapter.selectedTabIds.size >= adapter.displayedList.size) {
+                adapter.selectedTabIds.clear()
+            } else {
+                adapter.selectedTabIds.addAll(adapter.displayedList.map { it.id })
+            }
+            updateSelectionUI()
+            adapter.notifyDataSetChanged()
+        }
+
+        btnMultiSelectGroup?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            val selected = adapter.displayedList.filter { adapter.selectedTabIds.contains(it.id) }
+            if (selected.isEmpty()) {
+                Toast.makeText(this@MainActivity, "Select tabs to group", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val input = EditText(this@MainActivity).apply {
+                val domain = HazeTabSystemManager.getDomain(selected.first().url)
+                setText("Group ($domain)")
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Group ${selected.size} Tabs")
+                .setView(input)
+                .setPositiveButton("Group") { _, _ ->
+                    val groupName = input.text.toString().trim().ifEmpty { "New Group" }
+                    val newGroup = TabGroup(
+                        id = System.currentTimeMillis().toString(),
+                        name = groupName,
+                        color = groupColors.random()
+                    )
+                    selected.forEach { it.group = newGroup }
+                    adapter.isSelectionMode = false
+                    adapter.selectedTabIds.clear()
+                    barMultiSelect?.visibility = View.GONE
+                    searchPillContainer?.visibility = View.VISIBLE
+                    adapter.notifyDataSetChanged()
+                    Toast.makeText(this@MainActivity, "Grouped ${selected.size} tabs into '$groupName'", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        btnMultiSelectClose?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+            val selected = adapter.displayedList.filter { adapter.selectedTabIds.contains(it.id) }
+            if (selected.isEmpty()) return@setOnClickListener
+
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Close ${selected.size} Tabs?")
+                .setMessage("Are you sure you want to close ${selected.size} selected tabs?")
+                .setPositiveButton("Close") { _, _ ->
+                    val count = selected.size
+                    for (tab in selected) {
+                        onTabClosed(tab, viewingPrivate)
+                    }
+                    adapter.isSelectionMode = false
+                    adapter.selectedTabIds.clear()
+                    barMultiSelect?.visibility = View.GONE
+                    searchPillContainer?.visibility = View.VISIBLE
+                    adapter.notifyDataSetChanged()
+                    Toast.makeText(this@MainActivity, "Closed $count tabs", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
         var currentTouchHelper: ItemTouchHelper? = null
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
+
+        val touchHelperCallback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT,
+            ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+        ) {
+            var dragFrom = -1
+            var dragTo = -1
+
+            override fun getMovementFlags(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder): Int {
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                if (adapter.isSelectionMode) return 0
+                val pos = viewHolder.bindingAdapterPosition
+                val items = adapter.displayedList
+                if (pos !in items.indices) return 0
+                val tab = items[pos]
+                val dragFlags = ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
+                val swipeFlags = if (tab.isPinned) 0 else (ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT)
+                return makeMovementFlags(dragFlags, swipeFlags)
+            }
+
+            override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                val fromPos = viewHolder.bindingAdapterPosition
+                val toPos = target.bindingAdapterPosition
+                if (fromPos !in adapter.displayedList.indices || toPos !in adapter.displayedList.indices) return false
+                if (dragFrom == -1) dragFrom = fromPos
+                dragTo = toPos
+
+                adapter.onItemMoved(fromPos, toPos)
+                return true
+            }
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                viewHolder.itemView.alpha = 1.0f
+                viewHolder.itemView.scaleX = 1.0f
+                viewHolder.itemView.scaleY = 1.0f
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                if (dragFrom != -1 && dragTo != -1 && dragFrom != dragTo) {
+                    adapter.onDragCompleted(dragFrom, dragTo)
+                }
+                dragFrom = -1
+                dragTo = -1
+            }
+
+            override fun onSelectedChanged(viewHolder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(viewHolder, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG) {
+                    triggerStrongHaptic(viewHolder?.itemView)
+                    viewHolder?.itemView?.animate()?.scaleX(1.04f)?.scaleY(1.04f)?.setDuration(120)?.start()
+                }
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                val pos = viewHolder.bindingAdapterPosition
+                val items = adapter.displayedList
+                if (pos in items.indices) {
+                    val swipedTab = items[pos]
+                    if (swipedTab.isPinned) {
+                        adapter.notifyItemChanged(pos)
+                        Toast.makeText(this@MainActivity, "Pinned tabs cannot be swiped away", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    onTabClosed(swipedTab, viewingPrivate)
+                }
+            }
+
+            override fun onChildDraw(
+                c: Canvas,
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                dX: Float,
+                dY: Float,
+                actionState: Int,
+                isCurrentlyActive: Boolean
+            ) {
+                if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE) {
+                    val width = viewHolder.itemView.width.toFloat()
+                    val alpha = (1.0f - Math.abs(dX) / width).coerceIn(0.15f, 1.0f)
+                    viewHolder.itemView.alpha = alpha
+                    viewHolder.itemView.translationX = dX
+                } else {
+                    super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+                }
+            }
+        }
+        currentTouchHelper = ItemTouchHelper(touchHelperCallback)
+        currentTouchHelper.attachToRecyclerView(rvActiveTabs)
 
         fun updateUI(animate: Boolean = false) {
             val isDarkTheme = prefs.getBoolean("is_dark", false) || viewingPrivate
             val count = if (viewingPrivate) privateTabs.size else normalTabs.size
             tvTabCountPill?.text = count.toString()
+
+            HazeIncognitoAuthManager.applyWindowSecurity(this@MainActivity, viewingPrivate)
 
             if (viewingPrivate) {
                 tabsRootContainer?.setBackgroundColor(Color.parseColor("#141518"))
@@ -4959,10 +5237,17 @@ class MainActivity : AppCompatActivity() {
                     cornerRadius = dpToPx(24f).toFloat()
                     setColor(Color.parseColor("#25272B"))
                 }
+                barMultiSelect?.setBackgroundColor(Color.parseColor("#20232A"))
+                tvMultiSelectCount?.setTextColor(Color.parseColor("#A8C7FA"))
+                btnMultiSelectAll?.setColorFilter(Color.parseColor("#A8C7FA"))
+                btnMultiSelectGroup?.setColorFilter(Color.parseColor("#A8C7FA"))
+                btnMultiSelectDone?.setTextColor(Color.parseColor("#A8C7FA"))
+
                 etTabSearch.setTextColor(Color.WHITE)
                 etTabSearch.setHintTextColor(Color.parseColor("#9AA0A6"))
                 btnClose.setColorFilter(Color.WHITE)
                 btnRecentlyClosed.setColorFilter(Color.parseColor("#9AA0A6"))
+                btnSelectTabs?.setColorFilter(Color.WHITE)
                 btnToggleViewMode.setColorFilter(Color.WHITE)
                 btnTabsMoreOptions.setColorFilter(Color.WHITE)
 
@@ -4985,11 +5270,25 @@ class MainActivity : AppCompatActivity() {
                 tvCurrentModeLabel.text = "Private Tabs"
                 btnNewTabAction.text = "+ New Private"
                 btnNewTabAction.setTextColor(accentColor)
-                
-                if (privateTabs.isEmpty()) {
-                    layoutEmptyIncognito?.visibility = View.VISIBLE
+
+                val isLocked = HazeIncognitoAuthManager.isProtectionEnabled(this@MainActivity) && !HazeIncognitoAuthManager.isIncognitoSessionUnlocked
+
+                if (isLocked) {
                     rvActiveTabs.visibility = View.GONE
+                    layoutEmptyIncognito?.visibility = View.GONE
+                    layoutLockedIncognito?.visibility = View.VISIBLE
+                    btnUnlockIncognito?.setOnClickListener {
+                        triggerStrongHaptic(it)
+                        HazeIncognitoAuthManager.requestUnlock(this@MainActivity, onSuccess = {
+                            updateUI(animate = true)
+                        })
+                    }
+                } else if (privateTabs.isEmpty()) {
+                    layoutLockedIncognito?.visibility = View.GONE
+                    rvActiveTabs.visibility = View.GONE
+                    layoutEmptyIncognito?.visibility = View.VISIBLE
                 } else {
+                    layoutLockedIncognito?.visibility = View.GONE
                     layoutEmptyIncognito?.visibility = View.GONE
                     rvActiveTabs.visibility = View.VISIBLE
                     if (animate) {
@@ -5000,8 +5299,8 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         rvActiveTabs.adapter = privateAdapter
                     }
+                    currentTouchHelper?.attachToRecyclerView(rvActiveTabs)
                 }
-                currentTouchHelper?.attachToRecyclerView(null)
             } else {
                 val lightBg = if (isDarkTheme) Color.parseColor("#1A1C1E") else Color.parseColor("#F8FAFD")
                 val pillBg = if (isDarkTheme) Color.parseColor("#282A2E") else Color.parseColor("#E9EEF6")
@@ -5017,10 +5316,17 @@ class MainActivity : AppCompatActivity() {
                     cornerRadius = dpToPx(24f).toFloat()
                     setColor(pillBg)
                 }
+                barMultiSelect?.setBackgroundColor(if (isDarkTheme) Color.parseColor("#26282E") else Color.parseColor("#E8EEF9"))
+                tvMultiSelectCount?.setTextColor(accentColor)
+                btnMultiSelectAll?.setColorFilter(accentColor)
+                btnMultiSelectGroup?.setColorFilter(accentColor)
+                btnMultiSelectDone?.setTextColor(accentColor)
+
                 etTabSearch.setTextColor(textColor)
                 etTabSearch.setHintTextColor(subColor)
                 btnClose.setColorFilter(textColor)
                 btnRecentlyClosed.setColorFilter(subColor)
+                btnSelectTabs?.setColorFilter(textColor)
                 btnToggleViewMode.setColorFilter(textColor)
                 btnTabsMoreOptions.setColorFilter(textColor)
 
@@ -5046,7 +5352,8 @@ class MainActivity : AppCompatActivity() {
                 tvCurrentModeLabel.text = "Personal Tabs"
                 btnNewTabAction.text = "+ New Tab"
                 btnNewTabAction.setTextColor(accentColor)
-                
+
+                layoutLockedIncognito?.visibility = View.GONE
                 layoutEmptyIncognito?.visibility = View.GONE
                 rvActiveTabs.visibility = View.VISIBLE
                 if (animate) {
@@ -5057,7 +5364,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     rvActiveTabs.adapter = personalAdapter
                 }
-                currentTouchHelper?.attachToRecyclerView(null)
+                currentTouchHelper?.attachToRecyclerView(rvActiveTabs)
             }
         }
 
@@ -5065,6 +5372,14 @@ class MainActivity : AppCompatActivity() {
             triggerStrongHaptic(it)
             if (viewingPrivate) {
                 viewingPrivate = false
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                if (adapter.isSelectionMode) {
+                    barMultiSelect?.visibility = View.VISIBLE
+                    searchPillContainer?.visibility = View.GONE
+                } else {
+                    barMultiSelect?.visibility = View.GONE
+                    searchPillContainer?.visibility = View.VISIBLE
+                }
                 updateUI(animate = true)
             }
         }
@@ -5073,6 +5388,14 @@ class MainActivity : AppCompatActivity() {
             triggerStrongHaptic(it)
             if (!viewingPrivate) {
                 viewingPrivate = true
+                val adapter = if (viewingPrivate) privateAdapter else personalAdapter
+                if (adapter.isSelectionMode) {
+                    barMultiSelect?.visibility = View.VISIBLE
+                    searchPillContainer?.visibility = View.GONE
+                } else {
+                    barMultiSelect?.visibility = View.GONE
+                    searchPillContainer?.visibility = View.VISIBLE
+                }
                 updateUI(animate = true)
             }
         }
@@ -5116,8 +5439,11 @@ class MainActivity : AppCompatActivity() {
 
         var sortMode: TabSortMode = TabSortMode.DEFAULT
         private var filterQuery: String = ""
+        val selectedTabIds = mutableSetOf<Long>()
+        var isSelectionMode: Boolean = false
+        var onSelectionChanged: ((Int) -> Unit)? = null
 
-        private val displayedList: List<Tab>
+        val displayedList: List<Tab>
             get() {
                 val base = if (filterQuery.isEmpty()) {
                     originalList
@@ -5154,6 +5480,60 @@ class MainActivity : AppCompatActivity() {
             notifyDataSetChanged()
         }
 
+        fun onItemMoved(fromPosition: Int, toPosition: Int) {
+            val items = displayedList
+            if (fromPosition in items.indices && toPosition in items.indices) {
+                val fromTab = items[fromPosition]
+                val toTab = items[toPosition]
+                val originalFromIndex = originalList.indexOf(fromTab)
+                val originalToIndex = originalList.indexOf(toTab)
+                if (originalFromIndex != -1 && originalToIndex != -1) {
+                    java.util.Collections.swap(originalList, originalFromIndex, originalToIndex)
+                    notifyItemMoved(fromPosition, toPosition)
+                }
+            }
+        }
+
+        fun onDragCompleted(fromPosition: Int, toPosition: Int) {
+            val items = displayedList
+            if (fromPosition in items.indices && toPosition in items.indices && fromPosition != toPosition) {
+                val draggedTab = items[fromPosition]
+                val targetTab = items[toPosition]
+
+                if (targetTab.group != null && draggedTab.group?.id != targetTab.group?.id) {
+                    val oldGroup = draggedTab.group
+                    draggedTab.group = targetTab.group
+                    notifyDataSetChanged()
+                    com.google.android.material.snackbar.Snackbar.make(
+                        findViewById(R.id.main),
+                        "Added '${draggedTab.title}' to group '${targetTab.group?.name}'",
+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                    ).setAction("UNDO") {
+                        draggedTab.group = oldGroup
+                        notifyDataSetChanged()
+                    }.show()
+                } else if (draggedTab.group == null && targetTab.group == null) {
+                    val newGroup = TabGroup(
+                        id = System.currentTimeMillis().toString(),
+                        name = "Group (${HazeTabSystemManager.getDomain(targetTab.url)})",
+                        color = groupColors.random()
+                    )
+                    draggedTab.group = newGroup
+                    targetTab.group = newGroup
+                    notifyDataSetChanged()
+                    com.google.android.material.snackbar.Snackbar.make(
+                        findViewById(R.id.main),
+                        "Grouped '${draggedTab.title}' with '${targetTab.title}'",
+                        com.google.android.material.snackbar.Snackbar.LENGTH_LONG
+                    ).setAction("UNDO") {
+                        draggedTab.group = null
+                        targetTab.group = null
+                        notifyDataSetChanged()
+                    }.show()
+                }
+            }
+        }
+
         inner class TabViewHolder(val view: View, val isGrid: Boolean) : RecyclerView.ViewHolder(view) {
             // Row views
             val rowContainer: LinearLayout? = view.findViewById(R.id.tabRowContainer)
@@ -5161,6 +5541,7 @@ class MainActivity : AppCompatActivity() {
             val groupColorBox: View? = view.findViewById(R.id.groupColorBox)
             val groupNameText: TextView? = view.findViewById(R.id.groupNameText)
             val groupCountText: TextView? = view.findViewById(R.id.groupCountText)
+            val groupSummaryText: TextView? = view.findViewById(R.id.groupSummaryText)
             val groupChevron: ImageView? = view.findViewById(R.id.groupChevron)
             val btnGroupMore: ImageView? = view.findViewById(R.id.btnGroupMore)
             val groupSideIndicator: View? = view.findViewById(R.id.groupSideIndicator)
@@ -5169,6 +5550,9 @@ class MainActivity : AppCompatActivity() {
             val tabUrl: TextView? = view.findViewById(R.id.tabUrl)
             val tabPinIcon: ImageView? = view.findViewById(R.id.tabPinIcon)
             val tabClose: ImageButton? = view.findViewById(R.id.tabClose)
+            val rowTabSelectCheckbox: ImageView? = view.findViewById(R.id.rowTabSelectCheckbox)
+            val tabRowThumbnail: ImageView? = view.findViewById(R.id.tabRowThumbnail)
+            val cardTabRowThumbnail: androidx.cardview.widget.CardView? = view.findViewById(R.id.cardTabRowThumbnail)
 
             // Grid views
             val cardTabGrid: com.google.android.material.card.MaterialCardView? = view.findViewById(R.id.cardTabGrid)
@@ -5176,6 +5560,7 @@ class MainActivity : AppCompatActivity() {
             val gridTabTitle: TextView? = view.findViewById(R.id.gridTabTitle)
             val gridTabPinIcon: ImageView? = view.findViewById(R.id.gridTabPinIcon)
             val gridTabClose: ImageButton? = view.findViewById(R.id.gridTabClose)
+            val gridTabSelectCheckbox: ImageView? = view.findViewById(R.id.gridTabSelectCheckbox)
             val gridTabThumbnail: ImageView? = view.findViewById(R.id.gridTabThumbnail)
             val gridTabUrl: TextView? = view.findViewById(R.id.gridTabUrl)
             val gridGroupIndicator: View? = view.findViewById(R.id.gridGroupIndicator)
@@ -5198,8 +5583,8 @@ class MainActivity : AppCompatActivity() {
             val isActive = (isPrivateMode == isPrivateList && originalList.indexOf(tab) == activeTabIndex)
 
             if (holder.isGrid) {
-                // Adjust card height for Cards mode (280dp) vs Grid mode (216dp)
-                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(280f) else dpToPx(216f)
+                // Adjust card height for Cards view (300dp) vs Tile view (216dp)
+                val cardHeight = if (tabMode == HazeTabSystemManager.TAB_MODE_CARDS) dpToPx(300f) else dpToPx(216f)
                 holder.cardTabGrid?.layoutParams?.height = cardHeight
 
                 holder.gridTabTitle?.text = tab.title
@@ -5225,7 +5610,7 @@ class MainActivity : AppCompatActivity() {
                 val iconContainer = holder.view.findViewById<View>(R.id.gridTabIconContainer)
 
                 if (isActive) {
-                    // Active Chrome Card Styling (Image 4: Deep vibrant blue container with white elements)
+                    // Active Chrome Card Styling
                     mCard?.strokeColor = Color.TRANSPARENT
                     mCard?.strokeWidth = 0
                     mCard?.cardElevation = dpToPx(4f).toFloat()
@@ -5247,7 +5632,7 @@ class MainActivity : AppCompatActivity() {
                         holder.gridTabIcon?.setColorFilter(Color.WHITE)
                     }
                 } else {
-                    // Inactive Chrome Card Styling (Image 4: Crisp white/surface card with soft outline)
+                    // Inactive Chrome Card Styling
                     val inactiveCardBg = if (isDark) Color.parseColor("#1E2024") else Color.WHITE
                     val inactiveStroke = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#E0E5EC")
                     val inactiveTitleColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
@@ -5275,9 +5660,32 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                // Multi-select Checkbox vs Close Button in Grid/Cards
+                if (isSelectionMode) {
+                    holder.gridTabClose?.visibility = View.GONE
+                    holder.gridTabSelectCheckbox?.visibility = View.VISIBLE
+                    if (selectedTabIds.contains(tab.id)) {
+                        holder.gridTabSelectCheckbox?.setImageResource(R.drawable.ic_check)
+                        holder.gridTabSelectCheckbox?.setColorFilter(Color.WHITE)
+                        holder.gridTabSelectCheckbox?.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(accentColor)
+                        }
+                    } else {
+                        holder.gridTabSelectCheckbox?.setImageDrawable(null)
+                        holder.gridTabSelectCheckbox?.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setStroke(dpToPx(2f), Color.parseColor("#9AA0A6"))
+                        }
+                    }
+                } else {
+                    holder.gridTabClose?.visibility = View.VISIBLE
+                    holder.gridTabSelectCheckbox?.visibility = View.GONE
+                }
+
                 val tabLongClickListener = View.OnLongClickListener { v ->
                     val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
-                    if (enabled) {
+                    if (enabled && !isSelectionMode) {
                         triggerStrongHaptic(v, isHeavy = true)
                         showTabOptionsMenu(tab)
                         true
@@ -5292,7 +5700,17 @@ class MainActivity : AppCompatActivity() {
 
                 val tabClickListener = View.OnClickListener {
                     triggerStrongHaptic(it)
-                    onItemClick(tab)
+                    if (isSelectionMode) {
+                        if (selectedTabIds.contains(tab.id)) {
+                            selectedTabIds.remove(tab.id)
+                        } else {
+                            selectedTabIds.add(tab.id)
+                        }
+                        notifyItemChanged(position)
+                        onSelectionChanged?.invoke(selectedTabIds.size)
+                    } else {
+                        onItemClick(tab)
+                    }
                 }
                 holder.cardTabGrid?.setOnClickListener(tabClickListener)
                 holder.itemView.setOnClickListener(tabClickListener)
@@ -5301,6 +5719,7 @@ class MainActivity : AppCompatActivity() {
                 holder.gridTabTitle?.setOnClickListener(tabClickListener)
                 holder.gridTabUrl?.setOnClickListener(tabClickListener)
                 holder.gridTabIcon?.setOnClickListener(tabClickListener)
+                holder.gridTabSelectCheckbox?.setOnClickListener(tabClickListener)
 
                 holder.gridTabClose?.setOnClickListener {
                     triggerStrongHaptic(it)
@@ -5318,6 +5737,15 @@ class MainActivity : AppCompatActivity() {
                     holder.groupCountText?.text = "($count tab${if (count > 1) "s" else ""})"
                     holder.groupChevron?.setImageResource(if (tab.group!!.isCollapsed) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up)
                     
+                    if (tab.group!!.isCollapsed) {
+                        val groupTabs = originalList.filter { it.group?.id == tab.group!!.id }
+                        val summary = groupTabs.take(3).joinToString(", ") { it.title.take(12) } + if (groupTabs.size > 3) "..." else ""
+                        holder.groupSummaryText?.text = summary
+                        holder.groupSummaryText?.visibility = View.VISIBLE
+                    } else {
+                        holder.groupSummaryText?.visibility = View.GONE
+                    }
+
                     holder.groupHeader?.setOnClickListener {
                         triggerStrongHaptic(it)
                         tab.group!!.isCollapsed = !tab.group!!.isCollapsed
@@ -5364,9 +5792,39 @@ class MainActivity : AppCompatActivity() {
                 holder.tabTitle?.text = tab.title
                 holder.tabUrl?.text = if (isHomeTab(tab)) "Home" else tab.url
 
+                // List View Thumbnail Preview
+                holder.cardTabRowThumbnail?.visibility = View.VISIBLE
+                tab.browserTab.captureThumbnail { bmp ->
+                    if (bmp != null) holder.tabRowThumbnail?.setImageBitmap(bmp)
+                    else holder.tabRowThumbnail?.setImageResource(R.drawable.haze_logo)
+                }
+
+                // Multi-select Checkbox vs Close Button in List
+                if (isSelectionMode) {
+                    holder.tabClose?.visibility = View.GONE
+                    holder.rowTabSelectCheckbox?.visibility = View.VISIBLE
+                    if (selectedTabIds.contains(tab.id)) {
+                        holder.rowTabSelectCheckbox?.setImageResource(R.drawable.ic_check)
+                        holder.rowTabSelectCheckbox?.setColorFilter(Color.WHITE)
+                        holder.rowTabSelectCheckbox?.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(accentColor)
+                        }
+                    } else {
+                        holder.rowTabSelectCheckbox?.setImageDrawable(null)
+                        holder.rowTabSelectCheckbox?.background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setStroke(dpToPx(2f), Color.parseColor("#9AA0A6"))
+                        }
+                    }
+                } else {
+                    holder.tabClose?.visibility = View.VISIBLE
+                    holder.rowTabSelectCheckbox?.visibility = View.GONE
+                }
+
                 val listLongClickListener = View.OnLongClickListener { v ->
                     val enabled = prefs.getBoolean(HazeTabSystemManager.PREF_GESTURE_LONG_PRESS_TAB_OPTIONS, true)
-                    if (enabled) {
+                    if (enabled && !isSelectionMode) {
                         triggerStrongHaptic(v, isHeavy = true)
                         showTabOptionsMenu(tab)
                         true
@@ -5379,13 +5837,24 @@ class MainActivity : AppCompatActivity() {
 
                 val listClickListener = View.OnClickListener {
                     triggerStrongHaptic(it)
-                    onItemClick(tab)
+                    if (isSelectionMode) {
+                        if (selectedTabIds.contains(tab.id)) {
+                            selectedTabIds.remove(tab.id)
+                        } else {
+                            selectedTabIds.add(tab.id)
+                        }
+                        notifyItemChanged(position)
+                        onSelectionChanged?.invoke(selectedTabIds.size)
+                    } else {
+                        onItemClick(tab)
+                    }
                 }
                 holder.rowContainer?.setOnClickListener(listClickListener)
                 holder.itemView.setOnClickListener(listClickListener)
                 holder.tabTitle?.setOnClickListener(listClickListener)
                 holder.tabUrl?.setOnClickListener(listClickListener)
                 holder.tabIcon?.setOnClickListener(listClickListener)
+                holder.rowTabSelectCheckbox?.setOnClickListener(listClickListener)
 
                 holder.tabClose?.setOnClickListener {
                     triggerStrongHaptic(it)

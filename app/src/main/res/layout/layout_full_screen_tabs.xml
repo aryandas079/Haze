@@ -101,6 +101,15 @@
             android:orientation="horizontal">
 
             <ImageButton
+                android:id="@+id/btnSelectTabs"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select Tabs"
+                android:src="@drawable/ic_select_mode"
+                app:tint="#444746" />
+
+            <ImageButton
                 android:id="@+id/btnToggleViewMode"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
@@ -131,6 +140,73 @@
                 android:visibility="gone" />
         </LinearLayout>
     </RelativeLayout>
+
+    <!-- Multi-selection Action Bar (shown when selecting tabs) -->
+    <LinearLayout
+        android:id="@+id/barMultiSelect"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:background="#E8EEF9"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btnMultiSelectAll"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_check"
+            app:tint="#0B57D0"
+            android:contentDescription="Select All" />
+
+        <TextView
+            android:id="@+id/tvMultiSelectCount"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="0 selected"
+            android:textColor="#0B57D0"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnMultiSelectGroup"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_tab_group"
+            app:tint="#0B57D0"
+            android:contentDescription="Group Selected" />
+
+        <ImageButton
+            android:id="@+id/btnMultiSelectClose"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_delete"
+            app:tint="#B3261E"
+            android:contentDescription="Close Selected" />
+
+        <TextView
+            android:id="@+id/btnMultiSelectDone"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginStart="10dp"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="Done"
+            android:textColor="#0B57D0"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
 
     <!-- Chrome Full-Width Curved Search Bar: "Search your tabs" -->
     <LinearLayout
@@ -257,6 +333,60 @@
                 android:text="+ Open Incognito Tab"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <!-- Incognito Locked State Screen -->
+        <LinearLayout
+            android:id="@+id/layoutLockedIncognito"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="32dp"
+            android:visibility="gone">
+
+            <ImageView
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:src="@drawable/ic_lock_shield"
+                app:tint="#A8C7FA"
+                android:layout_marginBottom="18dp"
+                android:contentDescription="Locked Incognito" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Private Browsing is Locked"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Unlock with PIN or biometric authentication to view your open Incognito tabs."
+                android:textColor="#9AA0A6"
+                android:textSize="13.5sp"
+                android:gravity="center"
+                android:layout_marginBottom="28dp" />
+
+            <TextView
+                android:id="@+id/btnUnlockIncognito"
+                android:layout_width="wrap_content"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_new_tab_squircle"
+                android:gravity="center"
+                android:paddingStart="28dp"
+                android:paddingEnd="28dp"
+                android:text="Unlock Incognito"
+                android:textColor="#FFFFFF"
+                android:textSize="14.5sp"
                 android:textStyle="bold"
                 android:fontFamily="sans-serif-medium"
                 android:clickable="true"
