@@ -363,8 +363,8 @@ object HazeContextMenuManager {
         }
 
         addItem("Translate page", R.drawable.ic_translate) {
-            val translateUrl = "https://translate.google.com/translate?sl=auto&tl=en&u=${URLEncoder.encode(currentUrl, "UTF-8")}"
-            activity.addNewTab(translateUrl)
+            val currentTab = activity.getActiveTab()
+            HazeTranslationManager.translateTab(activity, currentTab, "en", "English")
         }
 
         addItem("Visual search with Google Lens", R.drawable.ic_lens) {

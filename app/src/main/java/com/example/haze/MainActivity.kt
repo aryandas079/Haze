@@ -630,13 +630,25 @@ class MainActivity : AppCompatActivity() {
         constructor(browserTab: IBrowserTab) : this(ownerTab = browserTab, ownerWebView = null)
 
         @JavascriptInterface
-        fun onNonEnglishPageDetected(detectedLang: String) {
+        fun onNonEnglishPageDetected(detectedLang: String, detectedCode: String? = null) {
             runOnUiThread {
                 val tab = getTabForInterface(ownerTab, ownerWebView) ?: return@runOnUiThread
-                if (!tab.isPrivate && !isHomeTab(tab)) {
-                    showTranslationSuggestionBanner(tab, detectedLang)
+                if (!isHomeTab(tab)) {
+                    HazeTranslationManager.showSuggestionBanner(this@MainActivity, tab, detectedLang, detectedCode ?: "")
                 }
             }
+        }
+
+        @JavascriptInterface
+        fun translateBatchNative(startIndex: Int, batchJson: String, targetLang: String) {
+            HazeTranslationManager.handleNativeTranslationBatch(
+                this@MainActivity,
+                ownerTab,
+                ownerWebView,
+                startIndex,
+                batchJson,
+                targetLang
+            )
         }
 
         @JavascriptInterface
@@ -2954,6 +2966,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        HazeTranslationManager.dismissSuggestionBanner(this@MainActivity, clearLastPrompted = false)
         val previousTab = currentTabsList.getOrNull(activeTabIndex)
         val nextTab = currentTabsList[index]
         nextTab.lastAccessedTime = System.currentTimeMillis()
@@ -3201,6 +3214,7 @@ class MainActivity : AppCompatActivity() {
         browserTab.setEngineObserver(object : IEngineObserver {
             override fun onPageStarted(tab: IBrowserTab, url: String, favicon: Bitmap?) {
                 runOnUiThread {
+                    HazeTranslationManager.dismissSuggestionBanner(this@MainActivity, clearLastPrompted = true)
                     val ownerTab = getTabForInterface(tab, null)
                     val isPriv = ownerTab?.isPrivate ?: isPrivateMode
                     if (!url.startsWith("haze://") && !url.startsWith("about:") && !url.startsWith("javascript:") && !url.startsWith("data:")) {
@@ -3455,6 +3469,9 @@ class MainActivity : AppCompatActivity() {
                             })();
                         """.trimIndent()
                         tab.evaluateJavascript(mediaScript, null)
+
+                        // Automatic non-English page detection hook
+                        tab.evaluateJavascript(HazeTranslationManager.getLanguageDetectionScript(), null)
                     }
                     updateNavigationButtons()
                 }
@@ -3780,6 +3797,7 @@ class MainActivity : AppCompatActivity() {
                     topLevelUrl = url
                     HazeFasterReloadingEngine.recordNavigation(this@MainActivity, url)
                 }
+                HazeTranslationManager.dismissSuggestionBanner(this@MainActivity, clearLastPrompted = true)
                 showPageLoading(5)
                 super.onPageStarted(view, url, favicon)
                 updatePrivacyShieldButton()
@@ -3909,53 +3927,7 @@ class MainActivity : AppCompatActivity() {
                     injectCosmeticAdBlockers(view, url)
 
                     // Automatic non-English page detection hook
-                    val detectLanguageScript = """
-                        (function() {
-                            if (window.__hazeLangChecked) return;
-                            window.__hazeLangChecked = true;
-
-                            var lang = (document.documentElement.lang || document.body.lang || '').toLowerCase();
-                            var isNonEnglish = false;
-                            var detectedLang = '';
-
-                            if (lang && !lang.startsWith('en')) {
-                                isNonEnglish = true;
-                                if (lang.startsWith('zh')) detectedLang = 'Chinese';
-                                else if (lang.startsWith('es')) detectedLang = 'Spanish';
-                                else if (lang.startsWith('fr')) detectedLang = 'French';
-                                else if (lang.startsWith('de')) detectedLang = 'German';
-                                else if (lang.startsWith('ja')) detectedLang = 'Japanese';
-                                else if (lang.startsWith('ru')) detectedLang = 'Russian';
-                                else if (lang.startsWith('ar')) detectedLang = 'Arabic';
-                                else if (lang.startsWith('hi')) detectedLang = 'Hindi';
-                                else if (lang.startsWith('pt')) detectedLang = 'Portuguese';
-                                else if (lang.startsWith('ko')) detectedLang = 'Korean';
-                                else if (lang.startsWith('it')) detectedLang = 'Italian';
-                                else detectedLang = lang.toUpperCase();
-                            } else {
-                                var text = (document.body ? document.body.innerText : '') || '';
-                                var sample = text.substring(0, 1200);
-                                if (/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/.test(sample)) {
-                                    isNonEnglish = true;
-                                    detectedLang = 'Chinese / Japanese';
-                                } else if (/[\u0600-\u06ff]/.test(sample)) {
-                                    isNonEnglish = true;
-                                    detectedLang = 'Arabic';
-                                } else if (/[\u0400-\u04ff]/.test(sample)) {
-                                    isNonEnglish = true;
-                                    detectedLang = 'Russian';
-                                } else if (/[\u0900-\u097f]/.test(sample)) {
-                                    isNonEnglish = true;
-                                    detectedLang = 'Hindi';
-                                }
-                            }
-
-                            if (isNonEnglish && window.Android && window.Android.onNonEnglishPageDetected) {
-                                window.Android.onNonEnglishPageDetected(detectedLang);
-                            }
-                        })();
-                    """.trimIndent()
-                    view?.evaluateJavascript(detectLanguageScript, null)
+                    view?.evaluateJavascript(HazeTranslationManager.getLanguageDetectionScript(), null)
                 }
 
                 // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
@@ -6453,29 +6425,18 @@ class MainActivity : AppCompatActivity() {
         // --- Translate Implementation ---
         btnTranslate.setOnClickListener {
             triggerStrongHaptic(it)
-            val languages = arrayOf("Spanish", "French", "German", "Hindi", "Japanese", "Chinese", "Arabic", "Portuguese", "Russian")
+            val names = HazeTranslationManager.SUPPORTED_LANGUAGES.map { it.first }.toTypedArray()
             AlertDialog.Builder(this)
                 .setTitle("Translate Article To")
-                .setItems(languages) { _, which ->
-                    val langCode = when (languages[which]) {
-                        "Spanish" -> "es"
-                        "French" -> "fr"
-                        "German" -> "de"
-                        "Hindi" -> "hi"
-                        "Japanese" -> "ja"
-                        "Chinese" -> "zh"
-                        "Arabic" -> "ar"
-                        "Portuguese" -> "pt"
-                        "Russian" -> "ru"
-                        else -> "es"
-                    }
+                .setItems(names) { _, which ->
+                    val chosen = HazeTranslationManager.SUPPORTED_LANGUAGES[which]
                     val currentTab = currentTabsList.getOrNull(activeTabIndex)
                     if (currentTab != null) {
-                        val transUrl = "https://translate.google.com/translate?sl=auto&tl=$langCode&u=${Uri.encode(currentTab.url)}"
                         dialog.dismiss()
-                        loadUrlFromInput(transUrl)
+                        HazeTranslationManager.translateTab(this, currentTab, chosen.second, chosen.third)
                     }
                 }
+                .setNegativeButton("Cancel", null)
                 .show()
         }
 
@@ -7640,196 +7601,21 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private var activeTranslationBanner: View? = null
-
     fun showTranslationSuggestionBanner(tab: Tab, languageName: String) {
-        if (activeTranslationBanner != null) return
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        val bannerBg = if (isDark) Color.parseColor("#262626") else Color.parseColor("#E8F0FE")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#174EA6")
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
-
-        val banner = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dpToPx(16), dpToPx(10), dpToPx(12), dpToPx(10))
-            background = GradientDrawable().apply {
-                cornerRadius = dpToPx(24).toFloat()
-                setColor(bannerBg)
-                setStroke(dpToPx(1), if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
-            }
-            elevation = dpToPx(12).toFloat()
-        }
-
-        val icon = ImageView(this).apply {
-            setImageResource(R.drawable.ic_translate)
-            setColorFilter(textColor)
-            layoutParams = LinearLayout.LayoutParams(dpToPx(20), dpToPx(20)).apply {
-                marginEnd = dpToPx(10)
-            }
-        }
-
-        val tvText = TextView(this).apply {
-            text = "Page is in $languageName. Translate to English?"
-            textSize = 12.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(textColor)
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        val btnTranslate = TextView(this).apply {
-            text = "Translate"
-            textSize = 12.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dpToPx(14).toFloat()
-                setColor(accentColor)
-            }
-            setPadding(dpToPx(12), dpToPx(6), dpToPx(12), dpToPx(6))
-            setOnClickListener {
-                triggerStrongHaptic()
-                dismissTranslationSuggestionBanner()
-                executeInPageTranslation("en")
-            }
-        }
-
-        val btnClose = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_close)
-            setColorFilter(textColor)
-            background = null
-            setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
-            layoutParams = LinearLayout.LayoutParams(dpToPx(28), dpToPx(28)).apply {
-                marginStart = dpToPx(6)
-            }
-            setOnClickListener {
-                triggerStrongHaptic()
-                dismissTranslationSuggestionBanner()
-            }
-        }
-
-        banner.addView(icon)
-        banner.addView(tvText)
-        banner.addView(btnTranslate)
-        banner.addView(btnClose)
-
-        val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.BOTTOM
-            setMargins(dpToPx(16), 0, dpToPx(16), dpToPx(72))
-        }
-
-        activeTranslationBanner = banner
-        webContainer.addView(banner, params)
-
-        banner.alpha = 0f
-        banner.translationY = dpToPx(20).toFloat()
-        banner.animate().alpha(1f).translationY(0f).setDuration(220).setInterpolator(BUTTER_INTERPOLATOR).start()
+        HazeTranslationManager.showSuggestionBanner(this, tab, languageName)
     }
 
     fun dismissTranslationSuggestionBanner() {
-        val v = activeTranslationBanner ?: return
-        v.animate().alpha(0f).translationY(dpToPx(20).toFloat()).setDuration(180).withEndAction {
-            webContainer.removeView(v)
-            activeTranslationBanner = null
-        }.start()
+        HazeTranslationManager.dismissSuggestionBanner(this)
     }
 
     fun executeInPageTranslation(targetLang: String = "en") {
         val currentTab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val url = currentTab.url
-        if (isHomeTab(currentTab) || url.startsWith("haze://")) return
-
-        Toast.makeText(this, "Translating page...", Toast.LENGTH_SHORT).show()
-
-        val translateScript = """
-            (function() {
-                var existingSelect = document.querySelector('.goog-te-combo');
-                if (existingSelect) {
-                    existingSelect.value = '$targetLang';
-                    existingSelect.dispatchEvent(new Event('change'));
-                    return;
-                }
-
-                if (!document.getElementById('__haze_gt_style')) {
-                    var style = document.createElement('style');
-                    style.id = '__haze_gt_style';
-                    style.textContent = '.goog-te-banner-frame, .goog-te-balloon-frame { display: none !important; } body { top: 0px !important; position: static !important; }';
-                    (document.head || document.documentElement).appendChild(style);
-                }
-
-                if (!document.getElementById('google_translate_element')) {
-                    var div = document.createElement('div');
-                    div.id = 'google_translate_element';
-                    div.style.display = 'none';
-                    (document.body || document.documentElement).appendChild(div);
-                }
-
-                window.googleTranslateElementInit = function() {
-                    new google.translate.TranslateElement({
-                        pageLanguage: 'auto',
-                        includedLanguages: 'en,hi,es,fr,de,ja,zh-CN,ru,ar,pt,it,ko',
-                        autoDisplay: false
-                    }, 'google_translate_element');
-
-                    var checkInterval = setInterval(function() {
-                        var select = document.querySelector('.goog-te-combo');
-                        if (select) {
-                            clearInterval(checkInterval);
-                            select.value = '$targetLang';
-                            select.dispatchEvent(new Event('change'));
-                        }
-                    }, 250);
-                };
-
-                var script = document.createElement('script');
-                script.src = '//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
-                (document.head || document.documentElement).appendChild(script);
-            })();
-        """.trimIndent()
-
-        currentTab.browserTab.evaluateJavascript(translateScript) {
-            mainHandler.postDelayed({
-                currentTab.browserTab.evaluateJavascript("(function(){ return !!document.querySelector('.goog-te-combo'); })()") { success ->
-                    if (success != "true") {
-                        val translateUrl = "https://translate.google.com/translate?sl=auto&tl=$targetLang&hl=en&u=${Uri.encode(url)}"
-                        currentTab.browserTab.navigationController.loadUrl(translateUrl)
-                    }
-                }
-            }, 2500)
-        }
+        HazeTranslationManager.translateTab(this, currentTab, targetLang)
     }
 
     fun translateCurrentPage() {
-        val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val url = tab.url
-        if (isHomeTab(tab) || url.startsWith("haze://")) {
-            Toast.makeText(this, "Cannot translate internal page", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val languages = listOf(
-            Pair("English", "en"),
-            Pair("Hindi (हिन्दी)", "hi"),
-            Pair("Spanish (Español)", "es"),
-            Pair("French (Français)", "fr"),
-            Pair("German (Deutsch)", "de"),
-            Pair("Japanese (日本語)", "ja"),
-            Pair("Chinese (中文)", "zh-CN"),
-            Pair("Russian (Русский)", "ru"),
-            Pair("Arabic (العربية)", "ar"),
-            Pair("Portuguese (Português)", "pt")
-        )
-        val names = languages.map { it.first }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Translate Page Into")
-            .setItems(names) { _, which ->
-                val langCode = languages[which].second
-                executeInPageTranslation(langCode)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        HazeTranslationManager.showLanguagePickerDialog(this)
     }
 
     fun saveCurrentPageForOffline() {
