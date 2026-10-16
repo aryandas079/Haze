@@ -6986,7 +6986,6 @@ class MainActivity : AppCompatActivity() {
             Pair(if (isDesktopActive) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop),
             Pair("Find on Page", R.drawable.ic_search),
             Pair("Share", R.drawable.ic_share),
-            Pair("Recent Tabs", R.drawable.ic_restore),
             Pair("Save Offline", R.drawable.ic_download),
             Pair("DevTools", R.drawable.ic_code),
             Pair("Extra", R.drawable.ic_extra),
@@ -7080,7 +7079,6 @@ class MainActivity : AppCompatActivity() {
                     "Desktop Site", "Mobile Site" -> currentTabsList.getOrNull(activeTabIndex)?.let { toggleDesktopSite(it) }
                     "Find on Page" -> showFindBar()
                     "Share" -> shareCurrentPage()
-                    "Recent Tabs" -> showRecentlyClosedTabsDialog()
                     "Save Offline" -> saveCurrentPageForOffline()
                     "DevTools", "Inspect" -> currentTabsList.getOrNull(activeTabIndex)?.let {
                         if (HazeDevToolsManager.isDevToolsVisible(this)) {
