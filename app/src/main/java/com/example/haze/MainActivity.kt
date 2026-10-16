@@ -5955,14 +5955,27 @@ class MainActivity : AppCompatActivity() {
         val btnMenuHome = popupView.findViewById<ImageButton>(R.id.btnMenuHome)
 
         val iconColor = if (isDark) Color.parseColor("#CCCCCC") else Color.parseColor("#5F6368")
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
         btnMenuBack?.setColorFilter(iconColor)
         btnMenuForward?.setColorFilter(iconColor)
-        btnMenuStar?.setColorFilter(accentColor)
         btnMenuReload?.setColorFilter(iconColor)
         btnMenuHome?.setColorFilter(iconColor)
 
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        val currentUrl = currentTab?.url ?: HAZE_HOME_URL
+        val db = HazeDatabase.getInstance(this)
+        var isStarred = currentTab != null && !isHomeTab(currentTab) && !currentUrl.startsWith("haze://") && db.isBookmarked(currentUrl)
+
+        fun updateStarIcon() {
+            if (isStarred) {
+                btnMenuStar?.setImageResource(R.drawable.ic_star_filled)
+                btnMenuStar?.setColorFilter(Color.parseColor("#FF6D00"))
+            } else {
+                btnMenuStar?.setImageResource(R.drawable.ic_star_outline)
+                btnMenuStar?.setColorFilter(iconColor)
+            }
+        }
+        updateStarIcon()
+
         btnMenuBack?.setOnClickListener {
             triggerStrongHaptic(it)
             popupWindow.dismiss()
@@ -5979,7 +5992,27 @@ class MainActivity : AppCompatActivity() {
         }
         btnMenuStar?.setOnClickListener {
             triggerStrongHaptic(it)
+            if (currentTab == null || isHomeTab(currentTab) || currentUrl.startsWith("haze://")) {
+                Toast.makeText(this, "Home page cannot be favorited", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (isStarred) {
+                db.deleteBookmarkByUrl(currentUrl)
+                isStarred = false
+                updateStarIcon()
+                Toast.makeText(this, "Removed from Favorites", Toast.LENGTH_SHORT).show()
+            } else {
+                val title = currentTab.title.ifBlank { currentUrl }
+                db.addBookmark(title, currentUrl, 0L)
+                isStarred = true
+                updateStarIcon()
+                Toast.makeText(this, "Added to Favorites!", Toast.LENGTH_SHORT).show()
+            }
+        }
+        btnMenuStar?.setOnLongClickListener {
+            triggerStrongHaptic(it, isHeavy = true)
             showStarBookmarkDialog(popupWindow)
+            true
         }
         btnMenuReload?.setOnClickListener {
             triggerStrongHaptic(it)
