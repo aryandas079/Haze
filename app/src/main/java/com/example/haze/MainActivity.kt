@@ -7005,14 +7005,10 @@ class MainActivity : AppCompatActivity() {
             iconView.contentDescription = item.first
             textView.text = item.first
             itemView.contentDescription = item.first
-            if (item.first == "Performance" && isPerfActive) {
-                val activePerfTint = Color.parseColor("#FBBC04")
-                iconView.setColorFilter(activePerfTint)
-                textView.setTextColor(activePerfTint)
-            } else if (item.first == "Data Saver" && isDataSaverActive) {
-                val activeDataTint = Color.parseColor("#0A56D0")
-                iconView.setColorFilter(activeDataTint)
-                textView.setTextColor(activeDataTint)
+            if (item.first == "Performance" || item.first == "Data Saver") {
+                val iconColorPerf = if (isDark) Color.parseColor("#CCCCCC") else Color.parseColor("#5F6368")
+                iconView.setColorFilter(iconColorPerf)
+                textView.setTextColor(if (isDark) Color.parseColor("#E0E0E0") else Color.parseColor("#202124"))
             } else if (item.first == "Mobile Site" || (item.first == "Desktop Site" && isDesktopActive)) {
                 val activeTint = Color.parseColor("#4A90E2")
                 iconView.setColorFilter(activeTint)
