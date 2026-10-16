@@ -10,10 +10,13 @@ import android.os.Build
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.*
+import android.content.res.ColorStateList
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.Locale
 
@@ -346,8 +349,9 @@ object HazePerformanceManager {
         addFeatureToggle("Reduced JavaScript workload", "Throttles intensive recurring JavaScript intervals", PREF_REDUCED_JS_WORKLOAD)
         addFeatureToggle("Lite mode for weak devices", "Disables offscreen pre-rasterizing on memory-constrained devices", PREF_LITE_MODE)
 
-        scroll.addView(optionsContainer)
-        root.addView(scroll)
+        innerContainer.addView(optionsContainer)
+        scrollContent.addView(innerContainer)
+        root.addView(scrollContent)
 
         mainSwitch.setOnCheckedChangeListener { _, isChecked ->
             activity.triggerStrongHaptic()
