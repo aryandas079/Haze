@@ -4804,6 +4804,7 @@ class MainActivity : AppCompatActivity() {
         val etTabSearch = dialog.findViewById<EditText>(R.id.etTabSearch)
         val btnClearTabSearch = dialog.findViewById<ImageButton>(R.id.btnClearTabSearch)
         val rvActiveTabs = dialog.findViewById<RecyclerView>(R.id.rvActiveTabs)
+        val layoutEmptyPersonal = dialog.findViewById<LinearLayout>(R.id.layoutEmptyPersonal)
         val layoutEmptyIncognito = dialog.findViewById<LinearLayout>(R.id.layoutEmptyIncognito)
         val btnEmptyNewIncognito = dialog.findViewById<TextView>(R.id.btnEmptyNewIncognito)
         val btnEmptyIncognitoPin = dialog.findViewById<LinearLayout>(R.id.btnEmptyIncognitoPin)
@@ -5281,12 +5282,14 @@ class MainActivity : AppCompatActivity() {
                     layoutLockedIncognito?.setOnClickListener(unlockAction)
                 } else if (privateTabs.isEmpty()) {
                     layoutLockedIncognito?.visibility = View.GONE
-                    rvActiveTabs.visibility = View.GONE
-                    layoutEmptyIncognito?.visibility = View.VISIBLE
-                } else {
-                    layoutLockedIncognito?.visibility = View.GONE
-                    layoutEmptyIncognito?.visibility = View.GONE
-                    rvActiveTabs.visibility = View.VISIBLE
+                layoutEmptyPersonal?.visibility = View.GONE
+                rvActiveTabs.visibility = View.GONE
+                layoutEmptyIncognito?.visibility = View.VISIBLE
+            } else {
+                layoutLockedIncognito?.visibility = View.GONE
+                layoutEmptyPersonal?.visibility = View.GONE
+                layoutEmptyIncognito?.visibility = View.GONE
+                rvActiveTabs.visibility = View.VISIBLE
                     if (animate) {
                         rvActiveTabs.animate().cancel()
                         rvActiveTabs.alpha = 0f
@@ -5350,16 +5353,23 @@ class MainActivity : AppCompatActivity() {
 
                 layoutLockedIncognito?.visibility = View.GONE
                 layoutEmptyIncognito?.visibility = View.GONE
-                rvActiveTabs.visibility = View.VISIBLE
-                if (animate) {
-                    rvActiveTabs.animate().cancel()
-                    rvActiveTabs.alpha = 0f
-                    rvActiveTabs.adapter = personalAdapter
-                    rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+
+                if (normalTabs.isEmpty()) {
+                    rvActiveTabs.visibility = View.GONE
+                    layoutEmptyPersonal?.visibility = View.VISIBLE
                 } else {
-                    rvActiveTabs.adapter = personalAdapter
+                    layoutEmptyPersonal?.visibility = View.GONE
+                    rvActiveTabs.visibility = View.VISIBLE
+                    if (animate) {
+                        rvActiveTabs.animate().cancel()
+                        rvActiveTabs.alpha = 0f
+                        rvActiveTabs.adapter = personalAdapter
+                        rvActiveTabs.animate().alpha(1f).setDuration(220L).setInterpolator(BUTTER_INTERPOLATOR).start()
+                    } else {
+                        rvActiveTabs.adapter = personalAdapter
+                    }
+                    currentTouchHelper?.attachToRecyclerView(rvActiveTabs)
                 }
-                currentTouchHelper?.attachToRecyclerView(rvActiveTabs)
             }
         }
 

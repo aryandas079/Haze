@@ -98,7 +98,6 @@ object HazeDnsManager {
     // Known Ad & Analytics Tracker Domains blocked at DNS level
     private val dnsTrackerDomains = hashSetOf(
         "google-analytics.com",
-        "googletagmanager.com",
         "doubleclick.net",
         "adservice.google.com",
         "pagead2.googlesyndication.com",
@@ -143,7 +142,8 @@ object HazeDnsManager {
         val protocol: String = "",
         val isBlockedByDns: Boolean = false,
         val blockReason: String? = null,
-        val error: String? = null
+        val error: String? = null,
+        val usedFallback: Boolean = false
     )
 
     private fun getPrefs(context: Context): SharedPreferences {
@@ -250,6 +250,18 @@ object HazeDnsManager {
     fun evaluateDnsRequest(context: Context, host: String?, isMainFrame: Boolean): HazePrivacyShieldEngine.BlockDecision? {
         if (host.isNullOrBlank()) return null
         val cleanHost = host.trim().lowercase().removePrefix("www.")
+
+        // Never block essential identity, CDN, or payment domains at DNS level
+        if (HazeAntiTrackingEngine.AUTH_AND_PAYMENT_EXEMPT_DOMAINS.any { cleanHost == it || cleanHost.endsWith(".$it") }) {
+            return null
+        }
+
+        // Never block if site compatibility has troubleshooting reload, temporary allow, or shields paused
+        if (HazeSiteCompatibilityManager.isTroubleshootingReloadActive(cleanHost) ||
+            HazeSiteCompatibilityManager.isTemporarilyAllowed(cleanHost) ||
+            HazeSiteCompatibilityManager.getSiteMode(context, cleanHost) == HazeSiteCompatibilityManager.MODE_ALLOW_ALL) {
+            return null
+        }
 
         // 1. DNS Malware Check
         if (isMalwareBlockingEnabled(context) && isMalwareDomain(cleanHost)) {

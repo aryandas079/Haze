@@ -1,6 +1,7 @@
 package com.example.haze
 
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.WebView
@@ -105,6 +106,34 @@ object HazeAntiTrackingEngine {
                 lower.startsWith("hsa_")
     }
 
+    // Auth, SSO, CAPTCHA, and Payment Infrastructure that must never be unbounced or stripped
+    val AUTH_AND_PAYMENT_EXEMPT_DOMAINS = hashSetOf(
+        "accounts.google.com", "apis.google.com", "oauth2.googleapis.com", "ssl.gstatic.com", "www.gstatic.com",
+        "appleid.apple.com", "idmsa.apple.com",
+        "login.microsoftonline.com", "login.live.com", "account.live.com", "msftauth.net", "auth.msftidentity.com",
+        "github.com", "gitlab.com", "auth0.com", "okta.com", "oktacdn.com",
+        "paypal.com", "c.paypal.com", "paypalobjects.com", "stripe.com", "js.stripe.com", "api.stripe.com",
+        "checkout.razorpay.com", "api.razorpay.com", "pay.google.com", "applepay.com",
+        "challenges.cloudflare.com", "turnstile.cloudflare.com", "recaptcha.net", "hcaptcha.com"
+    )
+
+    fun isAuthOrPaymentUrl(url: String): Boolean {
+        if (url.isEmpty()) return false
+        val lower = url.lowercase()
+        val host = extractHostFromUrl(lower)
+        if (AUTH_AND_PAYMENT_EXEMPT_DOMAINS.any { host == it || host.endsWith(".$it") }) {
+            return true
+        }
+        val path = try { Uri.parse(lower).path.orEmpty() } catch (_: Exception) { "" }
+        if (path.contains("/oauth") || path.contains("/auth") || path.contains("/login") ||
+            path.contains("/signin") || path.contains("/authorize") || path.contains("/saml") ||
+            path.contains("/sso") || path.contains("/callback") || path.contains("/checkout") ||
+            path.contains("/pay") || path.contains("/verify") || path.contains("/challenge")) {
+            return true
+        }
+        return false
+    }
+
     /**
      * Strips all tracking parameters from the given URL.
      * Example:
@@ -113,6 +142,11 @@ object HazeAntiTrackingEngine {
      */
     fun stripTrackingParameters(url: String, context: Context? = null): String {
         if (url.isEmpty() || !url.contains("?") || url.startsWith("javascript:") || url.startsWith("data:") || url.startsWith("about:") || url.startsWith("haze:")) {
+            return url
+        }
+
+        // Never strip query parameters from OAuth, authentication flows or payment callbacks
+        if (isAuthOrPaymentUrl(url)) {
             return url
         }
 
@@ -174,7 +208,8 @@ object HazeAntiTrackingEngine {
     val KNOWN_BOUNCE_DOMAINS = hashSetOf(
         "l.facebook.com", "lm.facebook.com", "l.instagram.com", "click.googleanalytics.com",
         "out.tracker.com", "redirect.adnetwork.com", "t.co", "href.li", "gate.sc",
-        "link.zhihu.com", "dereferer.me", "anonym.to", "away.vk.com"
+        "link.zhihu.com", "dereferer.me", "anonym.to", "away.vk.com",
+        "click.adnetwork.com", "click.advertiser.com", "track.adform.net"
     )
 
     private fun extractHostFromUrl(url: String): String {
@@ -200,10 +235,22 @@ object HazeAntiTrackingEngine {
             return null
         }
 
+        // Never unbounce authentication, payment, or challenge pages
+        if (isAuthOrPaymentUrl(url)) {
+            return null
+        }
+
         try {
             val host = extractHostFromUrl(url)
-            val isKnownBounce = KNOWN_BOUNCE_DOMAINS.contains(host) || host.contains("redirect") || host.contains("click")
-            val isGoogleRedirect = (host == "google.com" || host.endsWith(".google.com")) && url.contains("/url?")
+            val isKnownBounce = KNOWN_BOUNCE_DOMAINS.contains(host)
+            val isSearchRedirect = ((host == "google.com" || host.endsWith(".google.com")) && url.contains("/url?")) ||
+                ((host == "bing.com" || host.endsWith(".bing.com")) && url.contains("/ck/a?")) ||
+                ((host == "yandex.ru" || host.endsWith(".yandex.ru") || host.endsWith(".yandex.com")) && url.contains("/clck/"))
+
+            // Only unbounce confirmed bounce trackers or search click redirects
+            if (!isKnownBounce && !isSearchRedirect) {
+                return null
+            }
 
             val qIdx = url.indexOf('?')
             val rest = url.substring(qIdx + 1)
@@ -217,12 +264,17 @@ object HazeAntiTrackingEngine {
                 val key = if (eqIdx != -1) pair.substring(0, eqIdx).lowercase() else pair.lowercase()
                 val value = if (eqIdx != -1) pair.substring(eqIdx + 1) else ""
 
-                if (BOUNCE_DEST_PARAMS.contains(key) || (isGoogleRedirect && (key == "q" || key == "url"))) {
+                if (BOUNCE_DEST_PARAMS.contains(key) || (isSearchRedirect && (key == "q" || key == "url" || key == "u"))) {
                     val decoded = runCatching { URLDecoder.decode(value, "UTF-8") }.getOrDefault(value).trim()
 
                     if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+                        // Never bypass into an authentication or checkout flow
+                        if (isAuthOrPaymentUrl(decoded)) {
+                            return null
+                        }
+
                         val destHost = extractHostFromUrl(decoded)
-                        if (destHost.isNotEmpty() && (destHost != host || isKnownBounce || isGoogleRedirect)) {
+                        if (destHost.isNotEmpty() && (destHost != host || isKnownBounce || isSearchRedirect)) {
                             sessionBounceTrackersBlocked.incrementAndGet()
                             context?.let { ctx ->
                                 HazePrivacyShieldEngine.recordBounceStopped(ctx)
@@ -363,35 +415,22 @@ object HazeAntiTrackingEngine {
 
                 ${if (blockCanvas) """
                 // 1. CANVAS FINGERPRINT DEFENSE
+                // Stealth probe detection without pixel corruption to ensure QR readers, photo editors, and CAPTCHAs work 100%
                 try {
                     var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
                     var origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
 
-                    function applyCanvasNoise(imgData) {
-                        if (!imgData || !imgData.data) return imgData;
-                        var d = imgData.data;
-                        var len = d.length;
-                        for (var i = 0; i < len; i += 256) {
-                            d[i] = d[i] ^ 1;
+                    CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+                        if (sw <= 32 && sh <= 32) {
+                            __reportProbe('Canvas');
                         }
-                        return imgData;
-                    }
-
-                    CanvasRenderingContext2D.prototype.getImageData = function() {
-                        __reportProbe('Canvas');
-                        var res = origGetImageData.apply(this, arguments);
-                        return applyCanvasNoise(res);
+                        return origGetImageData.apply(this, arguments);
                     };
 
                     HTMLCanvasElement.prototype.toDataURL = function() {
-                        __reportProbe('Canvas');
-                        try {
-                            var ctx = this.getContext('2d');
-                            if (ctx && this.width > 0 && this.height > 0) {
-                                var sample = origGetImageData.call(ctx, 0, 0, Math.min(this.width, 16), Math.min(this.height, 16));
-                                applyCanvasNoise(sample);
-                            }
-                        } catch(e) {}
+                        if (this.width <= 32 && this.height <= 32) {
+                            __reportProbe('Canvas');
+                        }
                         return origToDataURL.apply(this, arguments);
                     };
                 } catch(e) {}
@@ -399,32 +438,23 @@ object HazeAntiTrackingEngine {
 
                 ${if (blockWebGL) """
                 // 2. WEBGL FINGERPRINT DEFENSE
+                // Masks hardware vendor and renderer without corrupting readPixels buffer
                 try {
                     var hookWebGL = function(proto) {
                         if (!proto) return;
                         var origGetParam = proto.getParameter;
                         proto.getParameter = function(param) {
-                            if (param === 37445) {
+                            if (param === 37445) { // UNMASKED_VENDOR_WEBGL
                                 __reportProbe('WebGL');
-                                return "Google Inc. (Google)"; // UNMASKED_VENDOR_WEBGL
+                                return "Google Inc. (Google)";
                             }
-                            if (param === 37446) {
+                            if (param === 37446) { // UNMASKED_RENDERER_WEBGL
                                 __reportProbe('WebGL');
-                                return "ANGLE (Google, Vulkan 1.3.0, Android)"; // UNMASKED_RENDERER_WEBGL
+                                return "ANGLE (Google, Vulkan 1.3.0, Android)";
                             }
                             if (param === 3379) return 16384; // MAX_TEXTURE_SIZE
                             return origGetParam.apply(this, arguments);
                         };
-                        var origReadPix = proto.readPixels;
-                        if (origReadPix) {
-                            proto.readPixels = function(x, y, w, h, format, type, pixels) {
-                                __reportProbe('WebGL');
-                                origReadPix.apply(this, arguments);
-                                if (pixels && pixels.length > 0) {
-                                    pixels[0] = pixels[0] ^ 1;
-                                }
-                            };
-                        }
                     };
                     if (window.WebGLRenderingContext) hookWebGL(WebGLRenderingContext.prototype);
                     if (window.WebGL2RenderingContext) hookWebGL(WebGL2RenderingContext.prototype);
@@ -445,14 +475,12 @@ object HazeAntiTrackingEngine {
                         var origGetFloat = AnalyserNode.prototype.getFloatFrequencyData;
                         AnalyserNode.prototype.getFloatFrequencyData = function(arr) {
                             __reportProbe('Audio');
-                            origGetFloat.apply(this, arguments);
-                            if (arr && arr.length > 0) arr[0] += 0.0001;
+                            return origGetFloat.apply(this, arguments);
                         };
                         var origGetByte = AnalyserNode.prototype.getByteFrequencyData;
                         AnalyserNode.prototype.getByteFrequencyData = function(arr) {
                             __reportProbe('Audio');
-                            origGetByte.apply(this, arguments);
-                            if (arr && arr.length > 0) arr[0] = arr[0] ^ 1;
+                            return origGetByte.apply(this, arguments);
                         };
                     }
                 } catch(e) {}
@@ -464,8 +492,7 @@ object HazeAntiTrackingEngine {
                     var origMeasure = CanvasRenderingContext2D.prototype.measureText;
                     CanvasRenderingContext2D.prototype.measureText = function() {
                         __reportProbe('Font');
-                        var m = origMeasure.apply(this, arguments);
-                        return m;
+                        return origMeasure.apply(this, arguments);
                     };
                 } catch(e) {}
                 """.trimIndent() else ""}
@@ -476,18 +503,6 @@ object HazeAntiTrackingEngine {
                     Object.defineProperty(navigator, 'hardwareConcurrency', { get: function() { return 8; }, configurable: true });
                     Object.defineProperty(navigator, 'deviceMemory', { get: function() { return 8; }, configurable: true });
                     Object.defineProperty(navigator, 'maxTouchPoints', { get: function() { return 5; }, configurable: true });
-                    if (navigator.getBattery) {
-                        navigator.getBattery = function() {
-                            return Promise.resolve({
-                                charging: true,
-                                chargingTime: 0,
-                                dischargingTime: Infinity,
-                                level: 1.0,
-                                addEventListener: function() {},
-                                removeEventListener: function() {}
-                            });
-                        };
-                    }
                     Object.defineProperty(screen, 'colorDepth', { get: function() { return 24; }, configurable: true });
                     Object.defineProperty(screen, 'pixelDepth', { get: function() { return 24; }, configurable: true });
                 } catch(e) {}
@@ -495,6 +510,8 @@ object HazeAntiTrackingEngine {
 
                 ${if (blockIpLeak) """
                 // 6. WEBRTC IP LEAK DEFENSE
+                // Only filter private LAN IPv4 candidates while ALWAYS preserving STUN (srflx) and TURN (relay)
+                // so Google Meet, Zoom, Discord, and WebRTC video/audio calls function reliably!
                 try {
                     var protectPeerConnection = function(PC) {
                         if (!PC) return;
@@ -502,7 +519,7 @@ object HazeAntiTrackingEngine {
                         var origAnswer = PC.prototype.createAnswer;
                         function filterSdp(sdp) {
                             if (!sdp || typeof sdp !== 'string') return sdp;
-                            return sdp.replace(/^a=candidate:.+ typ (host|srflx) .*$/gm, '');
+                            return sdp.replace(/^a=candidate:.+ typ host .*(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+).*$/gm, '');
                         }
                         PC.prototype.createOffer = function() {
                             return origOffer.apply(this, arguments).then(function(desc) {
@@ -553,10 +570,15 @@ object HazeAntiTrackingEngine {
                 // 9. CLIENT-SIDE LINK TRACKING SCRUBBER
                 try {
                     var TRACKING_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id', 'utm_name', 'gclid', 'fbclid', 'igshid', 'msclkid', 'twclid', 'ttclid', 'dclid', 'gad_source', 'gbraid', 'wbraid', 'mc_cid', 'mc_eid', '_hsenc', '_hsmi', 'mkt_tok'];
+                    var AUTH_PATHS = ['/oauth', '/auth', '/login', '/signin', '/authorize', '/saml', '/sso', '/callback', '/checkout', '/pay'];
                     function cleanLink(raw) {
                         if (!raw || raw.indexOf('?') === -1) return raw;
                         try {
                             var u = new URL(raw, window.location.href);
+                            var pathLower = u.pathname.toLowerCase();
+                            for (var p = 0; p < AUTH_PATHS.length; p++) {
+                                if (pathLower.indexOf(AUTH_PATHS[p]) !== -1) return raw;
+                            }
                             var mod = false;
                             TRACKING_KEYS.forEach(function(k) {
                                 if (u.searchParams.has(k)) {
@@ -570,7 +592,7 @@ object HazeAntiTrackingEngine {
                     document.addEventListener('click', function(e) {
                         var a = e.target;
                         while (a && a.tagName !== 'A') a = a.parentElement;
-                        if (a && a.href) {
+                        if (a && a.href && !a.href.startsWith('javascript:')) {
                             var cleaned = cleanLink(a.href);
                             if (cleaned !== a.href) a.href = cleaned;
                         }

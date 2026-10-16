@@ -116,7 +116,7 @@ object HazeFilterListManager {
         "||teads.tv^", "||triplelift.com^", "||yieldmo.com^", "||sharethrough.com^", "||inmobi.com^",
         "||moatads.com^", "||adform.net^", "||flashtalking.com^", "||serving-sys.com^", "||contextweb.com^",
         "||lijit.com^", "||adroll.com^", "||yandexadexchange.net^", "||an.yandex.ru^", "||invitemedia.com^",
-        "||admeld.com^", "||applovin.com^", "||ironsrc.com^", "||vungle.com^", "||unity3d.com^",
+        "||admeld.com^", "||applovin.com^", "||ironsrc.com^", "||vungle.com^", "||unityads.unity3d.com^", "||adserver.unityads.com^",
         "||chartboost.com^", "||zergnet.com^", "||adblade.com^", "||undertone.com^", "||exponential.com^",
         "||hilltopads.net^", "||clickadu.com^", "||adcash.com^", "||juicyads.com^", "||trafficjunky.com^",
         "||dianomi.com^", "||content.ad^", "||adcolony.com^", "||smaato.net^", "||gumgum.com^", "||onetag.com^",

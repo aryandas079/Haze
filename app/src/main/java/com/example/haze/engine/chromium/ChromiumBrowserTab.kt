@@ -16,6 +16,7 @@ import com.example.haze.HazeAntiTrackingEngine
 import com.example.haze.HazeFilterListManager
 import com.example.haze.HazeSecurityWarningManager
 import com.example.haze.HazeDevToolsManager
+import com.example.haze.HazeIntelligentCacheManager
 import com.example.haze.engine.*
 import java.io.ByteArrayInputStream
 
@@ -172,6 +173,7 @@ class ChromiumBrowserTab(
                 val nonNullUrl = pageUrl ?: ""
                 url = nonNullUrl
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
+                    HazeIntelligentCacheManager.configureCacheMode(webView, nonNullUrl)
                     val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
                     val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
 
@@ -394,7 +396,8 @@ class ChromiumBrowserTab(
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 var targetUrl = request?.url?.toString() ?: return false
                 val ctx = webView.context
-                if (com.example.haze.HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(ctx)) {
+                val isGet = request?.method == null || request.method.equals("GET", ignoreCase = true)
+                if (isGet && com.example.haze.HazeAntiTrackingEngine.isBounceTrackingProtectionEnabled(ctx)) {
                     val unwrapped = com.example.haze.HazeAntiTrackingEngine.unwrapBounceTrackingUrl(targetUrl, ctx)
                     if (unwrapped != null) {
                         targetUrl = unwrapped
@@ -402,7 +405,7 @@ class ChromiumBrowserTab(
                         return true
                     }
                 }
-                if (com.example.haze.HazeAntiTrackingEngine.isLinkTrackingProtectionEnabled(ctx)) {
+                if (isGet && com.example.haze.HazeAntiTrackingEngine.isLinkTrackingProtectionEnabled(ctx)) {
                     val cleaned = com.example.haze.HazeAntiTrackingEngine.stripTrackingParameters(targetUrl, ctx)
                     if (cleaned != targetUrl) {
                         targetUrl = cleaned

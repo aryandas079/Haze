@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="64dp"
+    android:viewportWidth="24"
+    android:viewportHeight="32">
+    <!-- Solid white background to obscure the back tab -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,4 L20,4 C21.1,4 22,4.9 22,6 L22,26 C22,27.1 21.1,28 20,28 L4,28 C2.9,28 2,27.1 2,26 L2,6 C2,4.9 2.9,4 4,4 Z" />
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M4,4 L20,4 C21.1,4 22,4.9 22,6 L22,26 C22,27.1 21.1,28 20,28 L4,28 C2.9,28 2,27.1 2,26 L2,6 C2,4.9 2.9,4 4,4 Z M4,10 L20,10 L20,26 L4,26 L4,10 Z M6,6 L10,6 L10,8 L6,8 L6,6 Z" />
+</vector>

@@ -12,6 +12,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.*
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -1645,6 +1646,186 @@ object HazePrivacyShieldDashboard {
         siteHeaderCard.addView(siteMasterSwitch)
         root.addView(siteHeaderCard)
 
+        // 1b. Website Compatibility & Recovery Card
+        val compatCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 20).toFloat()
+                setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
+            }
+            setPadding(dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16), dpToPx(activity, 16))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 14)
+            }
+        }
+
+        val compatTitleRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 10)
+            }
+        }
+        val tvCompatTitle = TextView(activity).apply {
+            text = "Site Compatibility"
+            textSize = 15.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvCompatHint = TextView(activity).apply {
+            text = "Adaptive Filtering"
+            textSize = 11.5f
+            setTextColor(subTextColor)
+        }
+        compatTitleRow.addView(tvCompatTitle)
+        compatTitleRow.addView(tvCompatHint)
+        compatCard.addView(compatTitleRow)
+
+        // 3-Mode Selector Row: Standard | Balanced | Allow All
+        val modeSelector = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 12).toFloat()
+                setColor(if (isDark) Color.parseColor("#1F1F1F") else Color.parseColor("#EFEFEF"))
+            }
+            setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 12)
+            }
+        }
+
+        var currentMode = HazeSiteCompatibilityManager.getSiteMode(activity, host)
+        val modeButtons = mutableListOf<TextView>()
+
+        fun updateModeSelection(newMode: String) {
+            currentMode = newMode
+            HazeSiteCompatibilityManager.setSiteMode(activity, host, newMode)
+            for (btn in modeButtons) {
+                val tag = btn.tag as? String
+                val isSelected = tag == newMode
+                btn.setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+                btn.setTextColor(if (isSelected) (if (tag == HazeSiteCompatibilityManager.MODE_ALLOW_ALL) Color.parseColor("#EF4444") else accentColor) else subTextColor)
+                btn.background = if (isSelected) {
+                    GradientDrawable().apply {
+                        cornerRadius = dpToPx(activity, 10).toFloat()
+                        setColor(if (isDark) Color.parseColor("#2C2C2C") else Color.WHITE)
+                        setStroke(dpToPx(activity, 1), cardBorderColor)
+                    }
+                } else null
+            }
+        }
+
+        fun createModeButton(label: String, modeTag: String): TextView {
+            return TextView(activity).apply {
+                tag = modeTag
+                text = label
+                textSize = 12.5f
+                gravity = Gravity.CENTER
+                setPadding(dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8), dpToPx(activity, 8))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    activity.triggerStrongHaptic()
+                    updateModeSelection(modeTag)
+                    Toast.makeText(activity, "$host set to $label Mode", Toast.LENGTH_SHORT).show()
+                    activity.getActiveTab()?.browserTab?.navigationController?.reload()
+                }
+            }
+        }
+
+        val btnStd = createModeButton("Standard", HazeSiteCompatibilityManager.MODE_STANDARD)
+        val btnBal = createModeButton("Balanced", HazeSiteCompatibilityManager.MODE_BALANCED)
+        val btnOff = createModeButton("Allow All", HazeSiteCompatibilityManager.MODE_ALLOW_ALL)
+        modeButtons.add(btnStd)
+        modeButtons.add(btnBal)
+        modeButtons.add(btnOff)
+        modeSelector.addView(btnStd)
+        modeSelector.addView(btnBal)
+        modeSelector.addView(btnOff)
+        updateModeSelection(currentMode)
+        compatCard.addView(modeSelector)
+
+        // Description of active mode
+        val tvModeDesc = TextView(activity).apply {
+            text = when (currentMode) {
+                HazeSiteCompatibilityManager.MODE_BALANCED -> "Balanced Mode relaxes aggressive scriptlet and telemetry heuristics. Recommended for complex web apps, video calls (Google Meet/Zoom), WebGL games, and online banking."
+                HazeSiteCompatibilityManager.MODE_ALLOW_ALL -> "Protections are disabled for $host. Only security warnings remain active."
+                else -> "Standard Mode blocks advertising networks, tracking scripts, intrusive overlays, and stealth fingerprinting."
+            }
+            textSize = 11.5f
+            setTextColor(subTextColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 12)
+            }
+        }
+        compatCard.addView(tvModeDesc)
+
+        // Quick Actions Row: [ 🔄 Troubleshoot ] [ 🧹 Reset Data ] [ 🩺 Diagnose ]
+        val actionsRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            weightSum = 3f
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+
+        fun createActionButton(label: String, icon: String, onClick: () -> Unit): TextView {
+            return TextView(activity).apply {
+                text = "$icon $label"
+                textSize = 11.5f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(accentColor)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    cornerRadius = dpToPx(activity, 10).toFloat()
+                    setColor(alphaAccentColor)
+                }
+                setPadding(dpToPx(activity, 6), dpToPx(activity, 8), dpToPx(activity, 6), dpToPx(activity, 8))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dpToPx(activity, 4)
+                }
+                setOnClickListener {
+                    activity.triggerStrongHaptic()
+                    onClick()
+                }
+            }
+        }
+
+        val btnTroubleshoot = createActionButton("Troubleshoot", "🔄") {
+            HazeSiteCompatibilityManager.scheduleTroubleshootingReload(host)
+            Toast.makeText(activity, "Reloading with cache bypassed & filters suspended...", Toast.LENGTH_LONG).show()
+            val tab = activity.getActiveTab()?.browserTab
+            (tab?.renderView as? WebView)?.let { HazeIntelligentCacheManager.configureCacheMode(it, currentUrl) }
+            tab?.navigationController?.reload()
+        }
+
+        val btnResetData = createActionButton("Reset Data", "🧹") {
+            val builder = AlertDialog.Builder(activity)
+            builder.setTitle("Reset Site Data for $host?")
+            builder.setMessage("This will clear cookies, cache, and local storage specifically for $host without logging you out of other websites.")
+            builder.setPositiveButton("Reset") { _, _ ->
+                val webView = activity.getActiveTab()?.browserTab?.renderView as? WebView
+                HazeSiteCompatibilityManager.resetSiteData(activity, host, webView) {
+                    activity.runOnUiThread {
+                        Toast.makeText(activity, "Data reset for $host", Toast.LENGTH_SHORT).show()
+                        activity.getActiveTab()?.browserTab?.navigationController?.reload()
+                    }
+                }
+            }
+            builder.setNegativeButton("Cancel", null)
+            builder.show()
+        }
+
+        val btnDiagnose = createActionButton("Diagnose", "🩺") {
+            showSiteDiagnosticsDialog(activity, host, currentUrl, isDark, accentColor, cardColor, cardBorderColor, textColor, subTextColor)
+        }
+
+        actionsRow.addView(btnTroubleshoot)
+        actionsRow.addView(btnResetData)
+        actionsRow.addView(btnDiagnose)
+        compatCard.addView(actionsRow)
+        root.addView(compatCard)
+
         // 2. Privacy Score Card
         // Displays:
         // example.com
@@ -2292,6 +2473,219 @@ object HazePrivacyShieldDashboard {
             root.addView(scroll)
         }
 
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    // =========================================================================
+    // SUB-DIALOG: WEBSITE LOADING DIAGNOSTICS & REPAIR
+    // =========================================================================
+    private fun showSiteDiagnosticsDialog(
+        activity: MainActivity,
+        host: String,
+        currentUrl: String,
+        isDark: Boolean,
+        accentColor: Int,
+        cardColor: Int,
+        cardBorderColor: Int,
+        textColor: Int,
+        subTextColor: Int
+    ) {
+        val dialog = BottomSheetDialog(activity)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(activity, 20), dpToPx(activity, 14), dpToPx(activity, 20), dpToPx(activity, 24))
+            background = GradientDrawable().apply {
+                cornerRadii = floatArrayOf(
+                    dpToPx(activity, 24).toFloat(), dpToPx(activity, 24).toFloat(),
+                    dpToPx(activity, 24).toFloat(), dpToPx(activity, 24).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
+                setColor(if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE)
+            }
+        }
+
+        val handleWrapper = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 16)).apply {
+                bottomMargin = dpToPx(activity, 8)
+            }
+        }
+        val handle = View(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(dpToPx(activity, 36), dpToPx(activity, 4)).apply {
+                gravity = Gravity.CENTER
+            }
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 2).toFloat()
+                setColor(if (isDark) Color.parseColor("#444444") else Color.parseColor("#D0D0D0"))
+            }
+        }
+        handleWrapper.addView(handle)
+        root.addView(handleWrapper)
+
+        val headerRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 14)
+            }
+        }
+        val tvTitle = TextView(activity).apply {
+            text = "Loading Diagnostics: $host"
+            textSize = 17f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        headerRow.addView(tvTitle)
+        root.addView(headerRow)
+
+        val scroll = NestedScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 380))
+        }
+        val list = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // Section 1: DNS & Connection Health
+        val dnsCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 14).toFloat()
+                setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
+            }
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 12), dpToPx(activity, 14), dpToPx(activity, 12))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 10)
+            }
+        }
+        val tvDnsHeader = TextView(activity).apply {
+            text = "DNS Resolution & Protocol"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 4)
+            }
+        }
+        val tvDnsStatus = TextView(activity).apply {
+            text = "Testing DNS latency and resolver path..."
+            textSize = 12f
+            setTextColor(subTextColor)
+        }
+        dnsCard.addView(tvDnsHeader)
+        dnsCard.addView(tvDnsStatus)
+        list.addView(dnsCard)
+
+        // Asynchronous DNS check
+        HazeDnsManager.testDns(activity, host) { res ->
+            activity.runOnUiThread {
+                if (res.success) {
+                    val fallbackNote = if (res.usedFallback) " (Fallback Resolver)" else ""
+                    tvDnsStatus.text = "Resolved in ${res.latencyMs} ms via ${res.provider}$fallbackNote\nIPs: ${res.ips.take(3).joinToString(", ")}"
+                    tvDnsStatus.setTextColor(Color.parseColor("#10B981"))
+                } else {
+                    tvDnsStatus.text = "DNS Resolution Failed: ${res.error ?: "Unknown error"}"
+                    tvDnsStatus.setTextColor(Color.parseColor("#EF4444"))
+                }
+            }
+        }
+
+        // Section 2: Request & Compatibility Statistics
+        val statsCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 14).toFloat()
+                setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
+            }
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 12), dpToPx(activity, 14), dpToPx(activity, 12))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 10)
+            }
+        }
+        val tvStatsHeader = TextView(activity).apply {
+            text = "Shield & Filter Status"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 4)
+            }
+        }
+        val currentSiteMode = HazeSiteCompatibilityManager.getSiteMode(activity, host)
+        val rep = HazePrivacyShieldEngine.getSiteReport(activity, currentUrl)
+        val tvStatsDetails = TextView(activity).apply {
+            text = "Active Mode: $currentSiteMode\nBlocked: ${rep.adsBlocked} ads, ${rep.trackersBlocked} trackers, ${rep.fingerprintAttempts} probes\nEssential CDNs & Payments: Protected & Allowed"
+            textSize = 12.5f
+            setTextColor(subTextColor)
+        }
+        statsCard.addView(tvStatsHeader)
+        statsCard.addView(tvStatsDetails)
+        list.addView(statsCard)
+
+        // Section 3: Recommended Action & 1-Tap Repair
+        val repairCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 14).toFloat()
+                setColor(cardColor)
+                setStroke(dpToPx(activity, 1), cardBorderColor)
+            }
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 12), dpToPx(activity, 14), dpToPx(activity, 12))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 10)
+            }
+        }
+        val tvRepairHeader = TextView(activity).apply {
+            text = "Compatibility Verdict"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 4)
+            }
+        }
+        val tvRepairDesc = TextView(activity).apply {
+            text = if (currentSiteMode == HazeSiteCompatibilityManager.MODE_BALANCED) {
+                "Balanced compatibility mode is active. Scriptlet surrogate defusers and standard WebGL/Canvas rendering are enabled."
+            } else {
+                "If buttons, payment forms, or interactive graphics fail on this website, tap '1-Tap Compatibility Repair' to enable Balanced Mode and refresh."
+            }
+            textSize = 12f
+            setTextColor(subTextColor)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dpToPx(activity, 10)
+            }
+        }
+        val btnRepair = TextView(activity).apply {
+            text = "🩺 1-Tap Compatibility Repair & Reload"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 12).toFloat()
+                setColor(accentColor)
+            }
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 10), dpToPx(activity, 14), dpToPx(activity, 10))
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                HazeSiteCompatibilityManager.setSiteMode(activity, host, HazeSiteCompatibilityManager.MODE_BALANCED)
+                Toast.makeText(activity, "Balanced Mode activated for $host", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+                activity.getActiveTab()?.browserTab?.navigationController?.reload()
+            }
+        }
+        repairCard.addView(tvRepairHeader)
+        repairCard.addView(tvRepairDesc)
+        repairCard.addView(btnRepair)
+        list.addView(repairCard)
+
+        scroll.addView(list)
+        root.addView(scroll)
         dialog.setContentView(root)
         dialog.show()
     }

@@ -179,6 +179,68 @@ object HazePrivacyShieldEngine {
         0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE.toByte(), 0x42, 0x60, 0x82.toByte()
     )
 
+    internal fun getSurrogateScriptForUrl(lowerUrl: String): String {
+        return when {
+            lowerUrl.contains("googletagmanager.com") || lowerUrl.contains("google-analytics.com") ||
+            lowerUrl.contains("analytics.js") || lowerUrl.contains("gtm.js") || lowerUrl.contains("gtag/js") -> {
+                """
+                (function(){
+                    window.dataLayer = window.dataLayer || [];
+                    window.gtag = window.gtag || function(){ window.dataLayer.push(arguments); };
+                    window.ga = window.ga || function(){};
+                    window.gaplugins = window.gaplugins || {};
+                    window.google_analytics_loaded = true;
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("connect.facebook.net") || lowerUrl.contains("fbevents.js") -> {
+                """
+                (function(){
+                    var fbq = function(){ if(fbq.callMethod){fbq.callMethod.apply(fbq,arguments);}else{fbq.queue.push(arguments);} };
+                    if(!window._fbq) window._fbq = fbq;
+                    fbq.push = fbq; fbq.loaded = true; fbq.version = '2.0'; fbq.queue = [];
+                    window.fbq = fbq;
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("hotjar.com") -> {
+                """
+                (function(){
+                    window.hj = window.hj || function(){ (window.hj.q = window.hj.q || []).push(arguments); };
+                    window._hjSettings = window._hjSettings || { hjid: 0, hjsv: 6 };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("clarity.ms") -> {
+                """
+                (function(){
+                    window.clarity = window.clarity || function(){ (window.clarity.q = window.clarity.q || []).push(arguments); };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("analytics.tiktok.com") -> {
+                """
+                (function(){
+                    window.ttq = window.ttq || {
+                        track: function(){}, page: function(){}, load: function(){},
+                        identify: function(){}, setAndDefer: function(){}
+                    };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("ads-twitter.com") || lowerUrl.contains("twitter.com/oct.js") -> {
+                """
+                (function(){
+                    window.twq = window.twq || function(){};
+                })();
+                """.trimIndent()
+            }
+            else -> {
+                "/* Haze Privacy Shield Surrogate */"
+            }
+        }
+    }
+
     fun createBlockedResponse(requestUrl: String): WebResourceResponse {
         val lower = requestUrl.lowercase()
         val headers = mapOf(
@@ -193,7 +255,9 @@ object HazePrivacyShieldEngine {
                 WebResourceResponse("image/png", "UTF-8", 200, "OK", headers, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
             }
             lower.contains(".js") || lower.contains("/js") || lower.contains("analytics") || lower.contains("track") -> {
-                WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
+                val surrogate = getSurrogateScriptForUrl(lower)
+                val bytes = surrogate.toByteArray(Charsets.UTF_8)
+                WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(bytes))
             }
             lower.contains(".css") -> {
                 WebResourceResponse("text/css", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
@@ -211,7 +275,7 @@ object HazePrivacyShieldEngine {
 
     private val listeners = CopyOnWriteArrayList<ShieldListener>()
     private val dbExecutor = Executors.newSingleThreadExecutor()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     fun addListener(listener: ShieldListener) {
         if (!listeners.contains(listener)) listeners.add(listener)
@@ -306,15 +370,25 @@ object HazePrivacyShieldEngine {
         }
     }
 
-    // Essential Infrastructure Domains (Never block to preserve site logins, captchas, standard CDNs)
+    // Essential Infrastructure Domains (Never block to preserve site logins, captchas, standard CDNs, and payments)
     private val essentialDomains = hashSetOf(
-        "accounts.google.com",
-        "recaptcha.net",
-        "hcaptcha.com",
-        "challenges.cloudflare.com",
-        "fonts.googleapis.com",
-        "fonts.gstatic.com",
-        "cdnjs.cloudflare.com"
+        // Identity & OAuth Single Sign-On
+        "accounts.google.com", "apis.google.com", "oauth2.googleapis.com", "ssl.gstatic.com", "www.gstatic.com", "identitytoolkit.googleapis.com",
+        "appleid.apple.com", "idmsa.apple.com",
+        "login.microsoftonline.com", "login.live.com", "account.live.com", "msftauth.net", "auth.msftidentity.com",
+        "github.com", "gitlab.com", "auth0.com", "okta.com", "oktacdn.com", "firebaseapp.com",
+        // Payments & Checkouts
+        "js.stripe.com", "m.stripe.com", "api.stripe.com", "hooks.stripe.com",
+        "paypal.com", "c.paypal.com", "paypalobjects.com", "checkout.razorpay.com", "api.razorpay.com",
+        "pay.google.com", "applepay.com", "squareupsandbox.com", "squareup.com",
+        // Anti-Bot & CAPTCHA Services
+        "recaptcha.net", "hcaptcha.com", "challenges.cloudflare.com", "turnstile.cloudflare.com",
+        "arkoselabs.com", "client-api.arkoselabs.com", "geetest.com",
+        // Standard Web CDNs & Framework Assets
+        "fonts.googleapis.com", "fonts.gstatic.com", "cdnjs.cloudflare.com",
+        "cdn.jsdelivr.net", "unpkg.com", "code.jquery.com", "ajax.googleapis.com",
+        "cdn.tailwindcss.com", "cdn.esm.sh", "esm.sh", "cdn.skypack.dev",
+        "khronos.org", "threejs.org", "unity3d.com"
     )
 
     // Known Popup, Popunder, and Redirect Ad Networks
@@ -440,7 +514,16 @@ object HazePrivacyShieldEngine {
             return BlockDecision.ALLOW
         }
 
-        // 2. Check essential services
+        // 1b. Site Compatibility Mode & Recovery Overrides (Troubleshooting reload, temporary allow, or shields paused)
+        val currentSiteHost = pageHost ?: reqHost
+        if (HazeSiteCompatibilityManager.isTroubleshootingReloadActive(currentSiteHost) ||
+            HazeSiteCompatibilityManager.isTemporarilyAllowed(currentSiteHost) ||
+            HazeSiteCompatibilityManager.getSiteMode(context, currentSiteHost) == HazeSiteCompatibilityManager.MODE_ALLOW_ALL) {
+            return BlockDecision.ALLOW
+        }
+        val isBalancedMode = HazeSiteCompatibilityManager.getSiteMode(context, currentSiteHost) == HazeSiteCompatibilityManager.MODE_BALANCED
+
+        // 2. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs)
         if (matchesDomainOrSuffix(reqHost, essentialDomains)) {
             return BlockDecision.ALLOW
         }
@@ -632,7 +715,7 @@ object HazePrivacyShieldEngine {
 
         // 8. Path Patterns Check (e.g. /pagead/js/adsbygoogle.js, /pixel/, /beacon/, /analytics.js)
         val path = requestUri.path ?: ""
-        if (path.isNotEmpty() && !isMediaStreamRequest(reqHost, path, requestUrl)) {
+        if (!isBalancedMode && path.isNotEmpty() && !isMediaStreamRequest(reqHost, path, requestUrl)) {
             for (pattern in rules.pathPatterns) {
                 if (requestUrl.contains(pattern, ignoreCase = true)) {
                     val cat = if (pattern.contains("ad", ignoreCase = true)) CATEGORY_ADS else CATEGORY_TRACKERS
@@ -653,7 +736,7 @@ object HazePrivacyShieldEngine {
         }
 
         // 9. Third-party Tracking Detection (Enhanced Privacy Mode)
-        if (blockThirdParty && enhancedPrivacy && !pageUrl.isNullOrEmpty()) {
+        if (!isBalancedMode && blockThirdParty && enhancedPrivacy && !pageUrl.isNullOrEmpty()) {
             if (pageHost != null && !isSameRegisteredDomain(reqHost, pageHost)) {
                 if (reqHost.contains("track") || reqHost.contains("pixel") || reqHost.contains("telemetry") ||
                     reqHost.contains("metric") || reqHost.contains("beacon") || path.contains("telemetry")) {
