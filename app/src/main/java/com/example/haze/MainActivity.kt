@@ -1174,7 +1174,8 @@ class MainActivity : AppCompatActivity() {
         // Schedule Faster Reloading background warmup for top candidate sites
         HazeFasterReloadingEngine.scheduleStartupWarmup(this)
 
-        val shouldContinueSession = prefs.getBoolean("continue_where_left_off", true)
+        val startupMode = prefs.getString("startup_mode", "home") ?: "home"
+        val shouldContinueSession = (startupMode == "resume")
         val hasRestored = if (shouldContinueSession && initialUrl == HAZE_HOME_URL) {
             restoreSavedSessionOnStartup()
         } else false

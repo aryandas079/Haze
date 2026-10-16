@@ -181,9 +181,12 @@ object HazeSettingsManager {
                 .setTitle("On Startup")
                 .setSingleChoiceItems(options, currentIdx) { d, which ->
                     val mode = if (which == 1) "resume" else "home"
-                    prefs.edit().putString("startup_mode", mode).apply()
+                    prefs.edit()
+                        .putString("startup_mode", mode)
+                        .putBoolean("continue_where_left_off", which == 1)
+                        .apply()
                     d.dismiss()
-                    Toast.makeText(activity, "Startup setting updated", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "On startup: ${options[which]}", Toast.LENGTH_SHORT).show()
                     showSettingsDialog(activity)
                 }
                 .show()
