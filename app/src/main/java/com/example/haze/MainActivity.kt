@@ -1368,12 +1368,10 @@ class MainActivity : AppCompatActivity() {
         isSearchActive = true
         updatePrivacyShieldButton()
 
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
-        dimOverlay.setBackgroundColor(if (isDark) Color.parseColor("#CC101216") else Color.parseColor("#66000000"))
-        dimOverlay.alpha = 0f
+        // 1. Show fully transparent dismiss overlay without dark dim
+        dimOverlay.setBackgroundColor(Color.TRANSPARENT)
+        dimOverlay.alpha = 1f
         dimOverlay.visibility = View.VISIBLE
-        dimOverlay.animate().cancel()
-        dimOverlay.animate().alpha(1f).setDuration(180L).start()
 
         dimOverlay.bringToFront()
         addressBarContainer.bringToFront()
@@ -1544,8 +1542,15 @@ class MainActivity : AppCompatActivity() {
             setStroke(dpToPx(1f), strokeColor)
         }
         searchSuggestionStrip.background = bgCard
+        // Apply theme to the popup suggestion card wrapper
+        val cardBg = if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
+        searchSuggestionStrip.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dpToPx(24).toFloat()
+            setColor(cardBg)
+        }
         searchSuggestionStrip.clipToOutline = true
-        searchSuggestionStrip.elevation = dpToPx(6f).toFloat()
+        searchSuggestionStrip.elevation = dpToPx(0f).toFloat()
     }
 
     private fun adjustSuggestionStripHeight(itemCount: Int, hasClipboard: Boolean = false) {
