@@ -362,16 +362,16 @@ class MainActivity : AppCompatActivity() {
 
     fun reloadHomeTabsIfOpen() {
         runOnUiThread {
-            for (tab in currentTabsList) {
-                if (tab.url == HAZE_HOME_URL || tab.url == "haze://home" || tab.url.startsWith("haze://home")) {
-                    tab.browserTab.navigationController.loadDataWithBaseURL(
-                        HAZE_HOME_URL,
-                        getHazeHomeHtml(),
-                        "text/html",
-                        "UTF-8",
-                        null
-                    )
-                }
+            val activeTab = currentTabsList.getOrNull(activeTabIndex)
+            if (activeTab != null && isHomeTab(activeTab)) {
+                activeTab.url = HAZE_HOME_URL
+                activeTab.browserTab.navigationController.loadDataWithBaseURL(
+                    HAZE_HOME_URL,
+                    getHazeHomeHtml(),
+                    "text/html",
+                    "UTF-8",
+                    null
+                )
             }
         }
     }
@@ -2659,21 +2659,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun reloadHomeTabs() {
         val activeTab = currentTabsList.getOrNull(activeTabIndex)
-        for (tab in normalTabs) {
-            if (isHomeTab(tab)) {
-                tab.url = HAZE_HOME_URL
-                if (tab === activeTab || tab.browserTab is ChromiumBrowserTab) {
-                    tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
-                }
-            }
-        }
-        for (tab in privateTabs) {
-            if (isHomeTab(tab)) {
-                tab.url = HAZE_HOME_URL
-                if (tab === activeTab || tab.browserTab is ChromiumBrowserTab) {
-                    tab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
-                }
-            }
+        if (activeTab != null && isHomeTab(activeTab)) {
+            activeTab.url = HAZE_HOME_URL
+            activeTab.browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
         }
     }
 
@@ -3146,8 +3134,6 @@ class MainActivity : AppCompatActivity() {
 
             updateNavigationButtons()
         }
-
-        reloadHomeTabs()
     }
 
     fun addNewTab(url: String): Tab {
@@ -6525,6 +6511,7 @@ class MainActivity : AppCompatActivity() {
                     .apply()
 
                 applyTheme()
+                reloadHomeTabs()
                 dialog.dismiss()
             }
         }
