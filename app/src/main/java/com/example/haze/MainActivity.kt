@@ -4220,6 +4220,11 @@ class MainActivity : AppCompatActivity() {
 
                     // Automatic non-English page detection hook
                     view?.evaluateJavascript(HazeTranslationManager.getLanguageDetectionScript(), null)
+
+                    // Data Saver: block autoplay and reduce video quality
+                    if (HazeDataSaverManager.isDataSaverEnabled(this@MainActivity)) {
+                        view?.evaluateJavascript(HazeDataSaverManager.DATA_SAVER_INJECTION_SCRIPT, null)
+                    }
                 }
 
                 // Google & Universal Password Manager hook: commit autofill and persist cookies on submission
@@ -6903,10 +6908,54 @@ class MainActivity : AppCompatActivity() {
         val menuStroke = if (isDark) Color.parseColor("#454638") else Color.parseColor("#DADCE0")
         menuLogo.setImageResource(if (isDark) R.drawable.haze_logo_dark else R.drawable.haze_logo)
         menuDivider.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
+        popupView.findViewById<View>(R.id.dataSaverDivider)?.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
         menuRoot.background = GradientDrawable().apply {
             cornerRadius = dpToPx(22).toFloat()
             setColor(menuSurface)
             setStroke(dpToPx(1), menuStroke)
+        }
+
+        // ==========================================
+        // DATA SAVER BLOCK SETUP IN DROPDOWN
+        // ==========================================
+        val dataSaverBlock = popupView.findViewById<LinearLayout>(R.id.dataSaverBlock)
+        val ivDataSaverIcon = popupView.findViewById<ImageView>(R.id.ivDataSaverIcon)
+        val tvDataSaverTitle = popupView.findViewById<TextView>(R.id.tvDataSaverTitle)
+        val switchDataSaver = popupView.findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchDataSaver)
+        val tvTrafficLabel = popupView.findViewById<TextView>(R.id.tvTrafficLabel)
+        val tvSavedLabel = popupView.findViewById<TextView>(R.id.tvSavedLabel)
+        val tvDataSaverHint = popupView.findViewById<TextView>(R.id.tvDataSaverHint)
+
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
+        val cardBg = if (isDark) Color.parseColor("#34352D") else Color.parseColor("#F1F3F4")
+        dataSaverBlock?.background = GradientDrawable().apply {
+            cornerRadius = dpToPx(14).toFloat()
+            setColor(cardBg)
+        }
+
+        val isDataSaverOn = HazeDataSaverManager.isDataSaverEnabled(this)
+        switchDataSaver?.isChecked = isDataSaverOn
+        ivDataSaverIcon?.setColorFilter(if (isDataSaverOn) accentColor else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")))
+        tvDataSaverTitle?.setTextColor(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+        tvTrafficLabel?.setTextColor(if (isDark) Color.parseColor("#AAAAAA") else Color.parseColor("#5F6368"))
+        tvDataSaverHint?.setTextColor(if (isDark) Color.parseColor("#888888") else Color.parseColor("#80868B"))
+
+        // Update stats
+        val dataStats = HazeDataSaverManager.getDataUsageStats(this)
+        tvTrafficLabel?.text = "Normal traffic:  ${dataStats.normalTrafficFormatted}"
+        tvSavedLabel?.text = "Saved:  ${dataStats.savedFormatted}"
+
+        switchDataSaver?.setOnCheckedChangeListener { _, isChecked ->
+            triggerStrongHaptic()
+            HazeDataSaverManager.setDataSaverEnabled(this, isChecked)
+            ivDataSaverIcon?.setColorFilter(if (isChecked) accentColor else (if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")))
+            Toast.makeText(this, if (isChecked) "Data Saver enabled" else "Data Saver disabled", Toast.LENGTH_SHORT).show()
+        }
+
+        dataSaverBlock?.setOnClickListener {
+            triggerStrongHaptic(it)
+            popupWindow.dismiss()
+            HazeDataSaverManager.showDataSaverDialog(this)
         }
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)

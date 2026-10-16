@@ -94,6 +94,100 @@
         android:background="#E5E5E5"
         android:layout_marginBottom="10dp" />
 
+    <!-- Data Saver Block in Dropdown -->
+    <LinearLayout
+        android:id="@+id/dataSaverBlock"
+        android:layout_width="296dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:layout_marginBottom="10dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="6dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_alignParentStart="true"
+                android:layout_centerVertical="true">
+
+                <ImageView
+                    android:id="@+id/ivDataSaverIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_data_saver"
+                    android:layout_marginEnd="8dp"
+                    app:tint="#0A56D0" />
+
+                <TextView
+                    android:id="@+id/tvDataSaverTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Data Saver"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#202124" />
+            </LinearLayout>
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/switchDataSaver"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true" />
+        </RelativeLayout>
+
+        <!-- Stats row: Normal traffic & Saved -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvTrafficLabel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Normal traffic:  8.4 GB"
+                android:textSize="11.5sp"
+                android:textColor="#5F6368" />
+
+            <TextView
+                android:id="@+id/tvSavedLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Saved:  2.1 GB"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:textColor="#188038" />
+        </LinearLayout>
+
+        <!-- Subtitle / active protections hint -->
+        <TextView
+            android:id="@+id/tvDataSaverHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Compresses images &amp; blocks autoplay"
+            android:textSize="10.5sp"
+            android:textColor="#80868B" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/dataSaverDivider"
+        android:layout_width="296dp"
+        android:layout_height="1dp"
+        android:background="#E5E5E5"
+        android:layout_marginBottom="10dp" />
+
     <!-- 4-Column Grid -->
     <GridLayout
         android:id="@+id/menuGrid"
