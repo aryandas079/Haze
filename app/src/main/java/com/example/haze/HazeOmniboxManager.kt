@@ -753,6 +753,7 @@ class HazeOmniboxManager(
      * Smart Clipboard Detection
      */
     fun getSmartClipboardItem(): ClipboardItem? {
+        if (!prefs.getBoolean("enable_clipboard_suggestions", true)) return null
         val clipManager = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
         if (!clipManager.hasPrimaryClip()) return null
         val clip = clipManager.primaryClip ?: return null
@@ -794,191 +795,100 @@ class HazeOmniboxManager(
         val view = LayoutInflater.from(activity).inflate(R.layout.item_smart_clipboard, container, false)
 
         val card = view.findViewById<View>(R.id.cardSmartClipboard)
+        val iconBadge = view.findViewById<View>(R.id.iconBadgeClipboard)
         val tvBadge = view.findViewById<TextView>(R.id.tvClipboardBadge)
-        val ivBadgeIcon = view.findViewById<ImageView>(R.id.ivClipboardBadgeIcon)
         val tvAction = view.findViewById<TextView>(R.id.tvClipboardAction)
-        val tvContent = view.findViewById<TextView>(R.id.tvClipboardContent)
         val ivType = view.findViewById<ImageView>(R.id.ivClipboardTypeIcon)
-        val ivArrow = view.findViewById<ImageView>(R.id.ivClipboardActionArrow)
+        val btnPaste = view.findViewById<ImageButton>(R.id.btnClipPaste)
         val btnClose = view.findViewById<ImageButton>(R.id.btnCloseClipboard)
-        val layoutNumberActions = view.findViewById<LinearLayout>(R.id.layoutNumberActions)
-        val btnClipCall = view.findViewById<View>(R.id.btnClipCall)
-        val ivClipCallIcon = view.findViewById<ImageView>(R.id.ivClipCallIcon)
-        val tvClipCallText = view.findViewById<TextView>(R.id.tvClipCallText)
-        val btnClipSearch = view.findViewById<View>(R.id.btnClipSearch)
-        val ivClipSearchIcon = view.findViewById<ImageView>(R.id.ivClipSearchIcon)
-        val tvClipSearchText = view.findViewById<TextView>(R.id.tvClipSearchText)
 
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
         val rawAccentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
         val accentColor = if (isDark) Color.parseColor("#8AB4F8") else rawAccentColor
         val coralColor = Color.parseColor("#E53935")
 
-        if (isDark) {
-            val bgCard = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#1E1E1E"))
-                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#333333"))
-            }
-            card.background = bgCard
-            tvAction.setTextColor(Color.WHITE)
-            tvContent.setTextColor(Color.parseColor("#C4C7C5"))
+        val cardBg = if (isDark) Color.parseColor("#222326") else Color.WHITE
+        val cardBorder = if (isDark) Color.parseColor("#383A3E") else Color.parseColor("#E2E5EA")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
+        val actionTint = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
 
-            val pillBgDark = GradientDrawable().apply {
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#282828"))
-                setStroke(1, Color.parseColor("#3E3E3E"))
-            }
-            btnClipCall.background = pillBgDark
-            btnClipSearch.background = pillBgDark.constantState?.newDrawable()?.mutate()
-            tvClipCallText?.setTextColor(accentColor)
-            ivClipCallIcon?.setColorFilter(accentColor)
-            tvClipSearchText?.setTextColor(Color.WHITE)
-            ivClipSearchIcon?.setColorFilter(Color.WHITE)
-        } else {
-            val bgCard = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
-                setColor(Color.WHITE)
-                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, activity.resources.displayMetrics).toInt(), Color.parseColor("#E0E0E0"))
-            }
-            card.background = bgCard
-            tvAction.setTextColor(Color.parseColor("#202124"))
-            tvContent.setTextColor(Color.parseColor("#5F6368"))
-
-            val pillBgLight = GradientDrawable().apply {
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics)
-                setColor(Color.parseColor("#F1F3F4"))
-                setStroke(1, Color.parseColor("#D8DEE8"))
-            }
-            btnClipCall.background = pillBgLight
-            btnClipSearch.background = pillBgLight.constantState?.newDrawable()?.mutate()
-            tvClipCallText?.setTextColor(accentColor)
-            ivClipCallIcon?.setColorFilter(accentColor)
-            tvClipSearchText?.setTextColor(Color.parseColor("#202124"))
-            ivClipSearchIcon?.setColorFilter(Color.parseColor("#5F6368"))
+        card.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
+            setColor(cardBg)
+            setStroke(1, cardBorder)
         }
 
-        val rowContent = view.findViewById<View>(R.id.rowClipboardContent)
+        tvAction.setTextColor(textColor)
+        btnPaste.setColorFilter(actionTint)
+        btnClose.setColorFilter(actionTint)
+
+        val badgeItemColor = when (clipItem) {
+            is ClipboardItem.PhoneItem -> coralColor
+            else -> accentColor
+        }
+
+        iconBadge?.background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            val alpha = if (isDark) 45 else 25
+            setColor(Color.argb(alpha, Color.red(badgeItemColor), Color.green(badgeItemColor), Color.blue(badgeItemColor)))
+        }
+
+        val textToPaste: String
+        val primaryAction: () -> Unit
 
         when (clipItem) {
             is ClipboardItem.UrlItem -> {
-                tvBadge.text = "COPIED LINK"
-                tvBadge.setTextColor(accentColor)
-                ivBadgeIcon.setImageResource(R.drawable.ic_link)
-                ivBadgeIcon.setColorFilter(accentColor)
+                tvBadge.text = "Link you copied"
+                tvBadge.setTextColor(badgeItemColor)
                 ivType.setImageResource(R.drawable.ic_globe)
-                ivType.setColorFilter(accentColor)
-                ivArrow.setColorFilter(accentColor)
-                tvAction.text = "Go to: ${clipItem.url}"
-                tvContent.text = "Copied web address"
-                layoutNumberActions.visibility = View.VISIBLE
-
-                ivClipCallIcon?.setImageResource(R.drawable.ic_globe)
-                tvClipCallText?.text = "Open Link"
-                ivClipSearchIcon?.setImageResource(R.drawable.ic_search)
-                tvClipSearchText?.text = "Search Web"
-
-                btnClipCall.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.url)
-                }
-                btnClipSearch.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.url)
-                }
-
-                val openUrl = View.OnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.url)
-                }
-                card.setOnClickListener(openUrl)
-                rowContent?.setOnClickListener(openUrl)
+                ivType.setColorFilter(badgeItemColor)
+                tvAction.text = clipItem.url
+                textToPaste = clipItem.url
+                primaryAction = { activity.loadUrlFromInput(clipItem.url) }
             }
             is ClipboardItem.PhoneItem -> {
-                tvBadge.text = "COPIED NUMBER"
-                tvBadge.setTextColor(coralColor)
-                ivBadgeIcon.setImageResource(R.drawable.ic_call)
-                ivBadgeIcon.setColorFilter(coralColor)
+                tvBadge.text = "Number you copied"
+                tvBadge.setTextColor(badgeItemColor)
                 ivType.setImageResource(R.drawable.ic_call)
-                ivType.setColorFilter(coralColor)
-                ivArrow.setColorFilter(coralColor)
-                tvAction.text = "Call or Search: ${clipItem.number}"
-                tvContent.text = "Copied phone number"
-                layoutNumberActions.visibility = View.VISIBLE
-
-                ivClipCallIcon?.setImageResource(R.drawable.ic_call)
-                tvClipCallText?.text = "Call Number"
-                ivClipSearchIcon?.setImageResource(R.drawable.ic_search)
-                tvClipSearchText?.text = "Search Web"
-
-                btnClipCall.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
+                ivType.setColorFilter(badgeItemColor)
+                tvAction.text = clipItem.number
+                textToPaste = clipItem.number
+                primaryAction = {
                     try {
-                        val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${clipItem.number}"))
-                        activity.startActivity(dialIntent)
+                        activity.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${clipItem.number}")))
                     } catch (e: Exception) {
                         Toast.makeText(activity, "Cannot dial: ${clipItem.number}", Toast.LENGTH_SHORT).show()
                     }
                 }
-
-                btnClipSearch.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.number)
-                }
-
-                val openPhone = View.OnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    btnClipCall.performClick()
-                }
-                card.setOnClickListener(openPhone)
-                rowContent?.setOnClickListener(openPhone)
             }
             is ClipboardItem.QueryItem -> {
-                tvBadge.text = "COPIED TEXT"
-                tvBadge.setTextColor(accentColor)
-                ivBadgeIcon.setImageResource(R.drawable.ic_search)
-                ivBadgeIcon.setColorFilter(accentColor)
+                tvBadge.text = "Text you copied"
+                tvBadge.setTextColor(badgeItemColor)
                 ivType.setImageResource(R.drawable.ic_search)
-                ivType.setColorFilter(accentColor)
-                ivArrow.setColorFilter(accentColor)
-                tvAction.text = "Search: \"${clipItem.query}\""
-                tvContent.text = "Copied text snippet"
-                layoutNumberActions.visibility = View.VISIBLE
-
-                ivClipCallIcon?.setImageResource(R.drawable.ic_search)
-                tvClipCallText?.text = "Search Web"
-                ivClipSearchIcon?.setImageResource(R.drawable.ic_content_paste)
-                tvClipSearchText?.text = "Paste in Bar"
-
-                btnClipCall.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.query)
-                }
-                btnClipSearch.setOnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.addressBar.setText(clipItem.query)
-                    activity.addressBar.setSelection(clipItem.query.length)
-                }
-
-                val openQuery = View.OnClickListener {
-                    activity.triggerStrongHaptic(it)
-                    activity.loadUrlFromInput(clipItem.query)
-                }
-                card.setOnClickListener(openQuery)
-                rowContent?.setOnClickListener(openQuery)
+                ivType.setColorFilter(badgeItemColor)
+                tvAction.text = clipItem.query
+                textToPaste = clipItem.query
+                primaryAction = { activity.loadUrlFromInput(clipItem.query) }
             }
+        }
+
+        val rowClickListener = View.OnClickListener {
+            activity.triggerStrongHaptic(it)
+            primaryAction.invoke()
+        }
+        card.setOnClickListener(rowClickListener)
+        view.findViewById<View>(R.id.rowClipboardContent)?.setOnClickListener(rowClickListener)
+
+        btnPaste.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            activity.addressBar.setText(textToPaste)
+            activity.addressBar.setSelection(textToPaste.length)
         }
 
         btnClose.setOnClickListener {
             activity.triggerStrongHaptic(it)
-            val textToDismiss = when (clipItem) {
-                is ClipboardItem.UrlItem -> clipItem.url
-                is ClipboardItem.PhoneItem -> clipItem.number
-                is ClipboardItem.QueryItem -> clipItem.query
-            }
-            lastDismissedClip = textToDismiss
+            lastDismissedClip = textToPaste
             container.removeView(view)
             container.visibility = View.GONE
         }

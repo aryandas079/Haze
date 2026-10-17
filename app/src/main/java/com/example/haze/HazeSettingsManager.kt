@@ -194,6 +194,7 @@ object HazeSettingsManager {
                 }
                 .show()
         })
+        cardSearch.addView(createSwitchRow(activity, textColor, subTextColor, accentColor, prefs, "Show Clipboard Suggestions", "Quick search or navigate for copied text and links", "enable_clipboard_suggestions", true) {})
         content.addView(cardSearch)
 
         // --- CARD 3: PRIVACY & SECURITY ---
