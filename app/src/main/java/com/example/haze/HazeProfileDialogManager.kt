@@ -680,27 +680,27 @@ object HazeProfileDialogManager {
         data class GoogleApp(
             val name: String,
             val url: String,
-            val iconRes: Int,
-            val tintColor: String? = null
+            val iconRes: Int
         )
 
         val apps = listOf(
-            GoogleApp("Search", "https://www.google.com", R.drawable.ic_google_logo, null),
-            GoogleApp("Gmail", "https://mail.google.com", R.drawable.ic_mail, "#EA4335"),
-            GoogleApp("YouTube", "https://www.youtube.com", R.drawable.ic_youtube, null),
-            GoogleApp("Drive", "https://drive.google.com", R.drawable.ic_folder, "#34A853"),
-            GoogleApp("Maps", "https://maps.google.com", R.drawable.ic_map, "#4285F4"),
-            GoogleApp("Gemini", "https://gemini.google.com", R.drawable.ic_sparkles, "#1A73E8"),
-            GoogleApp("Photos", "https://photos.google.com", R.drawable.ic_image, "#FBBC04"),
-            GoogleApp("Translate", "https://translate.google.com", R.drawable.ic_translate, "#1A73E8"),
-            GoogleApp("Calendar", "https://calendar.google.com", R.drawable.ic_sync, "#4285F4"),
-            GoogleApp("Docs", "https://docs.google.com", R.drawable.ic_file, "#4285F4"),
-            GoogleApp("Sheets", "https://sheets.google.com", R.drawable.ic_grid, "#34A853"),
-            GoogleApp("Slides", "https://slides.google.com", R.drawable.ic_file, "#FBBC04"),
-            GoogleApp("Keep", "https://keep.google.com", R.drawable.ic_edit, "#FBBC04"),
-            GoogleApp("Meet", "https://meet.google.com", R.drawable.ic_play, "#00897B"),
-            GoogleApp("News", "https://news.google.com", R.drawable.ic_globe, "#1A73E8"),
-            GoogleApp("Contacts", "https://contacts.google.com", R.drawable.ic_person, "#1A73E8")
+            GoogleApp("Search", "https://www.google.com", R.drawable.ic_google_logo),
+            GoogleApp("Gmail", "https://mail.google.com", R.drawable.ic_google_gmail),
+            GoogleApp("YouTube", "https://www.youtube.com", R.drawable.ic_youtube),
+            GoogleApp("Maps", "https://maps.google.com", R.drawable.ic_google_maps),
+            GoogleApp("Gemini", "https://gemini.google.com", R.drawable.ic_google_gemini),
+            GoogleApp("Play", "https://play.google.com", R.drawable.ic_google_play),
+            GoogleApp("Drive", "https://drive.google.com", R.drawable.ic_google_drive),
+            GoogleApp("Photos", "https://photos.google.com", R.drawable.ic_google_photos),
+            GoogleApp("Calendar", "https://calendar.google.com", R.drawable.ic_google_calendar),
+            GoogleApp("Translate", "https://translate.google.com", R.drawable.ic_google_translate),
+            GoogleApp("Docs", "https://docs.google.com", R.drawable.ic_google_docs),
+            GoogleApp("Sheets", "https://sheets.google.com", R.drawable.ic_google_sheets),
+            GoogleApp("Slides", "https://slides.google.com", R.drawable.ic_google_slides),
+            GoogleApp("Keep", "https://keep.google.com", R.drawable.ic_google_keep),
+            GoogleApp("Meet", "https://meet.google.com", R.drawable.ic_google_meet),
+            GoogleApp("News", "https://news.google.com", R.drawable.ic_google_news),
+            GoogleApp("Contacts", "https://contacts.google.com", R.drawable.ic_google_contacts)
         )
 
         val columns = 4
@@ -711,7 +711,7 @@ object HazeProfileDialogManager {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = dpToPx(activity, 10)
+                    bottomMargin = dpToPx(activity, 8)
                 }
             }
 
@@ -725,6 +725,10 @@ object HazeProfileDialogManager {
                         val p = dpToPx(activity, 6)
                         setPadding(p, p, p, p)
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 14).toFloat()
+                            setColor(Color.TRANSPARENT)
+                        }
                         setBackgroundResource(getSelectableRes(activity))
                         isClickable = true
                         isFocusable = true
@@ -736,24 +740,18 @@ object HazeProfileDialogManager {
                     }
 
                     val iconContainer = FrameLayout(activity).apply {
-                        layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 48), dpToPx(activity, 48)).apply {
+                        layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 44), dpToPx(activity, 44)).apply {
                             bottomMargin = dpToPx(activity, 6)
-                        }
-                        background = GradientDrawable().apply {
-                            cornerRadius = dpToPx(activity, 16).toFloat()
-                            setColor(itemBgColor)
                         }
                     }
 
                     val ivApp = ImageView(activity).apply {
-                        val iconSize = dpToPx(activity, 26)
+                        val iconSize = dpToPx(activity, 38)
                         layoutParams = FrameLayout.LayoutParams(iconSize, iconSize).apply {
                             gravity = Gravity.CENTER
                         }
                         setImageResource(app.iconRes)
-                        if (app.tintColor != null) {
-                            setColorFilter(Color.parseColor(app.tintColor))
-                        }
+                        clearColorFilter()
                     }
                     iconContainer.addView(ivApp)
                     item.addView(iconContainer)
