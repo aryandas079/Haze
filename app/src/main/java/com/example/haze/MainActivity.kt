@@ -291,6 +291,11 @@ class MainActivity : AppCompatActivity() {
     private var imeAnimationRunning = false
     private var isAutocompleting = false
     private var isUserTypingForward = false
+    var isAddressBarHidden = false
+        private set
+    private var isBottomSwipeUpCandidate = false
+    private var hideAddressBarRunnable: Runnable? = null
+    private val addressBarHandler = Handler(Looper.getMainLooper())
 
     private val topDomainsList = listOf(
         "youtube.com", "google.com", "facebook.com", "instagram.com", "twitter.com", "x.com",
@@ -1214,6 +1219,9 @@ class MainActivity : AppCompatActivity() {
                         if (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE) {
                             findBarContainer.translationY = -lift.toFloat()
                         }
+                    } else if (isAddressBarHidden) {
+                        val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
+                        addressBarContainer.translationY = hideOffset
                     } else {
                         addressBarContainer.translationY = 0f
                         if (::findBarContainer.isInitialized) {
@@ -1231,7 +1239,12 @@ class MainActivity : AppCompatActivity() {
                     val currentInsets = ViewCompat.getRootWindowInsets(rootView)
                     val imeVisible = currentInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
                     if (!imeVisible) {
-                        addressBarContainer.translationY = 0f
+                        if (isAddressBarHidden) {
+                            val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
+                            addressBarContainer.translationY = hideOffset
+                        } else {
+                            addressBarContainer.translationY = 0f
+                        }
                         if (::findBarContainer.isInitialized) {
                             findBarContainer.translationY = 0f
                         }
@@ -1258,6 +1271,9 @@ class MainActivity : AppCompatActivity() {
                     if (::findBarContainer.isInitialized && findBarContainer.visibility == View.VISIBLE) {
                         findBarContainer.translationY = -lift.toFloat()
                     }
+                } else if (isAddressBarHidden) {
+                    val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
+                    addressBarContainer.translationY = hideOffset
                 } else {
                     addressBarContainer.translationY = 0f
                     if (::findBarContainer.isInitialized) {
@@ -1548,6 +1564,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun activateSearchMode() {
+        cancelAutoHideAddressBar()
+        isAddressBarHidden = false
+        if (::addressBarContainer.isInitialized) {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.translationY = 0f
+        }
         if (isSearchActive) {
             val text = getUserTypedQuery()
             if (text.isEmpty()) {
@@ -1645,6 +1667,9 @@ class MainActivity : AppCompatActivity() {
 
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         val isHome = currentTab != null && isHomeTab(currentTab)
+        if (!isHome) {
+            scheduleAutoHideAddressBar(delayMillis = 2000L)
+        }
 
         if (::topRightActions.isInitialized) {
             topRightActions.animate().cancel()
@@ -4211,8 +4236,13 @@ class MainActivity : AppCompatActivity() {
             webContainer.translationX = 0f
         }
         if (::addressBarContainer.isInitialized) {
-            addressBarContainer.translationY = 0f
             addressBarContainer.translationX = 0f
+            if (isHomeTab(nextTab)) {
+                showAddressBar(animated = false)
+            } else {
+                showAddressBar(animated = false)
+                scheduleAutoHideAddressBar(delayMillis = 2000L)
+            }
         }
         if (::addressBar.isInitialized) {
             addressBar.translationX = 0f
@@ -4311,6 +4341,76 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun hideAddressBar(animated: Boolean = true) {
+        if (!::addressBarContainer.isInitialized) return
+        if (isSearchActive || activeFullScreenTabsDialog?.isShowing == true) return
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        if (currentTab != null && isHomeTab(currentTab)) return
+        if (isAddressBarHidden) return
+
+        cancelAutoHideAddressBar()
+        isAddressBarHidden = true
+
+        val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
+        if (animated) {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.animate()
+                .translationY(hideOffset)
+                .setDuration(240L)
+                .setInterpolator(FAST_INTERPOLATOR)
+                .start()
+        } else {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.translationY = hideOffset
+        }
+    }
+
+    fun showAddressBar(animated: Boolean = true, autoHideDelay: Long? = null) {
+        if (!::addressBarContainer.isInitialized) return
+        cancelAutoHideAddressBar()
+        isAddressBarHidden = false
+
+        if (animated) {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.animate()
+                .translationY(0f)
+                .setDuration(220L)
+                .setInterpolator(FAST_INTERPOLATOR)
+                .start()
+        } else {
+            addressBarContainer.animate().cancel()
+            addressBarContainer.translationY = 0f
+        }
+
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        if (currentTab != null && !isHomeTab(currentTab) && !isSearchActive) {
+            val delay = autoHideDelay ?: 4500L
+            scheduleAutoHideAddressBar(delay)
+        }
+    }
+
+    fun scheduleAutoHideAddressBar(delayMillis: Long = 1800L) {
+        cancelAutoHideAddressBar()
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        if (currentTab != null && isHomeTab(currentTab)) return
+        if (isSearchActive || activeFullScreenTabsDialog?.isShowing == true) return
+
+        hideAddressBarRunnable = Runnable {
+            val tab = currentTabsList.getOrNull(activeTabIndex)
+            if (tab != null && !isHomeTab(tab) && !isSearchActive && !isAddressBarHidden) {
+                hideAddressBar(animated = true)
+            }
+        }
+        addressBarHandler.postDelayed(hideAddressBarRunnable!!, delayMillis)
+    }
+
+    fun cancelAutoHideAddressBar() {
+        hideAddressBarRunnable?.let {
+            addressBarHandler.removeCallbacks(it)
+        }
+        hideAddressBarRunnable = null
+    }
+
     private fun updateChromeVisibility(url: String?) {
         addressBarContainer.visibility = View.VISIBLE
         val isHome = url == null || url == HAZE_HOME_URL || url == "$HAZE_HOME_URL/" || url.startsWith("haze://home") || url == "about:blank" || url.startsWith("about:") || url.isEmpty()
@@ -4318,6 +4418,7 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
 
         if (isHome) {
+            showAddressBar(animated = false)
             addressBar.setText("")
         }
 
@@ -4798,6 +4899,18 @@ class MainActivity : AppCompatActivity() {
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
 
+        webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+            val tab = getTabFromWebView(webView)
+            if (tab == currentTabsList.getOrNull(activeTabIndex) && !isHomeTab(tab) && !isSearchActive) {
+                val dy = scrollY - oldScrollY
+                if (dy > 14) {
+                    hideAddressBar(animated = true)
+                } else if (dy < -20) {
+                    showAddressBar(animated = true)
+                }
+            }
+        }
+
         val isDarkWeb = prefs.getBoolean("is_dark", false) || isPrivateMode
         applyDarkModeToWebView(webView, isDarkWeb)
 
@@ -5074,6 +5187,10 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                val currentTab = getTabFromWebView(view ?: webView)
+                if (currentTab == currentTabsList.getOrNull(activeTabIndex)) {
+                    showAddressBar(animated = true)
+                }
                 if (!url.isNullOrEmpty()) {
                     topLevelUrl = url
                     HazeFasterReloadingEngine.recordNavigation(this@MainActivity, url)
@@ -5382,6 +5499,9 @@ class MainActivity : AppCompatActivity() {
                             addressBar.setText("")
                         } else {
                             addressBar.setText(HazeTranslationManager.getDisplayUrl(url))
+                            if (!isSearchActive) {
+                                scheduleAutoHideAddressBar(delayMillis = 1800L)
+                            }
                         }
                     }
 
@@ -8669,6 +8789,10 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_DOWN -> {
                 gestureStartX = ev.rawX
                 gestureStartY = ev.rawY
+                val screenHeight = resources.displayMetrics.heightPixels
+                val bottomZoneThreshold = screenHeight - dpToPx(85)
+                isBottomSwipeUpCandidate = (gestureStartY >= bottomZoneThreshold)
+
                 isAddressBarTouch = false
                 isAddressBarSwiping = false
                 isAddressBarPullDown = false
@@ -8695,7 +8819,7 @@ class MainActivity : AppCompatActivity() {
                         child.translationX = 0f
                     }
                 }
-                if (!isSearchActive && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                if (!isSearchActive && !isAddressBarHidden && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
                     addressBarContainer.animate().cancel()
                     addressBarContainer.translationY = 0f
                 }
@@ -8744,6 +8868,31 @@ class MainActivity : AppCompatActivity() {
                 val dy = ev.rawY - gestureStartY
                 val absX = Math.abs(dx)
                 val absY = Math.abs(dy)
+
+                // Swipe up from the bottom edge to reveal address bar ("swipping up from the down")
+                if (isBottomSwipeUpCandidate && dy < -dpToPx(12) && absY > absX) {
+                    if (isAddressBarHidden) {
+                        showAddressBar(animated = true)
+                        triggerStrongHaptic(isHeavy = false)
+                        isBottomSwipeUpCandidate = false
+                        if (!childTouchesCanceled) {
+                            val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                            super.dispatchTouchEvent(cancelEvent)
+                            cancelEvent.recycle()
+                            childTouchesCanceled = true
+                        }
+                        return true
+                    }
+                }
+
+                val currentTabForScroll = currentTabsList.getOrNull(activeTabIndex)
+                if (currentTabForScroll != null && !isHomeTab(currentTabForScroll) && !isSearchActive && !isAddressBarTouch && !isEdgeTouch) {
+                    if (!isAddressBarHidden && dy < -dpToPx(40) && absY > absX * 1.5f) {
+                        hideAddressBar(animated = true)
+                    } else if (isAddressBarHidden && dy > dpToPx(40) && absY > absX * 1.5f) {
+                        showAddressBar(animated = true)
+                    }
+                }
 
                 // 1. Address bar swipe tracking
                 if (isAddressBarTouch && !isSearchActive) {
@@ -9061,6 +9210,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
+                val screenHeight = resources.displayMetrics.heightPixels
+                if (isAddressBarHidden && isBottomSwipeUpCandidate && absY < dpToPx(12) && absX < dpToPx(12) && gestureStartY >= screenHeight - dpToPx(35)) {
+                    showAddressBar(animated = true)
+                    triggerStrongHaptic(isHeavy = false)
+                    resetGestures()
+                    return true
+                }
+
                 resetGestures()
             }
 
@@ -9071,7 +9228,7 @@ class MainActivity : AppCompatActivity() {
                         adj.visibility = View.GONE
                     }.start()
                 }
-                if (!isSearchActive && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
+                if (!isSearchActive && !isAddressBarHidden && ::addressBarContainer.isInitialized && addressBarContainer.translationY != 0f) {
                     addressBarContainer.animate().translationY(0f).setDuration(100L).start()
                 }
                 if (::webContainer.isInitialized && webContainer.translationY != 0f) {

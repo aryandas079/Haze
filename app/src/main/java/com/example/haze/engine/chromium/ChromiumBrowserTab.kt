@@ -39,6 +39,11 @@ class ChromiumBrowserTab(
             if (visibility == View.VISIBLE) onResume()
             else onPause()
         }
+
+        override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+            super.onScrollChanged(l, t, oldl, oldt)
+            observer?.onScrollChanged(this@ChromiumBrowserTab, l, t, oldl, oldt)
+        }
     }
 
     override val renderView: View get() = webView

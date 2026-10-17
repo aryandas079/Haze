@@ -14,6 +14,7 @@ interface IEngineObserver {
     fun onTitleReceived(tab: IBrowserTab, title: String) {}
     fun onFaviconReceived(tab: IBrowserTab, favicon: Bitmap) {}
     fun onSecurityStateChanged(tab: IBrowserTab, state: PageSecurityState) {}
+    fun onScrollChanged(tab: IBrowserTab, l: Int, t: Int, oldl: Int, oldt: Int) {}
 
     /**
      * Called when a network or page load error occurs.
