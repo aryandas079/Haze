@@ -4069,7 +4069,12 @@ class MainActivity : AppCompatActivity() {
             setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
-                web?.canScrollVertically(-1) == true
+                val currentUrl = web?.url ?: ""
+                if (currentUrl.contains("spotify.com", ignoreCase = true) || currentUrl.contains("youtube.com", ignoreCase = true)) {
+                    true
+                } else {
+                    web?.canScrollVertically(-1) == true
+                }
             }
             setOnRefreshListener {
                 triggerStrongHaptic()
@@ -4389,12 +4394,13 @@ class MainActivity : AppCompatActivity() {
         if (isSearchActive || activeFullScreenTabsDialog?.isShowing == true) return
         val currentTab = currentTabsList.getOrNull(activeTabIndex)
         if (currentTab != null && isHomeTab(currentTab)) return
+        val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
+        if (isAddressBarHidden && addressBarContainer.translationY == hideOffset) return
         if (isAddressBarHidden) return
 
         cancelAutoHideAddressBar()
         isAddressBarHidden = true
 
-        val hideOffset = if (addressBarContainer.height > 0) addressBarContainer.height.toFloat() + dpToPx(24) else dpToPx(90).toFloat()
         if (animated) {
             addressBarContainer.animate().cancel()
             addressBarContainer.animate()
@@ -4410,6 +4416,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showAddressBar(animated: Boolean = true, autoHideDelay: Long? = null) {
         if (!::addressBarContainer.isInitialized) return
+        if (!isAddressBarHidden && addressBarContainer.translationY == 0f) return
         cancelAutoHideAddressBar()
         isAddressBarHidden = false
 
@@ -4740,11 +4747,19 @@ class MainActivity : AppCompatActivity() {
                                     checkMedia();
                                 }
                                 scanElements();
-                                var observer = new MutationObserver(function() { scanElements(); });
+                                var scanTimer = null;
+                                var observer = new MutationObserver(function() {
+                                    if (!scanTimer) {
+                                        scanTimer = setTimeout(function() {
+                                            scanTimer = null;
+                                            scanElements();
+                                        }, 500);
+                                    }
+                                });
                                 if (document.body || document.documentElement) {
                                     observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
                                 }
-                                setInterval(checkMedia, 1500);
+                                setInterval(checkMedia, 2000);
                             })();
                         """.trimIndent()
                         tab.evaluateJavascript(mediaScript, null)
@@ -5268,24 +5283,27 @@ class MainActivity : AppCompatActivity() {
                     if (isYouTube) {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT, null)
                     }
-                    if (isSpotify) {
+                    val targetUa = if (isSpotify) {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view ?: webView, true)
                         } catch (_: Throwable) {}
-                        view?.settings?.userAgentString = if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
-                        view?.settings?.useWideViewPort = isDesk
-                        view?.settings?.loadWithOverviewMode = isDesk
+                        if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
+                    } else if (isDesk) {
+                        com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
+                    } else {
+                        com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
+                    }
+                    view?.settings?.let { s ->
+                        if (s.userAgentString != targetUa) s.userAgentString = targetUa
+                        if (s.useWideViewPort != isDesk) s.useWideViewPort = isDesk
+                        if (s.loadWithOverviewMode != isDesk) s.loadWithOverviewMode = isDesk
+                    }
+                    if (isSpotify) {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
                     } else if (isDesk) {
-                        view?.settings?.userAgentString = com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
-                        view?.settings?.useWideViewPort = true
-                        view?.settings?.loadWithOverviewMode = true
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
                     } else {
-                        view?.settings?.userAgentString = com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
-                        view?.settings?.useWideViewPort = false
-                        view?.settings?.loadWithOverviewMode = false
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
                     }
                     val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
@@ -9174,8 +9192,6 @@ class MainActivity : AppCompatActivity() {
                                 .setDuration(duration)
                                 .setInterpolator(ultraFastDecel)
                                 .withEndAction {
-                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
-                                    adjView.setLayerType(View.LAYER_TYPE_NONE, null)
                                     currView.translationX = 0f
                                     switchTab(targetIdx, animated = false)
                                 }
@@ -9209,8 +9225,6 @@ class MainActivity : AppCompatActivity() {
                                 .setDuration(duration)
                                 .setInterpolator(ultraFastDecel)
                                 .withEndAction {
-                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
-                                    adjView.setLayerType(View.LAYER_TYPE_NONE, null)
                                     currView.translationX = 0f
                                     switchTab(targetIdx, animated = false)
                                 }
@@ -9234,9 +9248,6 @@ class MainActivity : AppCompatActivity() {
                                 ?.translationX(0f)
                                 ?.setDuration(100L)
                                 ?.setInterpolator(ultraFastDecel)
-                                ?.withEndAction {
-                                    currView.setLayerType(View.LAYER_TYPE_NONE, null)
-                                }
                                 ?.start()
 
                             if (adjView != null) {
@@ -9248,7 +9259,6 @@ class MainActivity : AppCompatActivity() {
                                     .withEndAction {
                                         adjView.visibility = View.GONE
                                         adjView.translationX = 0f
-                                        adjView.setLayerType(View.LAYER_TYPE_NONE, null)
                                     }
                                     .start()
                             }
@@ -9818,7 +9828,12 @@ class MainActivity : AppCompatActivity() {
             setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
-                web?.canScrollVertically(-1) == true
+                val currentUrl = web?.url ?: ""
+                if (currentUrl.contains("spotify.com", ignoreCase = true) || currentUrl.contains("youtube.com", ignoreCase = true)) {
+                    true
+                } else {
+                    web?.canScrollVertically(-1) == true
+                }
             }
             setOnRefreshListener {
                 triggerStrongHaptic()

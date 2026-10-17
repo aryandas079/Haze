@@ -204,19 +204,13 @@ object HazeFluidCacheEngine {
         }
 
         totalCacheMisses.incrementAndGet()
-
-        // 3. Asynchronously fetch and store in cache for subsequent visits
-        bgExecutor.execute {
-            cacheAssetFromNetwork(context, url, key)
-        }
-
         return null
     }
 
     /**
      * Downloads and caches static web assets in background thread.
      */
-    private fun cacheAssetFromNetwork(context: Context, targetUrl: String, key: String) {
+    fun cacheAssetFromNetwork(context: Context, targetUrl: String, key: String) {
         var conn: HttpURLConnection? = null
         try {
             val url = URL(targetUrl)
@@ -414,24 +408,8 @@ object HazeFluidCacheEngine {
             if (window.__hazeSafariFluidEngineInjected) return;
             window.__hazeSafariFluidEngineInjected = true;
 
-            // 1. Unblock Chromium GPU compositor scrolling by defaulting touch listeners to passive
-            var originalAddEventListener = EventTarget.prototype.addEventListener;
-            EventTarget.prototype.addEventListener = function(type, listener, options) {
-                if (type === 'touchstart' || type === 'touchmove' || type === 'wheel' || type === 'mousewheel') {
-                    if (typeof options === 'boolean') {
-                        options = { capture: options, passive: true };
-                    } else if (typeof options === 'object') {
-                        if (options && options.passive === undefined) {
-                            options.passive = true;
-                        }
-                    } else if (!options) {
-                        options = { passive: true };
-                    }
-                }
-                return originalAddEventListener.call(this, type, listener, options);
-            };
-
-            // 2. Speculative Touch-Down Instant Navigation (InstantPage)
+            // 1. Speculative Touch-Down Preload on genuine link taps (debounced to avoid scroll interference)
+            var prefetchTimer = null;
             document.addEventListener('touchstart', function(e) {
                 try {
                     var target = e.target;
@@ -439,14 +417,25 @@ object HazeFluidCacheEngine {
                         target = target.parentElement;
                     }
                     if (target && target.href && (target.href.startsWith('http://') || target.href.startsWith('https://'))) {
-                        if (window.Android && window.Android.prefetchUrl) {
-                            window.Android.prefetchUrl(target.href);
-                        }
+                        clearTimeout(prefetchTimer);
+                        var targetHref = target.href;
+                        prefetchTimer = setTimeout(function() {
+                            if (window.Android && window.Android.prefetchUrl) {
+                                window.Android.prefetchUrl(targetHref);
+                            }
+                        }, 80);
                     }
                 } catch(_) {}
-            }, { passive: true, capture: true });
+            }, { passive: true });
 
-            // 3. Inject Safari-like slippery fluid CSS
+            document.addEventListener('touchmove', function() {
+                if (prefetchTimer) {
+                    clearTimeout(prefetchTimer);
+                    prefetchTimer = null;
+                }
+            }, { passive: true });
+
+            // 2. Eliminate tap lag and provide instant responsive feedback without breaking native scrolling
             function injectFluidStyles() {
                 try {
                     var styleId = '__haze_safari_fluid_style';
@@ -456,13 +445,7 @@ object HazeFluidCacheEngine {
                         style.id = styleId;
                         style.type = 'text/css';
                         style.textContent = `
-                            html, body {
-                                -webkit-overflow-scrolling: touch !important;
-                                touch-action: manipulation !important;
-                                scroll-behavior: smooth !important;
-                            }
                             a, button, [role="button"], input, select, textarea {
-                                touch-action: manipulation !important;
                                 -webkit-tap-highlight-color: transparent !important;
                             }
                         `;

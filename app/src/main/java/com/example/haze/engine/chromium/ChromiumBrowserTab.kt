@@ -219,19 +219,19 @@ class ChromiumBrowserTab(
                     val isSpotify = nonNullUrl.contains("spotify.com", ignoreCase = true)
                     val isYouTube = nonNullUrl.contains("youtube.com", ignoreCase = true)
 
-                    // Enforce correct UA on every page navigation (prevents UA reset after SPA routing)
-                    if (isSpotify) {
+                    // Enforce correct UA only when changed (prevents reload loop and aborted requests)
+                    val targetUa = if (isSpotify) {
                         try {
                             android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
                         } catch (_: Throwable) {}
-                        view?.settings?.userAgentString = if (isDesktop) SPOTIFY_DESKTOP_UA else MOBILE_USER_AGENT
-                        view?.settings?.useWideViewPort = isDesktop
-                        view?.settings?.loadWithOverviewMode = isDesktop
+                        if (isDesktop) SPOTIFY_DESKTOP_UA else MOBILE_USER_AGENT
                     } else {
-                        val ua = if (isDesktop) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
-                        view?.settings?.userAgentString = ua
-                        view?.settings?.useWideViewPort = isDesktop
-                        view?.settings?.loadWithOverviewMode = isDesktop
+                        if (isDesktop) DESKTOP_USER_AGENT else MOBILE_USER_AGENT
+                    }
+                    view?.settings?.let { s ->
+                        if (s.userAgentString != targetUa) s.userAgentString = targetUa
+                        if (s.useWideViewPort != isDesktop) s.useWideViewPort = isDesktop
+                        if (s.loadWithOverviewMode != isDesktop) s.loadWithOverviewMode = isDesktop
                     }
 
                     // Inject scripts after UA is applied
@@ -848,7 +848,7 @@ class ChromiumBrowserTab(
 
                 function dismissSpotifyModals() {
                     try {
-                        var modals = document.querySelectorAll('[data-testid="login-modal"], [data-testid="upsell-modal"], div[role="dialog"], div.GenericModal__overlay');
+                        var modals = document.querySelectorAll('[data-testid="login-modal"], [data-testid="upsell-modal"], div.GenericModal__overlay');
                         for (var i = 0; i < modals.length; i++) {
                             var closeBtn = modals[i].querySelector('button[aria-label*="Close" i], [data-testid="close-button"], button[data-testid="dismiss-button"]');
                             if (closeBtn) closeBtn.click();
@@ -865,13 +865,14 @@ class ChromiumBrowserTab(
                     if (oldPlayer) oldPlayer.remove();
                 } catch(_) {}
 
-                // Continuous Supervisor: Dismiss modals cleanly
+                // Dismiss modals cleanly on load and idle without polling loop
                 function superviseSpotify() {
                     try {
                         dismissSpotifyModals();
                     } catch(_) {}
                 }
-                setInterval(superviseSpotify, 350);
+                setTimeout(superviseSpotify, 1000);
+                setTimeout(superviseSpotify, 3500);
 
                 // 6. CSS Styles: Ad removal, touch play buttons, responsive player layout
                 try {
@@ -1142,16 +1143,20 @@ class ChromiumBrowserTab(
                     window.addEventListener('DOMContentLoaded', setYtCfg);
                 } catch(_) {}
 
-                // 6. Automatic Dismissal of Enforcement Dialogs, Paywalls & Premium Promos
+                // 6. Automatic Dismissal of Enforcement Dialogs, Paywalls & Premium Promos (Throttled)
+                var lastDismissTime = 0;
                 function dismissPaywallsAndEnforcements() {
+                    var now = Date.now();
+                    if (now - lastDismissTime < 2000) return;
+                    lastDismissTime = now;
                     try {
                         var enforcementModals = document.querySelectorAll(
-                            'ytd-enforcement-message-view-model, #enforcement-message, tp-yt-paper-dialog:has(ytd-enforcement-message-view-model), tp-yt-paper-dialog:has(#feedback), yt-playability-error-supported-renderers, ytm-mealbar-promo-renderer, ytm-upsell-dialog-renderer, ytd-mealbar-promo-renderer, ytd-popup-container yt-confirm-dialog-renderer'
+                            'ytd-enforcement-message-view-model, #enforcement-message, yt-playability-error-supported-renderers, ytm-mealbar-promo-renderer, ytm-upsell-dialog-renderer, ytd-mealbar-promo-renderer'
                         );
                         for (var i = 0; i < enforcementModals.length; i++) {
                             enforcementModals[i].remove();
                         }
-                        var backdrops = document.querySelectorAll('tp-yt-iron-overlay-backdrop, .opened[aria-hidden="true"]');
+                        var backdrops = document.querySelectorAll('tp-yt-iron-overlay-backdrop');
                         for (var b = 0; b < backdrops.length; b++) {
                             backdrops[b].remove();
                         }
@@ -1182,8 +1187,11 @@ class ChromiumBrowserTab(
                 var wasAdActive = false;
 
                 function skipYouTubeAd() {
+                    var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
+                    if (!adShowing && !wasAdActive) {
+                        return;
+                    }
                     dismissPaywallsAndEnforcements();
-                    var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing, [class*="ad-showing"], [class*="ad-interrupting"]');
                     var video = document.querySelector('video');
 
                     if (adShowing) {
@@ -1205,34 +1213,17 @@ class ChromiumBrowserTab(
                                 video.currentTime = 99999;
                             }
                             video.playbackRate = 16;
-                            // Trigger modern YouTube player API skip if present
-                            try {
-                                var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-                                if (player && typeof player.stopVideo === 'function' && typeof player.nextVideo === 'function') {
-                                    // Let player proceed
-                                }
-                            } catch(_) {}
                             video.play().catch(function() {});
                         }
-                    } else {
-                        if (wasAdActive) {
-                            wasAdActive = false;
-                            if (video) {
-                                video.playbackRate = 1;
-                                video.muted = false;
-                                if (video.paused && !video.ended) {
-                                    video.play().catch(function() {});
-                                }
-                            }
-                        } else if (video && video.playbackRate > 1 && !adShowing) {
+                    } else if (wasAdActive) {
+                        wasAdActive = false;
+                        if (video) {
                             video.playbackRate = 1;
                             video.muted = false;
+                            if (video.paused && !video.ended) {
+                                video.play().catch(function() {});
+                            }
                         }
-                    }
-
-                    var dismissButtons = document.querySelectorAll('yt-button-renderer[aria-label="No thanks"], .yt-spec-button-shape-next[aria-label="No thanks"], ytm-mealbar-promo-renderer button, .ytp-ad-overlay-close-button');
-                    for (var d = 0; d < dismissButtons.length; d++) {
-                        try { dismissButtons[d].click(); } catch(_) {}
                     }
                 }
 
@@ -1259,25 +1250,26 @@ class ChromiumBrowserTab(
                 } else {
                     window.addEventListener('DOMContentLoaded', function() { setTimeout(checkAndPopulateFeed, 350); });
                 }
-                var feedObserver = new MutationObserver(function() {
-                    checkAndPopulateFeed();
-                });
-                if (document.body) {
-                    feedObserver.observe(document.body, { childList: true, subtree: true });
-                } else {
-                    window.addEventListener('DOMContentLoaded', function() {
-                        if (document.body) feedObserver.observe(document.body, { childList: true, subtree: true });
-                    });
+
+                // Smooth non-blocking observer using requestAnimationFrame debouncing
+                var adCheckRaf = false;
+                function scheduleAdCheck() {
+                    if (!adCheckRaf) {
+                        adCheckRaf = true;
+                        requestAnimationFrame(function() {
+                            adCheckRaf = false;
+                            skipYouTubeAd();
+                        });
+                    }
                 }
 
-                // High-frequency 50ms check during video startup for zero-lag instant playback
-                setInterval(skipYouTubeAd, 50);
-                document.addEventListener('yt-navigate-finish', function() { skipYouTubeAd(); });
+                setInterval(skipYouTubeAd, 250);
+                document.addEventListener('yt-navigate-finish', function() { dismissPaywallsAndEnforcements(); skipYouTubeAd(); });
                 document.addEventListener('yt-page-data-updated', function() { skipYouTubeAd(); });
-                document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
+                document.addEventListener('click', scheduleAdCheck, true);
 
                 var observer = new MutationObserver(function() {
-                    skipYouTubeAd();
+                    scheduleAdCheck();
                 });
                 observer.observe(document.documentElement, {
                     childList: true,
@@ -1539,7 +1531,7 @@ class ChromiumBrowserTab(
                         }
 
                         // C. Ad Label Section Hunter (find elements whose label is ADVERTISEMENT/SPONSORED)
-                        var labelCandidates = document.querySelectorAll('span, p, small, header, h5, h6');
+                        var labelCandidates = document.querySelectorAll('.ad-badge, .sponsored-badge, .ad-label, .sponsored-label, .ad-text, [data-ad-label]');
                         for (var m = 0; m < labelCandidates.length; m++) {
                             var cand = labelCandidates[m];
                             if (cand.children.length === 0) {

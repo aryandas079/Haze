@@ -55,7 +55,14 @@ class ChromiumNavigationController(
     }
 
     override fun reload() {
-        webView.reload()
+        val currentUrl = webView.url ?: ""
+        if (currentUrl.startsWith("haze://home") || currentUrl.startsWith("about:blank") || currentUrl.isEmpty()) {
+            val main = webView.context as? com.example.haze.MainActivity
+            main?.reloadHomeTabsIfOpen()
+        } else {
+            webView.stopLoading()
+            webView.reload()
+        }
     }
 
     override fun stopLoading() {
