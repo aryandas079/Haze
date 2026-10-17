@@ -266,6 +266,7 @@ class ChromiumBrowserTab(
                         """.trimIndent()
                         view?.evaluateJavascript(earlyCss, null)
                     }
+                    view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
                 }
                 observer?.onPageStarted(this@ChromiumBrowserTab, nonNullUrl, faviconBitmap)
             }
@@ -314,6 +315,7 @@ class ChromiumBrowserTab(
                         view?.evaluateJavascript(cosmeticCss, null)
                     }
                     view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
+                    view?.evaluateJavascript("try { if (window.__hazeCleanAdSections) window.__hazeCleanAdSections(); } catch(_) {}", null)
                 }
                 if (nonNullUrl.contains("myaccount.google.com") || 
                     nonNullUrl.contains("accounts.google.com/CheckCookie") ||
@@ -1626,17 +1628,14 @@ class ChromiumBrowserTab(
 
         val DYNAMIC_BANNER_CLEANER_SCRIPT = """
             (function() {
-                if (window.__hazeBannerCleanerInjected) return;
-                window.__hazeBannerCleanerInjected = true;
-
-                // 1. Declarative CSS injection for all known ad containers, banners, slots, and placeholders
+                // 1. Declarative CSS injection for all known ad containers, banners, slots, sections, and wrappers
                 try {
                     var s = document.getElementById('__haze_dynamic_banner_css');
                     if (!s) {
                         s = document.createElement('style');
                         s.id = '__haze_dynamic_banner_css';
                         s.type = 'text/css';
-                        s.textContent = 'ins.adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[src*="amazon-adsystem"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id*="ad-slot"], div[id*="ad-container"], div[id*="ad-wrapper"], div[id*="ad-banner"], div[id*="ad-placeholder"], div[id*="ad-section"], div[id*="ad-box"], div[id*="ad-holder"], div[class*="ad-slot"], div[class*="ad-container"], div[class*="ad-wrapper"], div[class*="ad-placeholder"], div[class*="ad-banner"], div[class*="ad-section"], div[class*="ad-box"], div[class*="ad-holder"], div[class*="ad_wrapper"], div[class*="ad_container"], div[class*="ad_banner"], div[class*="ad_slot"], div[class*="ad_placeholder"], .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-container, .ad-wrapper, .ad-unit, .ad-holder, .ad-space, .ad-area, .ad-section, .ad-placeholder, .ad-label, .ad-notice, .ad-title, .ad-header, .advertisement, .advertisement-container, .advertisement-wrapper, .advertisement-banner, .advertisement-slot, .advertisement-box, .advertisement-section, .advertisement-placeholder, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad], [data-ad-type], [aria-label="Advertisement"], [aria-label="Sponsored"], [aria-label="Advert"], [aria-label="Anuncio"], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .native-ad, .native_ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget { display: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; }';
+                        s.textContent = 'ins.adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[src*="amazon-adsystem"], iframe[src*="adnxs"], iframe[src*="criteo"], iframe[src*="pubmatic"], iframe[src*="openx"], iframe[src*="rubicon"], iframe[src*="smartadserver"], iframe[src*="teads"], iframe[src*="adform"], iframe[id*="google_ads"], iframe[id*="ad-"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id^="div-gpt-ad"], div[id*="div-gpt-ad"], div[id*="ad-slot"], div[id*="ad-container"], div[id*="ad-wrapper"], div[id*="ad-banner"], div[id*="ad-placeholder"], div[id*="ad-section"], div[id*="ad-box"], div[id*="ad-holder"], div[class*="ad-slot"], div[class*="ad-container"], div[class*="ad-wrapper"], div[class*="ad-placeholder"], div[class*="ad-banner"], div[class*="ad-section"], div[class*="ad-box"], div[class*="ad-holder"], div[class*="ad_wrapper"], div[class*="ad_container"], div[class*="ad_banner"], div[class*="ad_slot"], div[class*="ad_placeholder"], div[class*="ad_section"], div[class*="google-ad"], div[class*="google_ad"], div[id*="google-ad"], div[id*="google_ad"], section[class*="ad-"], section[id*="ad-"], section[class*="advert"], section[id*="advert"], section[class*="sponsor"], aside[class*="ad-"], aside[id*="ad-"], aside[class*="advert"], aside[class*="sponsor"], .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-container, .ad-wrapper, .ad-unit, .ad-holder, .ad-space, .ad-area, .ad-section, .ad-placeholder, .ad-label, .ad-notice, .ad-title, .ad-header, .ad-caption, .advertisement-label, .ad-badge, .ad-notice, .sponsored-label, .sponsored-tag, .advertisement, .advertisement-container, .advertisement-wrapper, .advertisement-banner, .advertisement-slot, .advertisement-box, .advertisement-section, .advertisement-placeholder, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad-wrapper], [data-ad-placeholder], [data-ad], [data-ad-type], [data-google-query-id], [aria-label="Advertisement"], [aria-label="Sponsored"], [aria-label="Advert"], [aria-label="Anuncio"], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .sponsored-wrapper, .sponsored-container, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .in-article-ad, .in-content-ad, .native-ad, .native_ad, .sticky-ad, .floating-ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget, .ima-ad-container, .video-ad-overlay, .vjs-ad-loading, .jw-flag-ads { display: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; }';
                         (document.head || document.documentElement).appendChild(s);
                     }
                 } catch(_) {}
@@ -1653,7 +1652,9 @@ class ChromiumBrowserTab(
                             strUrl.indexOf('clickadu') !== -1 || strUrl.indexOf('adcash') !== -1 ||
                             strUrl.indexOf('popunder') !== -1 || strUrl.indexOf('clickunder') !== -1 ||
                             strUrl.indexOf('zeroredirect') !== -1 || strUrl.indexOf('tsyndicate') !== -1 ||
-                            strUrl.indexOf('ad-maven') !== -1 || strUrl.indexOf('clicksor') !== -1
+                            strUrl.indexOf('ad-maven') !== -1 || strUrl.indexOf('clicksor') !== -1 ||
+                            strUrl.indexOf('trafficjunky') !== -1 || strUrl.indexOf('juicyads') !== -1 ||
+                            strUrl.indexOf('exosrv') !== -1
                         )) {
                             return null;
                         }
@@ -1661,7 +1662,18 @@ class ChromiumBrowserTab(
                     };
                 } catch(_) {}
 
-                // 3. Annoying Overlays & Cookie Consent Wall Dismissal
+                // 3. Notification Spam Protection (Deceptive 'Click allow to continue' prompts)
+                try {
+                    if (window.Notification && window.Notification.requestPermission) {
+                        window.Notification.requestPermission = function(cb) {
+                            var p = Promise.resolve('denied');
+                            if (typeof cb === 'function') cb('denied');
+                            return p;
+                        };
+                    }
+                } catch(_) {}
+
+                // 4. Annoying Overlays & Cookie Consent Wall Dismissal
                 function dismissAnnoyingOverlays() {
                     try {
                         var overlaySelectors = [
@@ -1677,6 +1689,8 @@ class ChromiumBrowserTab(
                         var found = document.querySelectorAll(overlaySelectors.join(','));
                         for (var k = 0; k < found.length; k++) {
                             found[k].style.setProperty('display', 'none', 'important');
+                            found[k].style.setProperty('height', '0px', 'important');
+                            found[k].style.setProperty('min-height', '0px', 'important');
                             found[k].style.setProperty('pointer-events', 'none', 'important');
                         }
 
@@ -1692,52 +1706,130 @@ class ChromiumBrowserTab(
                     } catch(_) {}
                 }
 
-                // 4. Safe Ad-Iframe collapsing without destructive DOM walking
-                function collapseAdIframes() {
+                // 5. Intelligent Ad Section Collapser & Remover
+                function collapseElementAndSection(el) {
+                    if (!el || el === document.body || el === document.documentElement) return;
+                    try {
+                        // Collapse element itself
+                        el.style.setProperty('display', 'none', 'important');
+                        el.style.setProperty('height', '0px', 'important');
+                        el.style.setProperty('min-height', '0px', 'important');
+                        el.style.setProperty('max-height', '0px', 'important');
+                        el.style.setProperty('margin', '0px', 'important');
+                        el.style.setProperty('padding', '0px', 'important');
+                        el.style.setProperty('border', 'none', 'important');
+                        el.style.setProperty('visibility', 'hidden', 'important');
+                        el.style.setProperty('pointer-events', 'none', 'important');
+
+                        // Climb parent hierarchy to collapse the entire containing section / wrapper
+                        var curr = el.parentElement;
+                        var levels = 0;
+                        while (curr && curr !== document.body && curr !== document.documentElement && levels < 4) {
+                            var tag = curr.tagName.toLowerCase();
+                            var cls = (curr.className || '').toString().toLowerCase();
+                            var id = (curr.id || '').toString().toLowerCase();
+                            var isAdWrapper = /ad[-_]|advert|sponsor|dfp|gpt|banner|placement|adholder|adslot|adbox|adunit|adwrap|adcontainer|adsection|taboola|outbrain|revcontent|mgid/i.test(cls + ' ' + id) ||
+                                tag === 'aside' || tag === 'section';
+
+                            var hasMeaningfulContent = false;
+                            for (var i = 0; i < curr.children.length; i++) {
+                                var child = curr.children[i];
+                                if (child === el) continue;
+                                var cTag = child.tagName.toLowerCase();
+                                if (cTag === 'script' || cTag === 'style' || cTag === 'noscript' || cTag === 'template') continue;
+                                if (child.style && child.style.display === 'none') continue;
+                                var cText = (child.textContent || '').trim().toLowerCase();
+                                if (/^(advertisement|sponsored|promoted|advert|anuncio|publicidad|werbung|anzeige|ads? by google|partner content)$/i.test(cText)) {
+                                    child.style.setProperty('display', 'none', 'important');
+                                    continue;
+                                }
+                                var cCls = (child.className || '').toString().toLowerCase();
+                                var cId = (child.id || '').toString().toLowerCase();
+                                if (/ad[-_]|advert|sponsor|dfp|gpt/i.test(cCls + ' ' + cId) || cTag === 'ins' || cTag === 'iframe') {
+                                    continue;
+                                }
+                                if (cText.length > 30 || child.querySelector('img, video, p, article, h1, h2, h3')) {
+                                    hasMeaningfulContent = true;
+                                    break;
+                                }
+                            }
+
+                            if (isAdWrapper || !hasMeaningfulContent) {
+                                curr.style.setProperty('display', 'none', 'important');
+                                curr.style.setProperty('height', '0px', 'important');
+                                curr.style.setProperty('min-height', '0px', 'important');
+                                curr.style.setProperty('max-height', '0px', 'important');
+                                curr.style.setProperty('margin', '0px', 'important');
+                                curr.style.setProperty('padding', '0px', 'important');
+                                curr.style.setProperty('border', 'none', 'important');
+                                curr.style.setProperty('visibility', 'hidden', 'important');
+                                curr.style.setProperty('pointer-events', 'none', 'important');
+                            } else {
+                                break;
+                            }
+                            curr = curr.parentElement;
+                            levels++;
+                        }
+                    } catch(_) {}
+                }
+
+                function cleanAdSections() {
                     try {
                         dismissAnnoyingOverlays();
-                        var adIframes = document.querySelectorAll('iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[id*="google_ads"]');
+
+                        // A. Clean ad iframes
+                        var adIframes = document.querySelectorAll('iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[src*="amazon-adsystem"], iframe[src*="adnxs"], iframe[src*="criteo"], iframe[src*="pubmatic"], iframe[src*="openx"], iframe[src*="rubicon"], iframe[src*="smartadserver"], iframe[src*="teads"], iframe[src*="adform"], iframe[id*="google_ads"], iframe[id*="ad-"]');
                         for (var j = 0; j < adIframes.length; j++) {
                             var frame = adIframes[j];
                             try { frame.src = 'about:blank'; } catch(_) {}
-                            frame.style.setProperty('display', 'none', 'important');
-                            frame.style.setProperty('height', '0px', 'important');
-                            frame.style.setProperty('margin', '0px', 'important');
-                            frame.style.setProperty('padding', '0px', 'important');
-                            var pFrame = frame.parentElement;
-                            if (pFrame && pFrame !== document.body && pFrame !== document.documentElement) {
-                                if (pFrame.children.length === 1) {
-                                    pFrame.style.setProperty('display', 'none', 'important');
-                                    pFrame.style.setProperty('height', '0px', 'important');
-                                    pFrame.style.setProperty('margin', '0px', 'important');
-                                    pFrame.style.setProperty('padding', '0px', 'important');
+                            collapseElementAndSection(frame);
+                        }
+
+                        // B. Clean ad containers, slots, ins, and sections
+                        var adElements = document.querySelectorAll('ins.adsbygoogle, [id*="google_ads"], [id^="dfp-"], [id^="gpt-"], [id*="gpt-ad"], [id^="div-gpt-ad"], [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-container], [data-ad-placeholder], [data-ad], [data-google-query-id], [aria-label="Advertisement"], [aria-label="Sponsored"], div[class*="ad-slot"], div[class*="ad-container"], div[class*="ad-wrapper"], div[class*="ad-section"], div[class*="advertisement"], div[class*="banner-ad"], section[class*="ad-"], aside[class*="ad-"]');
+                        for (var k = 0; k < adElements.length; k++) {
+                            collapseElementAndSection(adElements[k]);
+                        }
+
+                        // C. Ad Label Section Hunter (find sections whose header or label is ADVERTISEMENT/SPONSORED)
+                        var labelCandidates = document.querySelectorAll('span, div, p, small, header, h4, h5, h6');
+                        for (var m = 0; m < labelCandidates.length; m++) {
+                            var cand = labelCandidates[m];
+                            if (cand.children.length === 0) {
+                                var txt = (cand.textContent || '').trim().toLowerCase();
+                                if (/^(advertisement|sponsored|promoted|advert|anuncio|publicidad|werbung|anzeige|ads? by google|partner content)$/i.test(txt)) {
+                                    collapseElementAndSection(cand);
                                 }
                             }
                         }
                     } catch(_) {}
                 }
 
-                collapseAdIframes();
+                window.__hazeCleanAdSections = cleanAdSections;
+
+                cleanAdSections();
                 if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', collapseAdIframes);
+                    document.addEventListener('DOMContentLoaded', cleanAdSections);
                 }
-                window.addEventListener('load', collapseAdIframes);
+                window.addEventListener('load', cleanAdSections);
 
                 var collapseTimer = null;
                 var observer = new MutationObserver(function() {
                     if (!collapseTimer) {
                         collapseTimer = setTimeout(function() {
                             collapseTimer = null;
-                            collapseAdIframes();
-                        }, 500);
+                            cleanAdSections();
+                        }, 250);
                     }
                 });
 
-                if (document.body) {
-                    observer.observe(document.body, { childList: true, subtree: true });
+                var rootToObserve = document.documentElement || document.body;
+                if (rootToObserve) {
+                    observer.observe(rootToObserve, { childList: true, subtree: true });
                 } else {
                     document.addEventListener('DOMContentLoaded', function() {
-                        if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+                        var target = document.documentElement || document.body;
+                        if (target) observer.observe(target, { childList: true, subtree: true });
                     });
                 }
             })();

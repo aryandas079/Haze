@@ -235,6 +235,87 @@ object HazePrivacyShieldEngine {
                 })();
                 """.trimIndent()
             }
+            lowerUrl.contains("adsbygoogle") || lowerUrl.contains("googlesyndication.com") || lowerUrl.contains("pagead") -> {
+                """
+                (function(){
+                    window.adsbygoogle = window.adsbygoogle || [];
+                    window.adsbygoogle.loaded = true;
+                    var origPush = window.adsbygoogle.push;
+                    window.adsbygoogle.push = function(arg){
+                        if (typeof arg === 'function') { try { arg(); } catch(_) {} }
+                        return 1;
+                    };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("gpt.js") || lowerUrl.contains("googletagservices.com") || lowerUrl.contains("googletag") -> {
+                """
+                (function(){
+                    var noop = function(){};
+                    var fakeSlot = {
+                        addService: function(){ return fakeSlot; },
+                        setTargeting: function(){ return fakeSlot; },
+                        setCollapseEmptyDiv: function(){ return fakeSlot; },
+                        clearTargeting: function(){ return fakeSlot; },
+                        defineSizeMapping: function(){ return fakeSlot; }
+                    };
+                    var fakePubads = {
+                        addEventListener: noop,
+                        clearTargeting: noop,
+                        collapseEmptyDivs: noop,
+                        disableInitialLoad: noop,
+                        enableSingleRequest: noop,
+                        enableAsyncRendering: noop,
+                        getSlots: function(){ return []; },
+                        refresh: noop,
+                        setTargeting: function(){ return fakePubads; }
+                    };
+                    window.googletag = window.googletag || {};
+                    window.googletag.cmd = window.googletag.cmd || [];
+                    window.googletag.cmd.push = function(fn){
+                        if (typeof fn === 'function') { try { fn(); } catch(_) {} }
+                        return 1;
+                    };
+                    window.googletag.defineSlot = function(){ return fakeSlot; };
+                    window.googletag.defineOutOfPageSlot = function(){ return fakeSlot; };
+                    window.googletag.display = noop;
+                    window.googletag.enableServices = noop;
+                    window.googletag.pubads = function(){ return fakePubads; };
+                    window.googletag.sizeMapping = function(){ return { addSize: function(){ return this; }, build: function(){ return []; } }; };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("amazon-adsystem") || lowerUrl.contains("aaxads") || lowerUrl.contains("apstag") -> {
+                """
+                (function(){
+                    var noop = function(){};
+                    window.apstag = window.apstag || {
+                        init: noop,
+                        fetchBids: function(cfg, cb){ if (typeof cb === 'function') { try { cb([]); } catch(_) {} } },
+                        setDisplayBids: noop
+                    };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("prebid") || lowerUrl.contains("pbjs") -> {
+                """
+                (function(){
+                    window.pbjs = window.pbjs || {};
+                    window.pbjs.que = window.pbjs.que || [];
+                    window.pbjs.que.push = function(fn){ if (typeof fn === 'function') { try { fn(); } catch(_) {} } return 1; };
+                    window.pbjs.requestBids = function(cfg){ if (cfg && typeof cfg.bidsBackHandler === 'function') { try { cfg.bidsBackHandler(); } catch(_) {} } };
+                })();
+                """.trimIndent()
+            }
+            lowerUrl.contains("criteo") -> {
+                """
+                (function(){
+                    window.Criteo = window.Criteo || {};
+                    window.criteo_q = window.criteo_q || [];
+                    window.criteo_q.push = function(){ return 1; };
+                })();
+                """.trimIndent()
+            }
             else -> {
                 "/* Haze Privacy Shield Surrogate */"
             }
@@ -254,7 +335,9 @@ object HazePrivacyShieldEngine {
             lower.contains("creative") || lower.contains("banner") -> {
                 WebResourceResponse("image/png", "UTF-8", 200, "OK", headers, ByteArrayInputStream(TRANSPARENT_1X1_PNG))
             }
-            lower.contains(".js") || lower.contains("/js") || lower.contains("analytics") || lower.contains("track") -> {
+            lower.contains(".js") || lower.contains("/js") || lower.contains("analytics") || lower.contains("track") ||
+            lower.contains("pagead") || lower.contains("tag") || lower.contains("prebid") || lower.contains("criteo") ||
+            lower.contains("doubleclick") || lower.contains("adnxs") || lower.contains("pubmatic") || lower.contains("rubicon") -> {
                 val surrogate = getSurrogateScriptForUrl(lower)
                 val bytes = surrogate.toByteArray(Charsets.UTF_8)
                 WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(bytes))

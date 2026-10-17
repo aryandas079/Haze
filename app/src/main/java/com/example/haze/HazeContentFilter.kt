@@ -38,14 +38,31 @@ object HazeContentFilter {
         "iframe[src*=\"openx.net\"]", "iframe[src*=\"teads.tv\"]", "iframe[src*=\"moatads\"]",
         "iframe[src*=\"adform\"]", "iframe[src*=\"serving-sys\"]",
         "div[id^=\"google_ads_\"]", "div[id*=\"google_ads_\"]", "iframe[id^=\"google_ads_\"]", "iframe[id*=\"google_ads_\"]",
-        "div[id^=\"dfp-\"]", "div[id^=\"gpt-\"]", "div[id*=\"gpt-ad\"]", "div[id^=\"ad-slot\"]", "div[id^=\"ad-container\"]", "div[id^=\"ad-wrapper\"]", "div[id^=\"ad-banner\"]",
+        "div[id^=\"dfp-\"]", "div[id^=\"gpt-\"]", "div[id*=\"gpt-ad\"]", "div[id^=\"div-gpt-ad\"]", "div[id*=\"div-gpt-ad\"]",
+        "div[id^=\"ad-slot\"]", "div[id^=\"ad-container\"]", "div[id^=\"ad-wrapper\"]", "div[id^=\"ad-banner\"]", "div[id*=\"ad-section\"]",
         ".banner-ad", ".banner_ad", ".ad-banner", ".ad-slot", ".ad-card", ".ad-box", ".ad-container", ".ad-wrapper", ".ad-unit",
-        ".ad-holder", ".ad-placeholder", ".ad-placement", ".ad-leaderboard", ".ad-rectangle", ".ad-skyscraper",
-        ".advertisement", "[data-ad-unit]", "[data-ad-slot]", "[data-ad-client]", "[data-ad-name]", "[data-ad-format]",
+        ".ad-holder", ".ad-placeholder", ".ad-placement", ".ad-leaderboard", ".ad-rectangle", ".ad-skyscraper", ".ad-section",
+        ".advertisement", ".advertisement-container", ".advertisement-wrapper", ".advertisement-section", ".advertisement-slot", ".advertisement-box", ".advertisement-placeholder",
+        "[data-ad-unit]", "[data-ad-slot]", "[data-ad-client]", "[data-ad-name]", "[data-ad-format]", "[data-ad-container]", "[data-ad-wrapper]", "[data-ad-placeholder]",
         "[id*=\"google_ads\"]", "[data-testid=\"ad-banner\"]", "[data-testid=\"companion-ad\"]",
-        "[aria-label=\"Advertisement\"]", "[aria-label=\"Sponsored\"]", "[aria-label=\"Advert\"]", "[data-advertisement]",
-        ".sponsored-post", ".sponsored-content", ".promoted-content", ".sponsored-badge",
-        ".header-ad", ".footer-ad", ".sidebar-ad", ".top-ad", ".bottom-ad", ".inline-ad",
+        "[aria-label=\"Advertisement\"]", "[aria-label=\"Sponsored\"]", "[aria-label=\"Advert\"]", "[aria-label=\"Anuncio\"]", "[data-advertisement]", "[data-google-query-id]",
+        ".sponsored-post", ".sponsored-content", ".promoted-content", ".sponsored-badge", ".sponsored-wrapper", ".sponsored-container", ".sponsored-box",
+        ".header-ad", ".footer-ad", ".sidebar-ad", ".top-ad", ".bottom-ad", ".inline-ad", ".in-article-ad", ".in-content-ad",
+        ".sticky-ad", ".floating-ad",
+        // Ad sections and semantic containers
+        "section[class*=\"ad-\"]", "section[id*=\"ad-\"]", "section[class*=\"advert\"]", "section[id*=\"advert\"]", "section[class*=\"sponsor\"]",
+        "aside[class*=\"ad-\"]", "aside[id*=\"ad-\"]", "aside[class*=\"advert\"]", "aside[class*=\"sponsor\"]",
+        "div[class*=\"ad-section\"]", "div[id*=\"ad-section\"]", "div[class*=\"ad_section\"]", "div[id*=\"ad_section\"]",
+        "div[class*=\"ad-container\"]", "div[id*=\"ad-container\"]", "div[class*=\"ad_container\"]", "div[id*=\"ad_container\"]",
+        "div[class*=\"ad-wrapper\"]", "div[id*=\"ad-wrapper\"]", "div[class*=\"ad_wrapper\"]", "div[id*=\"ad_wrapper\"]",
+        "div[class*=\"ad-slot\"]", "div[id*=\"ad-slot\"]", "div[class*=\"ad_slot\"]", "div[id*=\"ad_slot\"]",
+        "div[class*=\"ad-holder\"]", "div[id*=\"ad-holder\"]", "div[class*=\"ad_holder\"]", "div[id*=\"ad_holder\"]",
+        "div[class*=\"ad-placement\"]", "div[id*=\"ad-placement\"]", "div[class*=\"ad_placement\"]",
+        "div[class*=\"ad-placeholder\"]", "div[id*=\"ad-placeholder\"]", "div[class*=\"ad_placeholder\"]",
+        "div[class*=\"ad-box\"]", "div[id*=\"ad-box\"]", "div[class*=\"ad_box\"]", "div[id*=\"ad_box\"]",
+        "div[class*=\"ad-unit\"]", "div[id*=\"ad-unit\"]", "div[class*=\"ad_unit\"]", "div[id*=\"ad_unit\"]",
+        "div[class*=\"google-ad\"]", "div[id*=\"google-ad\"]", "div[class*=\"google_ad\"]", "div[id*=\"google_ad\"]",
+        ".ad-label", ".ad-title", ".ad-caption", ".advertisement-label", ".ad-badge", ".ad-notice", ".sponsored-label", ".sponsored-tag",
         // Sponsored widgets (Taboola, Outbrain, Revcontent, MGID, Nativo)
         ".tbl-feed-container", ".trc_rbox_div", "div[id*=\"taboola\"]", "[data-taboola-placeholder]",
         ".outbrain_widget", ".OB-widget", "#outbrain_widget_0", "[data-widget-id*=\"outbrain\"]",
@@ -73,6 +90,8 @@ object HazeContentFilter {
         "tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)",
         "tp-yt-paper-dialog:has(#feedback)", "yt-playability-error-supported-renderers",
         "ytm-search ytm-compact-promoted-video-renderer",
+        // Generic Video Player Ad Overlays
+        ".ima-ad-container", ".video-ad-overlay", ".vjs-ad-loading", ".jw-flag-ads", ".jw-ad-container",
         // Annoying overlays (Cookie consent & anti-adblock modals)
         "#onetrust-consent-sdk", ".cc-window", "#didomi-host", ".cookie-banner",
         "[id*=\"cookie-notice\"]", ".qc-cmp2-container", "#CybotCookiebotDialog",
@@ -142,7 +161,7 @@ object HazeContentFilter {
             if (activeSelectors.isEmpty()) return ""
 
             val joined = activeSelectors.joinToString(", ")
-            val hideRules = "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; clip: rect(0, 0, 0, 0) !important; }"
+            val hideRules = "$joined { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; }"
             val videoProtectionRule = """
                 video,
                 video.video-stream,

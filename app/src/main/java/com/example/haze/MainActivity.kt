@@ -4706,6 +4706,7 @@ class MainActivity : AppCompatActivity() {
             targetView.evaluateJavascript(cosmeticScript, null)
         }
         targetView.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DYNAMIC_BANNER_CLEANER_SCRIPT, null)
+        targetView.evaluateJavascript("try { if (window.__hazeCleanAdSections) window.__hazeCleanAdSections(); } catch(_) {}", null)
     }
 
     private fun applyDarkModeToWebView(webView: WebView, isDark: Boolean) {
@@ -5560,6 +5561,9 @@ class MainActivity : AppCompatActivity() {
                 super.onProgressChanged(view, newProgress)
                 if (newProgress < 100) showPageLoading(newProgress.coerceAtLeast(5))
                 else finishPageLoading()
+                if (newProgress >= 70 && !view?.url.isNullOrEmpty() && HazePrivacyShieldEngine.isShieldEnabled(this@MainActivity)) {
+                    view?.evaluateJavascript("try { if (window.__hazeCleanAdSections) window.__hazeCleanAdSections(); } catch(_) {}", null)
+                }
             }
 
             override fun onCreateWindow(

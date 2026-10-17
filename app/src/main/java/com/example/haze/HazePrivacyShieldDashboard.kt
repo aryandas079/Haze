@@ -2252,10 +2252,10 @@ object HazePrivacyShieldDashboard {
             return itemRow
         }
 
-        whyCard.addView(createWhyItem("🛡️", "Trackers Blocked", "Third-party scripts (Google Analytics, Meta Pixel, TikTok, Criteo) secretly record your clicks, mouse movements, purchase intent, and cross-site habits to profile you."))
-        whyCard.addView(createWhyItem("🚫", "Ads Blocked", "Intrusive banners, popunders, and sponsored widgets slow down page load by up to 60%, drain battery, and consume mobile data without your consent."))
-        whyCard.addView(createWhyItem("🍪", "Cookies Blocked", "Cross-domain tracking cookies attempt to link your activity on this website with your profiles across social networks and advertising exchanges."))
-        whyCard.addView(createWhyItem("🔍", "Fingerprint Attempts", "Stealth JavaScript queries interrogating your device's HTML5 Canvas, WebGL shaders, Audio buffer, and system fonts to uniquely identify you without cookies."))
+        whyCard.addView(createWhyItem("•", "Trackers Blocked", "Third-party scripts (Google Analytics, Meta Pixel, TikTok, Criteo) secretly record your clicks, mouse movements, purchase intent, and cross-site habits to profile you."))
+        whyCard.addView(createWhyItem("•", "Ads Blocked", "Intrusive banners, popunders, and sponsored widgets slow down page load by up to 60%, drain battery, and consume mobile data without your consent."))
+        whyCard.addView(createWhyItem("•", "Cookies Blocked", "Cross-domain tracking cookies attempt to link your activity on this website with your profiles across social networks and advertising exchanges."))
+        whyCard.addView(createWhyItem("•", "Fingerprint Attempts", "Stealth JavaScript queries interrogating your device's HTML5 Canvas, WebGL shaders, Audio buffer, and system fonts to uniquely identify you without cookies."))
 
         // Inspect All Blocked Requests Button
         val btnInspect = TextView(activity).apply {
