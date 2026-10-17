@@ -513,11 +513,7 @@ class MainActivity : AppCompatActivity() {
         val pillPadEnd = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 7f, resources.displayMetrics).toInt()
         btnSearchEngineDropdown.setPaddingRelative(pillPadStart, 0, pillPadEnd, 0)
 
-        val currentTab = getActiveTab()
-        val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
-        if (isHome || isSearchActive) {
-            addressBar.hint = "Search with ${activeEngine.name} or enter address"
-        }
+        addressBar.hint = "Search with ${activeEngine.name}"
     }
 
     fun updateNavigationButtons() {
