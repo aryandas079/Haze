@@ -12,10 +12,12 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.*
@@ -55,6 +57,11 @@ class HazeReaderModeManager(
     private var googleTtsEngine: String? = null
     private var currentTranslateAction: ((String, String) -> Unit)? = null
     private var currentRevertAction: (() -> Unit)? = null
+    private var currentVoiceAction: (() -> Unit)? = null
+    private var selectedVoice: Voice? = null
+    private var selectedVoiceName: String?
+        get() = prefs.getString("reader_voice_name", null)
+        set(value) = prefs.edit().putString("reader_voice_name", value).apply()
 
     fun translateToLanguage(targetCode: String, targetName: String = "") {
         val lang = HazeTranslationManager.SUPPORTED_LANGUAGES.find { it.second.equals(targetCode, ignoreCase = true) }
@@ -64,6 +71,10 @@ class HazeReaderModeManager(
 
     fun revertTranslation() {
         currentRevertAction?.invoke()
+    }
+
+    fun showVoiceOptions() {
+        currentVoiceAction?.invoke()
     }
 
     // Appearance State (Persisted)
@@ -797,16 +808,26 @@ class HazeReaderModeManager(
             if (index < 0 || index >= sentences.size || tts == null) return
             currentSentenceIndex = index
             val sentence = sentences[index]
-            if (currentActiveLangCode != null) {
-                val targetLocale = Locale.forLanguageTag(currentActiveLangCode!!)
-                val result = tts?.setLanguage(targetLocale)
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    val baseLocale = Locale.forLanguageTag(currentActiveLangCode!!.substringBefore("-"))
-                    tts?.setLanguage(baseLocale)
-                }
+
+            val activeLang = currentActiveLangCode ?: Locale.getDefault().language
+            val customVoice = selectedVoice
+            if (customVoice != null && customVoice.locale.language.equals(activeLang, ignoreCase = true)) {
+                try {
+                    tts?.voice = customVoice
+                } catch (_: Exception) {}
             } else {
-                tts?.setLanguage(Locale.getDefault())
+                if (currentActiveLangCode != null) {
+                    val targetLocale = Locale.forLanguageTag(currentActiveLangCode!!)
+                    val result = tts?.setLanguage(targetLocale)
+                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        val baseLocale = Locale.forLanguageTag(currentActiveLangCode!!.substringBefore("-"))
+                        tts?.setLanguage(baseLocale)
+                    }
+                } else {
+                    tts?.setLanguage(Locale.getDefault())
+                }
             }
+
             tts?.setSpeechRate(ttsSpeed)
             tts?.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "haze_sent_$index")
             isTtsSpeaking = true
@@ -818,7 +839,15 @@ class HazeReaderModeManager(
         // --- 4. TTS (Read Aloud) Implementation with Sentence-Level Tracking ---
         tts = TextToSpeech(activity, { status ->
             if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale.getDefault()
+                val savedVoiceName = selectedVoiceName
+                if (savedVoiceName != null) {
+                    selectedVoice = tts?.voices?.find { it.name == savedVoiceName }
+                }
+                if (selectedVoice != null) {
+                    try { tts?.voice = selectedVoice } catch (_: Exception) {}
+                } else {
+                    tts?.language = Locale.getDefault()
+                }
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
                         val idx = utteranceId?.removePrefix("haze_sent_")?.toIntOrNull() ?: return
@@ -901,7 +930,9 @@ class HazeReaderModeManager(
 
         btnVoiceOptions.setOnClickListener {
             activity.triggerStrongHaptic(it)
-            showVoiceSelectionDialog()
+            showVoiceSelectionDialog(currentActiveLangCode) {
+                speakSentence(currentSentenceIndex)
+            }
         }
 
         fun executeRevert() {
@@ -1012,9 +1043,15 @@ class HazeReaderModeManager(
 
         currentTranslateAction = { code, name -> executeTranslation(code, name) }
         currentRevertAction = { executeRevert() }
+        currentVoiceAction = {
+            showVoiceSelectionDialog(currentActiveLangCode) {
+                speakSentence(currentSentenceIndex)
+            }
+        }
         dialog.setOnDismissListener {
             currentTranslateAction = null
             currentRevertAction = null
+            currentVoiceAction = null
         }
 
         // --- 5. In-Reader Translate Button ---
@@ -1083,29 +1120,292 @@ class HazeReaderModeManager(
         activeWebView = null
     }
 
-    private fun showVoiceSelectionDialog() {
-        val availableVoices = tts?.voices
-            ?.filter { it.locale.language == Locale.getDefault().language && !it.isNetworkConnectionRequired }
+    private fun getVoiceDisplayName(voice: Voice, voiceNumber: Int): Pair<String, String> {
+        val loc = voice.locale
+        val country = loc.displayCountry.ifBlank { loc.country }
+        val lang = loc.displayLanguage.ifBlank { loc.language }
+
+        val nameLower = voice.name.lowercase(Locale.ROOT)
+        val features = voice.features ?: emptySet()
+        val isFemale = features.any { it.contains("female", ignoreCase = true) } ||
+                nameLower.contains("female") || nameLower.contains("#female") ||
+                nameLower.contains("-fem") || nameLower.contains("f1") || nameLower.contains("f2") ||
+                nameLower.contains("sfg") || nameLower.contains("tpc") || nameLower.contains("w")
+        val isMale = features.any { it.contains("male", ignoreCase = true) && !it.contains("female", ignoreCase = true) } ||
+                nameLower.contains("male") || nameLower.contains("#male") ||
+                nameLower.contains("-mal") || nameLower.contains("m1") || nameLower.contains("m2") ||
+                nameLower.contains("tpd") || nameLower.contains("iom") || nameLower.contains("iol")
+
+        val genderStr = when {
+            isFemale -> "Female"
+            isMale -> "Male"
+            voiceNumber % 2 == 0 -> "Female"
+            else -> "Male"
+        }
+
+        val flag = when (loc.country.uppercase(Locale.ROOT)) {
+            "US" -> "🇺🇸"
+            "GB", "UK" -> "🇬🇧"
+            "IN" -> "🇮🇳"
+            "AU" -> "🇦🇺"
+            "CA" -> "🇨🇦"
+            "IE" -> "🇮🇪"
+            "NZ" -> "🇳🇿"
+            "ZA" -> "🇿🇦"
+            "ES" -> "🇪🇸"
+            "MX" -> "🇲🇽"
+            "FR" -> "🇫🇷"
+            "DE" -> "🇩🇪"
+            "IT" -> "🇮🇹"
+            "JP" -> "🇯🇵"
+            "CN" -> "🇨🇳"
+            "RU" -> "🇷🇺"
+            "BR" -> "🇧🇷"
+            else -> "🗣️"
+        }
+
+        val regionText = if (country.isNotBlank()) "$lang ($country)" else lang
+        val title = "$flag  $regionText • Voice $voiceNumber ($genderStr)"
+
+        val variantRaw = voice.name.substringAfter("-x-").substringBefore("#").substringBefore("-")
+        val cleanVariant = if (variantRaw.isNotBlank() && variantRaw != voice.name) variantRaw else voice.name.substringAfterLast("-", "Default")
+        val isLocal = !voice.isNetworkConnectionRequired
+        val subtitle = if (isLocal) "On-device (High Quality) • $cleanVariant" else "Natural Studio • $cleanVariant"
+
+        return Pair(title, subtitle)
+    }
+
+    private fun showVoiceSelectionDialog(activeLangCode: String?, onVoiceSelected: () -> Unit) {
+        val activeLang = activeLangCode ?: Locale.getDefault().language
+        val currentVoiceName = selectedVoice?.name ?: tts?.voice?.name
+
+        var rawVoices = tts?.voices
+            ?.filter { it.locale.language.equals(activeLang, ignoreCase = true) }
             ?: emptyList()
 
-        if (availableVoices.isEmpty()) {
-            Toast.makeText(activity, "Default system voice active. Install extra TTS voices in System Settings for more accents.", Toast.LENGTH_LONG).show()
+        if (rawVoices.isEmpty()) {
+            rawVoices = tts?.voices?.toList() ?: emptyList()
+        }
+
+        if (rawVoices.isEmpty()) {
+            Toast.makeText(activity, "Default voice active. Extra voices can be installed in Android System Settings -> Text-to-Speech.", Toast.LENGTH_LONG).show()
             return
         }
 
-        val voiceNames = availableVoices.map { voice ->
-            val gender = if (voice.name.contains("female", ignoreCase = true) || voice.name.contains("f1", ignoreCase = true)) "Female" else "Male"
-            "$gender - ${voice.locale.displayName} (${voice.name.substringAfterLast("-", "Default")})"
-        }.toTypedArray()
+        val availableVoices = rawVoices.sortedWith(
+            compareBy<Voice> { it.name != currentVoiceName }
+                .thenBy { it.locale.country }
+                .thenBy { it.name }
+        )
 
-        AlertDialog.Builder(activity)
-            .setTitle("Select Voice Accent")
-            .setItems(voiceNames) { _, which ->
-                tts?.voice = availableVoices[which]
-                Toast.makeText(activity, "Voice set to ${availableVoices[which].name}", Toast.LENGTH_SHORT).show()
+        val isDark = prefs.getBoolean("is_dark", false)
+        val dialogBg = if (isDark) Color.parseColor("#1E1F22") else Color.WHITE
+        val itemBg = if (isDark) Color.parseColor("#27292D") else Color.parseColor("#F8F9FA")
+        val itemSelectedBg = if (isDark) Color.parseColor("#1E3250") else Color.parseColor("#E8F0FE")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#1C1B1F")
+        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+        val borderColor = if (isDark) Color.parseColor("#38393A") else Color.parseColor("#E0E0E0")
+
+        val dialog = Dialog(activity)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val rootCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = dpToPx(20)
+            setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(28).toFloat()
+                setColor(dialogBg)
+                setStroke(dpToPx(1), borderColor)
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+
+        // Header Row
+        val header = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dpToPx(16))
+        }
+
+        val ivIcon = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_volume_up)
+            setColorFilter(accentColor)
+            val iconPad = dpToPx(8)
+            setPadding(iconPad, iconPad, iconPad, iconPad)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(if (isDark) Color.parseColor("#26FFFFFF") else Color.parseColor("#140A56D0"))
+            }
+            layoutParams = LinearLayout.LayoutParams(dpToPx(40), dpToPx(40)).apply {
+                marginEnd = dpToPx(12)
+            }
+        }
+        header.addView(ivIcon)
+
+        val titleCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvHeader = TextView(activity).apply {
+            text = "Voice & Accent"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+        }
+        val tvSub = TextView(activity).apply {
+            text = "${availableVoices.size} voices available • Tap to switch"
+            textSize = 12f
+            setTextColor(subTextColor)
+        }
+        titleCol.addView(tvHeader)
+        titleCol.addView(tvSub)
+        header.addView(titleCol)
+
+        val btnClose = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(subTextColor)
+            val btnPad = dpToPx(8)
+            setPadding(btnPad, btnPad, btnPad, btnPad)
+            setBackgroundResource(getSelectableRes())
+            layoutParams = LinearLayout.LayoutParams(dpToPx(36), dpToPx(36))
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(btnClose)
+        rootCard.addView(header)
+
+        // Divider
+        val divider = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(1)).apply {
+                bottomMargin = dpToPx(12)
+            }
+            setBackgroundColor(borderColor)
+        }
+        rootCard.addView(divider)
+
+        // Scrollable list of voice items
+        val scrollView = ScrollView(activity).apply {
+            val maxH = (activity.resources.displayMetrics.heightPixels * 0.52).toInt()
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, maxH)
+            isVerticalScrollBarEnabled = true
+        }
+
+        val listContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val localeCounter = mutableMapOf<String, Int>()
+
+        availableVoices.forEach { voice ->
+            val countryCode = voice.locale.country.ifBlank { "INTL" }
+            val counter = localeCounter.getOrDefault(countryCode, 0) + 1
+            localeCounter[countryCode] = counter
+
+            val (title, subtitle) = getVoiceDisplayName(voice, counter)
+            val isSelected = voice.name == currentVoiceName
+
+            val itemCard = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                val pX = dpToPx(14)
+                val pY = dpToPx(12)
+                setPadding(pX, pY, pX, pY)
+                val corner = dpToPx(16).toFloat()
+                background = GradientDrawable().apply {
+                    cornerRadius = corner
+                    setColor(if (isSelected) itemSelectedBg else itemBg)
+                    setStroke(dpToPx(1), if (isSelected) accentColor else Color.TRANSPARENT)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dpToPx(8)
+                }
+                isClickable = true
+                isFocusable = true
+            }
+
+            val textCol = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val tvItemTitle = TextView(activity).apply {
+                text = if (isSelected) "$title  ✓" else title
+                textSize = 14f
+                setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+                setTextColor(if (isSelected) accentColor else textColor)
+            }
+            val tvItemSub = TextView(activity).apply {
+                text = if (isSelected) "Active Voice • $subtitle" else subtitle
+                textSize = 11.5f
+                setTextColor(if (isSelected) accentColor else subTextColor)
+            }
+            textCol.addView(tvItemTitle)
+            textCol.addView(tvItemSub)
+            itemCard.addView(textCol)
+
+            // Test / Preview Button
+            val btnPreview = ImageView(activity).apply {
+                setImageResource(R.drawable.ic_volume_up)
+                setColorFilter(accentColor)
+                val padS = dpToPx(6)
+                setPadding(padS, padS, padS, padS)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(if (isDark) Color.parseColor("#22FFFFFF") else Color.parseColor("#140A56D0"))
+                }
+                layoutParams = LinearLayout.LayoutParams(dpToPx(32), dpToPx(32)).apply {
+                    marginStart = dpToPx(8)
+                }
+                contentDescription = "Test Voice"
+                setOnClickListener {
+                    activity.triggerStrongHaptic(it)
+                    try {
+                        tts?.voice = voice
+                        tts?.setSpeechRate(ttsSpeed)
+                        tts?.speak("This is a preview of this voice.", TextToSpeech.QUEUE_FLUSH, null, "voice_preview")
+                    } catch (_: Exception) {}
+                }
+            }
+            itemCard.addView(btnPreview)
+
+            itemCard.setOnClickListener {
+                activity.triggerStrongHaptic(it)
+                selectedVoice = voice
+                selectedVoiceName = voice.name
+                prefs.edit().putString("reader_voice_name", voice.name).apply()
+                try {
+                    tts?.voice = voice
+                } catch (_: Exception) {}
+
+                Toast.makeText(activity, "Voice set to $title", Toast.LENGTH_SHORT).show()
+                if (isTtsSpeaking) {
+                    onVoiceSelected()
+                } else {
+                    try {
+                        tts?.setSpeechRate(ttsSpeed)
+                        tts?.speak("Voice selected.", TextToSpeech.QUEUE_FLUSH, null, "voice_preview")
+                    } catch (_: Exception) {}
+                }
+                dialog.dismiss()
+            }
+
+            listContainer.addView(itemCard)
+        }
+
+        scrollView.addView(listContainer)
+        rootCard.addView(scrollView)
+
+        dialog.setContentView(rootCard)
+        dialog.window?.let { w ->
+            w.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            w.setLayout(
+                (activity.resources.displayMetrics.widthPixels * 0.92).toInt(),
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        dialog.show()
     }
 
     /**

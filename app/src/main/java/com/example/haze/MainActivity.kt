@@ -2724,6 +2724,11 @@ class MainActivity : AppCompatActivity() {
                 readerModeManager.revertTranslation()
             }, 1200)
         }
+        if (intent.getBooleanExtra("test_voice_dialog", false)) {
+            webContainer.postDelayed({
+                readerModeManager.showVoiceOptions()
+            }, 1200)
+        }
         if (intent.getBooleanExtra("open_weather", false)) {
             webContainer.postDelayed({
                 if (::weatherManager.isInitialized) weatherManager.showWeatherOverlay()
