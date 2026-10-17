@@ -5,6 +5,8 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
     android:background="#FAFAFA"
     tools:context=".MainActivity">
 
@@ -48,6 +50,8 @@
         android:id="@+id/webContainer"
         android:layout_width="0dp"
         android:layout_height="0dp"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"

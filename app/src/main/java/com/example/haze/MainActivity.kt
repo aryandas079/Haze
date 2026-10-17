@@ -288,6 +288,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var omniboxManager: HazeOmniboxManager
     internal lateinit var readerModeManager: HazeReaderModeManager
     private var isSearchActive = false
+    private var isSuppressingAddressBarFocusSearch = false
     private var imeAnimationRunning = false
     private var isAutocompleting = false
     private var isUserTypingForward = false
@@ -1122,8 +1123,10 @@ class MainActivity : AppCompatActivity() {
 
         addressBar.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
-                triggerStrongHaptic(addressBar)
-                activateSearchMode()
+                if (!isSearchActive && !isSuppressingAddressBarFocusSearch) {
+                    triggerStrongHaptic(addressBar)
+                    activateSearchMode()
+                }
             }
         }
 
@@ -4082,7 +4085,19 @@ class MainActivity : AppCompatActivity() {
             HAZE_HOME_URL -> {
                 browserTab.navigationController.loadDataWithBaseURL(HAZE_HOME_URL, getHazeHomeHtml(), "text/html", "UTF-8", null)
                 tab.title = "New Tab"
-                if (activeTabIndex == activeNormalTabIndex || activeTabIndex == activePrivateTabIndex) addressBar.setText("")
+                if (activeTabIndex == activeNormalTabIndex || activeTabIndex == activePrivateTabIndex) {
+                    addressBar.setText("")
+                }
+                isSuppressingAddressBarFocusSearch = true
+                try {
+                    deactivateSearchMode()
+                    if (::addressBar.isInitialized && addressBar.hasFocus()) {
+                        addressBar.clearFocus()
+                    }
+                    findViewById<View>(R.id.main)?.requestFocus()
+                } finally {
+                    addressBar.post { isSuppressingAddressBarFocusSearch = false }
+                }
             }
             "haze://favorites", "haze://bookmarks" -> {
                 tab.title = "Favorites"
@@ -4339,6 +4354,19 @@ class MainActivity : AppCompatActivity() {
             addressBar.setText(targetText)
             addressBar.alpha = 1f
         }
+
+        if (isHome) {
+            isSuppressingAddressBarFocusSearch = true
+            try {
+                deactivateSearchMode()
+                if (::addressBar.isInitialized && addressBar.hasFocus()) {
+                    addressBar.clearFocus()
+                }
+                findViewById<View>(R.id.main)?.requestFocus()
+            } finally {
+                addressBar.post { isSuppressingAddressBarFocusSearch = false }
+            }
+        }
     }
 
     fun hideAddressBar(animated: Boolean = true) {
@@ -4506,14 +4534,24 @@ class MainActivity : AppCompatActivity() {
             ChromiumEngineManager.getEngine(this).clearPrivateSession()
         }
         
-        if (isPrivateMode) {
-            if (activePrivateTabIndex >= index) activePrivateTabIndex--
-            if (activePrivateTabIndex < 0) activePrivateTabIndex = 0
-            switchTab(activePrivateTabIndex)
-        } else {
-            if (activeNormalTabIndex >= index) activeNormalTabIndex--
-            if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
-            switchTab(activeNormalTabIndex)
+        isSuppressingAddressBarFocusSearch = true
+        try {
+            deactivateSearchMode()
+            if (isPrivateMode) {
+                if (activePrivateTabIndex >= index) activePrivateTabIndex--
+                if (activePrivateTabIndex < 0) activePrivateTabIndex = 0
+                switchTab(activePrivateTabIndex)
+            } else {
+                if (activeNormalTabIndex >= index) activeNormalTabIndex--
+                if (activeNormalTabIndex < 0) activeNormalTabIndex = 0
+                switchTab(activeNormalTabIndex)
+            }
+            if (::addressBar.isInitialized && addressBar.hasFocus()) {
+                addressBar.clearFocus()
+            }
+            findViewById<View>(R.id.main)?.requestFocus()
+        } finally {
+            addressBar.post { isSuppressingAddressBarFocusSearch = false }
         }
     }
 
@@ -6086,6 +6124,19 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnDismissListener {
             if (activeFullScreenTabsDialog == dialog) {
                 activeFullScreenTabsDialog = null
+            }
+            isSuppressingAddressBarFocusSearch = true
+            try {
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                if (currentTab != null && isHomeTab(currentTab)) {
+                    deactivateSearchMode()
+                    if (::addressBar.isInitialized && addressBar.hasFocus()) {
+                        addressBar.clearFocus()
+                    }
+                    findViewById<View>(R.id.main)?.requestFocus()
+                }
+            } finally {
+                addressBar.post { isSuppressingAddressBarFocusSearch = false }
             }
         }
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
