@@ -1308,7 +1308,7 @@ class ChromiumBrowserTab(
                     });
                 } catch(_) {}
 
-                // 3. Trapping window.ytInitialPlayerResponse
+                // 3. Deep Cleaning of Player Payloads (Desktop & Mobile)
                 function cleanPlayerPayload(obj) {
                     if (!obj || typeof obj !== 'object') return;
                     try {
@@ -1316,6 +1316,13 @@ class ChromiumBrowserTab(
                         delete obj.playerAds;
                         delete obj.adSlots;
                         delete obj.adBreakHeartbeatParams;
+                        delete obj.reelPlayerParams;
+                        delete obj.midrollInfo;
+                        delete obj.adBreakHeartbeatParams;
+                        delete obj.interstitials;
+                        if (obj.playerResponse && typeof obj.playerResponse === 'object') {
+                            cleanPlayerPayload(obj.playerResponse);
+                        }
                         if (obj.playbackTracking) {
                             obj.playbackTracking.videostatsPlaybackUrl = { baseUrl: '' };
                             obj.playbackTracking.videostatsDelayplayUrl = { baseUrl: '' };
@@ -1338,7 +1345,7 @@ class ChromiumBrowserTab(
                     });
                 } catch(_) {}
 
-                // 4. Runtime Fetch & XHR Response Pruning (Non-destructive JSON wrapping)
+                // 4. Runtime Fetch & XHR Response Pruning
                 try {
                     var origFetch = window.fetch;
                     window.fetch = function(input, init) {
@@ -1347,7 +1354,8 @@ class ChromiumBrowserTab(
                             url.indexOf('/api/stats/ads') !== -1 ||
                             url.indexOf('/pagead/') !== -1 ||
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            url.indexOf('/ptracking') !== -1
+                            url.indexOf('/ptracking') !== -1 ||
+                            url.indexOf('/get_midroll_info') !== -1
                         )) {
                             return Promise.resolve(new Response('', { status: 204, statusText: 'No Content' }));
                         }
@@ -1367,7 +1375,7 @@ class ChromiumBrowserTab(
                                 res.text = function() {
                                     return origText.apply(this, arguments).then(function(text) {
                                         try {
-                                            if (text && text.indexOf('adPlacements') !== -1) {
+                                            if (text && (text.indexOf('adPlacements') !== -1 || text.indexOf('playerAds') !== -1)) {
                                                 var parsed = JSON.parse(text);
                                                 cleanPlayerPayload(parsed);
                                                 return JSON.stringify(parsed);
@@ -1396,7 +1404,8 @@ class ChromiumBrowserTab(
                             url.indexOf('/api/stats/ads') !== -1 ||
                             url.indexOf('/pagead/') !== -1 ||
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            url.indexOf('/ptracking') !== -1
+                            url.indexOf('/ptracking') !== -1 ||
+                            url.indexOf('/get_midroll_info') !== -1
                         )) {
                             var self = this;
                             setTimeout(function() {
@@ -1415,7 +1424,7 @@ class ChromiumBrowserTab(
                             var origOnLoad = self.onload;
                             self.onload = function() {
                                 try {
-                                    if (self.responseText && self.responseText.indexOf('adPlacements') !== -1) {
+                                    if (self.responseText && (self.responseText.indexOf('adPlacements') !== -1 || self.responseText.indexOf('playerAds') !== -1)) {
                                         var json = JSON.parse(self.responseText);
                                         cleanPlayerPayload(json);
                                         var cleaned = JSON.stringify(json);
@@ -1439,7 +1448,9 @@ class ChromiumBrowserTab(
                                     'ad_block_banner_enabled': false,
                                     'ad_block_overlay_enabled': false,
                                     'disable_adblock_warning': true,
-                                    'html5_ad_timeout_ms': 0
+                                    'html5_ad_timeout_ms': 0,
+                                    'html5_disable_ad_interruptions': true,
+                                    'web_ad_frequency_cap_enabled': false
                                 }
                             });
                         }
@@ -1468,7 +1479,7 @@ class ChromiumBrowserTab(
                     } catch(_) {}
                 }
 
-                // 7. Instant 0ms Fast-Forward & Fallback Ad Skipper (for server-stitched ads)
+                // 7. Instant 0ms Video Ad Neutralizer & Skip Execution
                 var adSelectors = [
                     '.ytp-ad-skip-button',
                     '.ytp-ad-skip-button-modern',
@@ -1481,8 +1492,11 @@ class ChromiumBrowserTab(
                     'button[class*="skip-button"]',
                     '.videoAdUiSkipButton',
                     '.ytm-ad-overlay-close-button',
-                    'button.ytm-ad-skip-button'
+                    'button.ytm-ad-skip-button',
+                    '.ytp-ad-text.ytp-ad-preview-text'
                 ];
+
+                var wasAdActive = false;
 
                 function skipYouTubeAd() {
                     dismissPaywallsAndEnforcements();
@@ -1490,6 +1504,8 @@ class ChromiumBrowserTab(
                     var video = document.querySelector('video');
 
                     if (adShowing) {
+                        wasAdActive = true;
+                        // 1. Instantly trigger skip buttons if available
                         for (var i = 0; i < adSelectors.length; i++) {
                             var btn = document.querySelector(adSelectors[i]);
                             if (btn) {
@@ -1497,19 +1513,38 @@ class ChromiumBrowserTab(
                                 break;
                             }
                         }
+                        // 2. Fast-forward video ad seamlessly
                         if (video) {
                             video.muted = true;
                             if (isFinite(video.duration) && video.duration > 0) {
-                                video.currentTime = video.duration;
+                                video.currentTime = video.duration - 0.05;
                             } else {
                                 video.currentTime = 99999;
                             }
                             video.playbackRate = 16;
+                            // Trigger modern YouTube player API skip if present
+                            try {
+                                var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+                                if (player && typeof player.stopVideo === 'function' && typeof player.nextVideo === 'function') {
+                                    // Let player proceed
+                                }
+                            } catch(_) {}
                             video.play().catch(function() {});
                         }
-                    } else if (video && video.playbackRate > 1) {
-                        video.playbackRate = 1;
-                        video.muted = false;
+                    } else {
+                        if (wasAdActive) {
+                            wasAdActive = false;
+                            if (video) {
+                                video.playbackRate = 1;
+                                video.muted = false;
+                                if (video.paused && !video.ended) {
+                                    video.play().catch(function() {});
+                                }
+                            }
+                        } else if (video && video.playbackRate > 1 && !adShowing) {
+                            video.playbackRate = 1;
+                            video.muted = false;
+                        }
                     }
 
                     var dismissButtons = document.querySelectorAll('yt-button-renderer[aria-label="No thanks"], .yt-spec-button-shape-next[aria-label="No thanks"], ytm-mealbar-promo-renderer button, .ytp-ad-overlay-close-button');
@@ -1552,9 +1587,10 @@ class ChromiumBrowserTab(
                     });
                 }
 
-                setInterval(skipYouTubeAd, 300);
-                document.addEventListener('yt-navigate-finish', function() { setTimeout(skipYouTubeAd, 50); });
-                document.addEventListener('yt-page-data-updated', function() { setTimeout(skipYouTubeAd, 50); });
+                // High-frequency 50ms check during video startup for zero-lag instant playback
+                setInterval(skipYouTubeAd, 50);
+                document.addEventListener('yt-navigate-finish', function() { skipYouTubeAd(); });
+                document.addEventListener('yt-page-data-updated', function() { skipYouTubeAd(); });
                 document.addEventListener('click', function() { setTimeout(skipYouTubeAd, 0); }, true);
 
                 var observer = new MutationObserver(function() {
