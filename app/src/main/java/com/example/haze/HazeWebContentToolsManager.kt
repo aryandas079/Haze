@@ -493,15 +493,67 @@ object HazeWebContentToolsManager {
 
         // Save to Downloads / Gallery
         addAction("Save image to device", R.drawable.ic_download) {
-            val picturesDir = activity.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES) ?: activity.filesDir
-            val destFile = File(picturesDir, "Haze_${System.currentTimeMillis()}.png")
-            try {
-                FileOutputStream(destFile).use { out ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            bgExecutor.execute {
+                var savedUri: Uri? = null
+                var savedFileName = "Haze_${System.currentTimeMillis()}.png"
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        val contentValues = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, savedFileName)
+                            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_PICTURES}/Haze")
+                            put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                        }
+                        val resolver = activity.contentResolver
+                        val imageUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                        if (imageUri != null) {
+                            resolver.openOutputStream(imageUri)?.use { out ->
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            contentValues.clear()
+                            contentValues.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                            resolver.update(imageUri, contentValues, null, null)
+                            savedUri = imageUri
+                        }
+                    } else {
+                        val publicPicturesDir = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), "Haze").apply {
+                            if (!exists()) mkdirs()
+                        }
+                        val destFile = File(publicPicturesDir, savedFileName)
+                        FileOutputStream(destFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                        }
+                        android.media.MediaScannerConnection.scanFile(activity, arrayOf(destFile.absolutePath), arrayOf("image/png"), null)
+                        savedUri = Uri.fromFile(destFile)
+                    }
+
+                    mainHandler.post {
+                        if (savedUri != null) {
+                            Toast.makeText(activity, "Saved image to Pictures/Haze!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Fallback to external files dir
+                            val picturesDir = activity.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES) ?: activity.filesDir
+                            val destFile = File(picturesDir, savedFileName)
+                            FileOutputStream(destFile).use { out ->
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            Toast.makeText(activity, "Saved to ${destFile.name}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        try {
+                            val picturesDir = activity.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES) ?: activity.filesDir
+                            val destFile = File(picturesDir, savedFileName)
+                            FileOutputStream(destFile).use { out ->
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            Toast.makeText(activity, "Saved to ${destFile.name}", Toast.LENGTH_SHORT).show()
+                        } catch (err: Exception) {
+                            Toast.makeText(activity, "Failed to save image: ${err.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
-                Toast.makeText(activity, "Saved to ${destFile.name}", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(activity, "Failed to save: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -604,7 +656,34 @@ object HazeWebContentToolsManager {
     fun showSavedSelectionsDialog(activity: MainActivity) {
         val items = HazeDatabase.getInstance(activity).getAllSavedSelections()
         if (items.isEmpty()) {
-            Toast.makeText(activity, "No saved selections yet", Toast.LENGTH_SHORT).show()
+            val tab = activity.getActiveTab()
+            val currentTitle = tab?.title ?: "Web Page"
+            val currentUrl = tab?.url ?: ""
+            AlertDialog.Builder(activity)
+                .setTitle("Saved Selections & Snippets")
+                .setMessage("No saved selections or snippets yet.\n\nTip: You can select text on any webpage to save snippets, or add a quick note/snippet for this page right now.")
+                .setPositiveButton("Add Snippet") { _, _ ->
+                    val padH = dpToPx(activity, 16)
+                    val padV = dpToPx(activity, 12)
+                    val input = EditText(activity).apply {
+                        hint = "Enter text snippet or notes..."
+                        setPadding(padH, padV, padH, padV)
+                    }
+                    AlertDialog.Builder(activity)
+                        .setTitle("Save Snippet for Current Page")
+                        .setView(input)
+                        .setPositiveButton("Save") { _, _ ->
+                            val text = input.text.toString().trim()
+                            if (text.isNotEmpty()) {
+                                HazeDatabase.getInstance(activity).addSavedSelection(currentTitle, currentUrl, text)
+                                Toast.makeText(activity, "Snippet saved!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
+                .setNegativeButton("Close", null)
+                .show()
             return
         }
 
@@ -619,7 +698,30 @@ object HazeWebContentToolsManager {
                 val selected = items[which]
                 showSingleSavedSelectionDialog(activity, selected)
             }
-            .setPositiveButton("Clear All") { _, _ ->
+            .setPositiveButton("Add Snippet") { _, _ ->
+                val tab = activity.getActiveTab()
+                val currentTitle = tab?.title ?: "Web Page"
+                val currentUrl = tab?.url ?: ""
+                val padH = dpToPx(activity, 16)
+                val padV = dpToPx(activity, 12)
+                val input = EditText(activity).apply {
+                    hint = "Enter text snippet or notes..."
+                    setPadding(padH, padV, padH, padV)
+                }
+                AlertDialog.Builder(activity)
+                    .setTitle("Save Snippet for Current Page")
+                    .setView(input)
+                    .setPositiveButton("Save") { _, _ ->
+                        val text = input.text.toString().trim()
+                        if (text.isNotEmpty()) {
+                            HazeDatabase.getInstance(activity).addSavedSelection(currentTitle, currentUrl, text)
+                            Toast.makeText(activity, "Snippet saved!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .setNeutralButton("Clear All") { _, _ ->
                 HazeDatabase.getInstance(activity).clearAllSavedSelections()
                 Toast.makeText(activity, "All selections cleared", Toast.LENGTH_SHORT).show()
             }

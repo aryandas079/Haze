@@ -6052,27 +6052,38 @@ class MainActivity : AppCompatActivity() {
     fun restorePreviousSession(promptUser: Boolean = false) {
         val jsonStr = prefs.getString("saved_session_tabs_json", null)
         val legacyUrls = prefs.getString("saved_session_urls", null)
-        if (jsonStr.isNullOrBlank() && legacyUrls.isNullOrBlank()) {
-            if (promptUser) Toast.makeText(this, "No previous session saved", Toast.LENGTH_SHORT).show()
-            return
-        }
         val count = try {
             if (!jsonStr.isNullOrBlank()) JSONArray(jsonStr).length()
-            else JSONArray(legacyUrls).length()
+            else if (!legacyUrls.isNullOrBlank()) JSONArray(legacyUrls).length()
+            else 0
         } catch (_: Exception) { 0 }
 
         if (count == 0) {
-            if (promptUser) Toast.makeText(this, "No tabs in previous session", Toast.LENGTH_SHORT).show()
+            saveSessionState()
+            val newJsonStr = prefs.getString("saved_session_tabs_json", null)
+            val newCount = try {
+                if (!newJsonStr.isNullOrBlank()) JSONArray(newJsonStr).length() else 0
+            } catch (_: Exception) { 0 }
+
+            if (newCount > 0) {
+                Toast.makeText(this, "Saved current session ($newCount tabs) for future restore", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "No previous session tabs found", Toast.LENGTH_SHORT).show()
+            }
             return
         }
 
         if (promptUser) {
             AlertDialog.Builder(this)
                 .setTitle("Restore Session?")
-                .setMessage("Restore $count tab(s) from your previous session?")
+                .setMessage("Restore $count tab(s) from your saved session?")
                 .setPositiveButton("Restore") { _, _ ->
                     restoreSavedSessionOnStartup()
                     Toast.makeText(this, "Restored $count tab(s)", Toast.LENGTH_SHORT).show()
+                }
+                .setNeutralButton("Save Current") { _, _ ->
+                    saveSessionState()
+                    Toast.makeText(this, "Current session saved!", Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -9573,7 +9584,7 @@ class MainActivity : AppCompatActivity() {
         val archiveFile = File(offlineDir, "offline_${System.currentTimeMillis()}.mht")
 
         tab.browserTab.saveWebArchive(archiveFile.absolutePath, false) { savedPath ->
-            if (!savedPath.isNullOrEmpty()) {
+            if (!savedPath.isNullOrEmpty() && File(savedPath).exists() && File(savedPath).length() > 0) {
                 val db = HazeDatabase.getInstance(this)
                 db.saveOfflinePage(tab.title, tab.url, archiveFile.absolutePath)
                 runOnUiThread {
@@ -9590,8 +9601,15 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         "<html><body><h1>${tab.title}</h1><p>Saved from ${tab.url}</p></body></html>"
                     }
-                    val db = HazeDatabase.getInstance(this)
-                    db.saveOfflinePage(tab.title, tab.url, rawHtml)
+                    val htmlFile = File(offlineDir, "offline_${System.currentTimeMillis()}.html")
+                    try {
+                        htmlFile.writeText(rawHtml)
+                        val db = HazeDatabase.getInstance(this)
+                        db.saveOfflinePage(tab.title, tab.url, htmlFile.absolutePath)
+                    } catch (_: Exception) {
+                        val db = HazeDatabase.getInstance(this)
+                        db.saveOfflinePage(tab.title, tab.url, rawHtml)
+                    }
                     runOnUiThread {
                         Toast.makeText(this, "Page saved for offline reading!", Toast.LENGTH_SHORT).show()
                     }
@@ -9609,50 +9627,52 @@ class MainActivity : AppCompatActivity() {
         }
         val items = pages.map { "${it.title}\n${it.url}" }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Saved Offline Pages")
+            .setTitle("Saved Offline Pages (${pages.size})")
             .setItems(items) { _, which ->
                 if (which in pages.indices) {
                     val item = pages[which]
-                    if (item.content.endsWith(".mht") && File(item.content).exists()) {
-                        val newTab = addNewTab("file://${item.content}")
-                        newTab.title = "[Offline] " + item.title
-                        Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                    val contentPath = item.content
+                    val file = File(contentPath)
+                    val rawContent = if (file.exists()) {
+                        try { file.readText() } catch (_: Exception) { item.content }
                     } else {
-                        val offlineHtml = """
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                <style>
-                                    #hazeOfflineBanner {
-                                        position: fixed;
-                                        top: 0;
-                                        left: 0;
-                                        right: 0;
-                                        background: #F2994A;
-                                        color: #FFFFFF;
-                                        font-family: sans-serif;
-                                        font-size: 13px;
-                                        font-weight: bold;
-                                        padding: 8px 16px;
-                                        text-align: center;
-                                        z-index: 999999;
-                                        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-                                    }
-                                    body { padding-top: 36px !important; }
-                                </style>
-                            </head>
-                            <body>
-                                <div id="hazeOfflineBanner">Offline Saved Copy &bull; ${item.url}</div>
-                                ${item.content}
-                            </body>
-                            </html>
-                        """.trimIndent()
-                        val newTab = addNewTab(item.url)
-                        newTab.title = "[Offline] " + item.title
-                        newTab.browserTab.navigationController.loadDataWithBaseURL(item.url, offlineHtml, "text/html", "UTF-8", null)
-                        Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
+                        item.content
                     }
+
+                    val offlineHtml = """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <style>
+                                #hazeOfflineBanner {
+                                    position: fixed;
+                                    top: 0;
+                                    left: 0;
+                                    right: 0;
+                                    background: #0A56D0;
+                                    color: #FFFFFF;
+                                    font-family: sans-serif;
+                                    font-size: 13px;
+                                    font-weight: bold;
+                                    padding: 8px 16px;
+                                    text-align: center;
+                                    z-index: 999999;
+                                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                                }
+                                body { padding-top: 36px !important; }
+                            </style>
+                        </head>
+                        <body>
+                            <div id="hazeOfflineBanner">Offline Saved Copy - ${item.url}</div>
+                            $rawContent
+                        </body>
+                        </html>
+                    """.trimIndent()
+                    val newTab = addNewTab(item.url)
+                    newTab.title = "[Offline] " + item.title
+                    newTab.browserTab.navigationController.loadDataWithBaseURL(item.url, offlineHtml, "text/html", "UTF-8", null)
+                    Toast.makeText(this, "Viewing offline saved page", Toast.LENGTH_SHORT).show()
                 }
             }
             .setPositiveButton("Clear All") { _, _ ->
