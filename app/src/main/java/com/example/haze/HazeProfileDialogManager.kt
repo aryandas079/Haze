@@ -700,7 +700,10 @@ object HazeProfileDialogManager {
             GoogleApp("Keep", "https://keep.google.com", R.drawable.ic_google_keep),
             GoogleApp("Meet", "https://meet.google.com", R.drawable.ic_google_meet),
             GoogleApp("News", "https://news.google.com", R.drawable.ic_google_news),
-            GoogleApp("Contacts", "https://contacts.google.com", R.drawable.ic_google_contacts)
+            GoogleApp("Contacts", "https://contacts.google.com", R.drawable.ic_google_contacts),
+            GoogleApp("Chat", "https://chat.google.com", R.drawable.ic_google_chat),
+            GoogleApp("Forms", "https://docs.google.com/forms", R.drawable.ic_google_forms),
+            GoogleApp("Earth", "https://earth.google.com", R.drawable.ic_google_earth)
         )
 
         val columns = 4

@@ -1,18 +1,22 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"
-    android:viewportWidth="49"
+    android:viewportWidth="67"
     android:viewportHeight="67">
-    <!-- Green page background -->
-    <path
-        android:pathData="M29.583,0H4.438A4.45,4.45 0,0 0,0 4.438v56.208a4.45,4.45 0,0 0,4.438 4.437h38.458a4.45,4.45 0,0 0,4.437,-4.437V17.75L29.583,0z"
-        android:fillColor="#0F9D58"/>
-    <!-- Folded corner -->
-    <path
-        android:pathData="M29.583,0v13.313a4.436,4.436 0,0 0,4.438 4.437h13.312L29.583,0z"
-        android:fillColor="#87CEAC"/>
-    <!-- Spreadsheet grid table -->
-    <path
-        android:pathData="M11.833,31.802V53.25H35.5V31.802H11.833z m10.355,18.49h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396V34.76h7.396v3.707z m10.354,11.834h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396V34.76h7.396v3.707z"
-        android:fillColor="#FFFFFF"/>
+    <group
+        android:translateX="9"
+        android:translateY="0">
+        <!-- Green page background -->
+        <path
+            android:pathData="M29.583,0H4.438A4.45,4.45 0,0 0,0 4.438v56.208a4.45,4.45 0,0 0,4.438 4.437h38.458a4.45,4.45 0,0 0,4.437,-4.437V17.75L29.583,0z"
+            android:fillColor="#0F9D58"/>
+        <!-- Folded corner -->
+        <path
+            android:pathData="M29.583,0v13.313a4.436,4.436 0,0 0,4.438 4.437h13.312L29.583,0z"
+            android:fillColor="#87CEAC"/>
+        <!-- Spreadsheet grid table -->
+        <path
+            android:pathData="M11.833,31.802V53.25H35.5V31.802H11.833z m10.355,18.49h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396V34.76h7.396v3.707z m10.354,11.834h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396v-3.698h7.396v3.698z m0,-5.917h-7.396V34.76h7.396v3.707z"
+            android:fillColor="#FFFFFF"/>
+    </group>
 </vector>

@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="500"
+    android:viewportHeight="500">
+    <group
+        android:translateX="10.3"
+        android:translateY="0">
+        <!-- Dark green front bubble -->
+        <path
+            android:pathData="M108.8,269.7V107.2h-71c-20.9,0 -37.8,17 -37.8,37.9V481c0,16.9 20.4,25.3 32.3,13.4l78.1,-78.1h222.4c20.9,0 37.8,-16.9 37.8,-37.8v-71H146.7c-20.9,0 -37.9,-16.9 -37.9,-37.8z"
+            android:fillColor="#00AC47"/>
+        <!-- Light green top-right bubble -->
+        <path
+            android:pathData="M441.6,0H146.7c-20.9,0 -37.8,16.9 -37.8,37.8v69.4h223.9c20.9,0 37.8,16.9 37.8,37.8v162.4h71c20.9,0 37.8,-16.9 37.8,-37.8V37.8c0,-20.9 -16.9,-37.8 -37.8,-37.8z"
+            android:fillColor="#5BB974"/>
+        <!-- Overlap shade -->
+        <path
+            android:pathData="M332.8,107.2h-224v162.4c0,20.9 16.9,37.8 37.8,37.8h223.9V145.1c0.1,-20.9 -16.8,-37.9 -37.7,-37.9z"
+            android:fillColor="#00832D"/>
+    </group>
+</vector>
