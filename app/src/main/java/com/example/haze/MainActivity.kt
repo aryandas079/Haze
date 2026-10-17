@@ -2724,6 +2724,16 @@ class MainActivity : AppCompatActivity() {
                 readerModeManager.revertTranslation()
             }, 1200)
         }
+        if (intent.getBooleanExtra("open_weather", false)) {
+            webContainer.postDelayed({
+                if (::weatherManager.isInitialized) weatherManager.showWeatherOverlay()
+            }, 300)
+        }
+        if (intent.getBooleanExtra("refresh_weather", false)) {
+            webContainer.postDelayed({
+                if (::weatherManager.isInitialized) weatherManager.refreshWeather(force = true)
+            }, 300)
+        }
         if (intent.hasExtra("set_dark_mode")) {
             val dark = intent.getBooleanExtra("set_dark_mode", false)
             prefs.edit().putBoolean("is_dark", dark).apply()

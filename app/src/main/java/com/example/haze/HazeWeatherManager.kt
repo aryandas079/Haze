@@ -12,7 +12,9 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.location.Geocoder
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
@@ -72,6 +74,7 @@ class HazeWeatherManager(
     data class WeatherData(
         val placeName: String,
         val isGpsLocation: Boolean,
+        val isIpEstimated: Boolean = false,
         val temp: Double,
         val feelsLike: Double,
         val weatherCode: Int,
@@ -170,6 +173,7 @@ class HazeWeatherManager(
             val obj = JSONObject(cachedJson)
             val placeName = obj.optString("placeName", "Current Location")
             val isGps = obj.optBoolean("isGps", true)
+            val isIpEstimated = obj.optBoolean("isIpEstimated", false)
             val temp = obj.optDouble("temp", 0.0)
             val feelsLike = obj.optDouble("feelsLike", 0.0)
             val weatherCode = obj.optInt("weatherCode", 0)
@@ -206,6 +210,7 @@ class HazeWeatherManager(
             currentWeather = WeatherData(
                 placeName = placeName,
                 isGpsLocation = isGps,
+                isIpEstimated = isIpEstimated,
                 temp = temp,
                 feelsLike = feelsLike,
                 weatherCode = weatherCode,
@@ -230,6 +235,7 @@ class HazeWeatherManager(
             val obj = JSONObject()
             obj.put("placeName", data.placeName)
             obj.put("isGps", data.isGpsLocation)
+            obj.put("isIpEstimated", data.isIpEstimated)
             obj.put("temp", data.temp)
             obj.put("feelsLike", data.feelsLike)
             obj.put("weatherCode", data.weatherCode)
@@ -266,9 +272,10 @@ class HazeWeatherManager(
     fun refreshWeather(force: Boolean = false) {
         if (isFetching) return
 
-        // Throttle fetches: if refreshed in the last 15 minutes, skip unless forced
+        // Throttle fetches: if refreshed in the last 15 minutes, skip unless forced or IP estimated
         val now = System.currentTimeMillis()
-        if (!force && currentWeather != null && (now - currentWeather!!.lastUpdated) < 15 * 60 * 1000L) {
+        val isIp = currentWeather?.isIpEstimated == true
+        if (!force && !isIp && currentWeather != null && (now - currentWeather!!.lastUpdated) < 15 * 60 * 1000L) {
             updateWidgetUi()
             return
         }
@@ -281,6 +288,8 @@ class HazeWeatherManager(
                 var lat = 0.0
                 var lon = 0.0
                 var placeName = "Location"
+                var isRealGps = false
+                var isIp = false
 
                 if (useGps) {
                     val loc = getGpsLocation()
@@ -288,12 +297,14 @@ class HazeWeatherManager(
                         lat = loc.latitude
                         lon = loc.longitude
                         placeName = resolvePlaceName(lat, lon)
+                        isRealGps = true
                     } else {
                         // Fallback to IP geolocation
                         val ipLoc = getIpLocation()
                         lat = ipLoc.first
                         lon = ipLoc.second
                         placeName = ipLoc.third
+                        isIp = true
                     }
                 } else {
                     val customCity = prefs.getString(PREF_CUSTOM_CITY, "") ?: ""
@@ -315,12 +326,14 @@ class HazeWeatherManager(
                             lat = ipLoc.first
                             lon = ipLoc.second
                             placeName = ipLoc.third
+                            isIp = true
                         }
                     } else {
                         val ipLoc = getIpLocation()
                         lat = ipLoc.first
                         lon = ipLoc.second
                         placeName = ipLoc.third
+                        isIp = true
                     }
                 }
 
@@ -399,7 +412,8 @@ class HazeWeatherManager(
 
                 val data = WeatherData(
                     placeName = placeName,
-                    isGpsLocation = useGps,
+                    isGpsLocation = isRealGps,
+                    isIpEstimated = isIp,
                     temp = curTemp,
                     feelsLike = curFeelsLike,
                     weatherCode = curWeatherCode,
@@ -529,13 +543,26 @@ class HazeWeatherManager(
         locationCol.addView(placeRow)
 
         val tvSub = TextView(activity).apply {
-            text = if (data.isGpsLocation) "Current Location (GPS)" else "Custom Location"
+            text = when {
+                data.isGpsLocation -> "Current Location (GPS)"
+                data.isIpEstimated -> "Estimated Location (IP Network) • Tap to set city"
+                else -> "Custom Location • Tap to change"
+            }
             textSize = 11f
             setTextColor(subTextColor)
             val dp2 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, activity.resources.displayMetrics).toInt()
             setPadding(0, dp2, 0, 0)
         }
         locationCol.addView(tvSub)
+
+        locationCol.isClickable = true
+        locationCol.isFocusable = true
+        locationCol.setOnClickListener {
+            activity.triggerStrongHaptic(it)
+            dialog.dismiss()
+            showWeatherSettingsDialog()
+        }
+
         headerRow.addView(locationCol)
 
         // Gear Icon (Settings)
@@ -1169,7 +1196,9 @@ class HazeWeatherManager(
     }
 
     /**
-     * Gets GPS or Network location from Android LocationManager
+     * Gets GPS or Network location from Android LocationManager.
+     * Evaluates fused, network, gps, and passive providers, and actively requests
+     * a fresh location update if cached location is stale or unavailable.
      */
     @SuppressLint("MissingPermission")
     private fun getGpsLocation(): Location? {
@@ -1178,20 +1207,80 @@ class HazeWeatherManager(
         if (!hasCoarse && !hasFine) return null
 
         val lm = activity.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        val providers = lm.getProviders(true)
-        var bestLoc: Location? = null
 
-        for (provider in providers) {
-            val l = lm.getLastKnownLocation(provider) ?: continue
-            if (bestLoc == null || l.accuracy < bestLoc.accuracy) {
-                bestLoc = l
-            }
+        val candidateProviders = linkedSetOf(
+            "fused",
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.GPS_PROVIDER,
+            LocationManager.PASSIVE_PROVIDER
+        )
+        try {
+            lm.allProviders?.let { candidateProviders.addAll(it) }
+        } catch (_: Exception) {}
+
+        var bestLoc: Location? = null
+        for (provider in candidateProviders) {
+            try {
+                val l = lm.getLastKnownLocation(provider) ?: continue
+                if (bestLoc == null || (l.hasAccuracy() && l.accuracy < (bestLoc.accuracy.takeIf { it > 0 } ?: Float.MAX_VALUE))) {
+                    bestLoc = l
+                }
+            } catch (_: Exception) {}
         }
+
+        val now = System.currentTimeMillis()
+        if (bestLoc != null && (now - bestLoc.time < 3 * 60 * 60 * 1000L)) {
+            return bestLoc
+        }
+
+        // Actively request a single fresh location update
+        try {
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var freshLoc: Location? = null
+            val listener = object : LocationListener {
+                override fun onLocationChanged(loc: Location) {
+                    freshLoc = loc
+                    latch.countDown()
+                    try { lm.removeUpdates(this) } catch (_: Exception) {}
+                }
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            }
+
+            val activeProvider = when {
+                try { lm.isProviderEnabled("fused") } catch (_: Exception) { false } -> "fused"
+                try { lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (_: Exception) { false } -> LocationManager.NETWORK_PROVIDER
+                try { lm.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (_: Exception) { false } -> LocationManager.GPS_PROVIDER
+                else -> candidateProviders.firstOrNull { try { lm.isProviderEnabled(it) } catch (_: Exception) { false } }
+            }
+
+            if (activeProvider != null) {
+                activity.runOnUiThread {
+                    try {
+                        lm.requestSingleUpdate(activeProvider, listener, Looper.getMainLooper())
+                    } catch (_: Exception) {
+                        try {
+                            lm.requestLocationUpdates(activeProvider, 0L, 0f, listener, Looper.getMainLooper())
+                        } catch (_: Exception) {}
+                    }
+                }
+                latch.await(3500, java.util.concurrent.TimeUnit.MILLISECONDS)
+                activity.runOnUiThread {
+                    try { lm.removeUpdates(listener) } catch (_: Exception) {}
+                }
+            }
+
+            if (freshLoc != null) {
+                return freshLoc
+            }
+        } catch (_: Exception) {}
+
         return bestLoc
     }
 
     /**
-     * Resolves human readable place name using Geocoder
+     * Resolves human readable place name using Geocoder with online reverse geocoding fallback
      */
     private fun resolvePlaceName(lat: Double, lon: Double): String {
         try {
@@ -1208,6 +1297,23 @@ class HazeWeatherManager(
                 }
             }
         } catch (_: Exception) {}
+
+        // Fallback: fast online reverse-geocoding via BigDataCloud client API
+        try {
+            val url = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=$lat&longitude=$lon&localityLanguage=en"
+            val json = fetchHttpString(url)
+            val obj = JSONObject(json)
+            val city = obj.optString("city").ifEmpty {
+                obj.optString("locality").ifEmpty {
+                    obj.optString("principalSubdivision")
+                }
+            }
+            val country = obj.optString("countryName")
+            if (city.isNotBlank()) {
+                return if (country.isNotBlank()) "$city, $country" else city
+            }
+        } catch (_: Exception) {}
+
         return "Current Location"
     }
 
