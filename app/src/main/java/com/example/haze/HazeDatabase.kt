@@ -1294,12 +1294,13 @@ class HazeDatabase private constructor(context: Context) :
         }
     }
 
-    fun updateDownloadStatus(downloadId: Long, status: String, filePath: String? = null, fileSize: Long? = null): Boolean {
+    fun updateDownloadStatus(downloadId: Long, status: String, filePath: String? = null, fileSize: Long? = null, fileName: String? = null): Boolean {
         return try {
             val cv = ContentValues().apply {
                 put("status", status)
                 if (filePath != null) put("file_path", filePath)
                 if (fileSize != null && fileSize > 0) put("file_size", fileSize)
+                if (fileName != null) put("file_name", fileName)
             }
             writableDatabase.update("downloads", cv, "download_id = ?", arrayOf(downloadId.toString())) > 0
         } catch (e: Exception) {

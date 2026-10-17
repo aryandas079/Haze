@@ -104,7 +104,13 @@ object HazeDownloadEngine {
     ): Long {
         val appCtx = context.applicationContext
         val destDir = getDownloadDestinationDir(appCtx, customTargetDirUri)
-        val fileName = resolveFileName(appCtx, destDir, suggestedFileName ?: URLUtil.guessFileName(url, contentDisposition, mimeType))
+        val initialName = HazeFileNameResolver.resolveBestFileName(
+            url = url,
+            contentDisposition = contentDisposition,
+            mimeType = mimeType,
+            suggestedName = suggestedFileName
+        )
+        val fileName = resolveFileName(appCtx, destDir, initialName)
         val downloadId = System.currentTimeMillis() + (0..999).random()
 
         val targetFile = File(destDir, fileName)
@@ -294,12 +300,60 @@ object HazeDownloadEngine {
                 downloadId = task.downloadId,
                 status = finalStatus,
                 filePath = task.targetFile.absolutePath,
-                fileSize = finalSize
+                fileSize = finalSize,
+                fileName = task.fileName
             )
             notifyStatus(info)
 
+            if (finalStatus == STATUS_COMPLETED && task.targetFile.exists()) {
+                exportToPublicDownloads(task.context, task.targetFile, task.fileName, task.mimeType)
+            }
+
             // Auto-promote next queued task
             promoteNextQueuedTask()
+        }
+    }
+
+    fun exportToPublicDownloads(context: Context, localFile: File, fileName: String, mimeType: String): android.net.Uri? {
+        if (!localFile.exists()) return null
+        return try {
+            val cleanMime = if (mimeType.isNotBlank() && mimeType != "*/*") mimeType else {
+                HazeFileNameResolver.getExtensionFromMime(mimeType)?.let {
+                    android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it)
+                } ?: "*/*"
+            }
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, cleanMime)
+                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val uri = context.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        localFile.inputStream().use { input -> input.copyTo(out) }
+                    }
+                    values.clear()
+                    values.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                    context.contentResolver.update(uri, values, null, null)
+                    uri
+                } else null
+            } else {
+                val pubDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                if (pubDir.exists() || pubDir.mkdirs()) {
+                    val pubFile = File(pubDir, fileName)
+                    localFile.inputStream().use { input ->
+                        pubFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    android.media.MediaScannerConnection.scanFile(context, arrayOf(pubFile.absolutePath), arrayOf(cleanMime), null)
+                    android.net.Uri.fromFile(pubFile)
+                } else null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
         }
     }
 
@@ -352,7 +406,7 @@ object HazeDownloadEngine {
         if (!uriStr.isNullOrEmpty()) {
             try {
                 val resolvedFile = getFileFromUri(context, android.net.Uri.parse(uriStr))
-                if (resolvedFile != null && (resolvedFile.exists() || resolvedFile.mkdirs())) {
+                if (resolvedFile != null && resolvedFile.canWrite() && (resolvedFile.exists() || resolvedFile.mkdirs())) {
                     return resolvedFile
                 }
             } catch (e: Exception) {
@@ -360,13 +414,15 @@ object HazeDownloadEngine {
             }
         }
 
-        // Preferred: Public Downloads directory
-        try {
-            val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (pubDir.exists() || pubDir.mkdirs()) return pubDir
-        } catch (ignored: Exception) {}
+        // On Android 9 and lower, public downloads can be written directly if writable
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) {
+            try {
+                val pubDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (pubDir.canWrite() && (pubDir.exists() || pubDir.mkdirs())) return pubDir
+            } catch (ignored: Exception) {}
+        }
 
-        // Fallback: App-specific external files dir
+        // App-specific external files dir (always has 100% write permission on all Android versions)
         val appExt = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
         if (appExt != null && (appExt.exists() || appExt.mkdirs())) return appExt
 
@@ -400,9 +456,9 @@ object HazeDownloadEngine {
         val downloadId: Long,
         val url: String,
         val userAgent: String,
-        val fileName: String,
-        val targetFile: File,
-        val mimeType: String,
+        var fileName: String,
+        var targetFile: File,
+        var mimeType: String,
         var expectedTotalBytes: Long
     ) : Runnable {
 
@@ -422,18 +478,46 @@ object HazeDownloadEngine {
                 val existingBytes = if (targetFile.exists()) targetFile.length() else 0L
                 downloadedBytes = existingBytes
 
-                val targetUrl = URL(url)
-                connection = (targetUrl.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15000
-                    readTimeout = 20000
-                    instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", userAgent)
-                    if (existingBytes > 0) {
-                        setRequestProperty("Range", "bytes=$existingBytes-")
+                var currentUrl = url
+                var redirectCount = 0
+                var conn: HttpURLConnection? = null
+
+                while (redirectCount < 6) {
+                    val targetUrl = URL(currentUrl)
+                    conn = (targetUrl.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20000
+                        readTimeout = 30000
+                        instanceFollowRedirects = true
+                        val ua = if (userAgent.isNotBlank()) userAgent else android.webkit.WebSettings.getDefaultUserAgent(context)
+                        setRequestProperty("User-Agent", ua)
+                        setRequestProperty("Accept", "*/*")
+                        setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                        setRequestProperty("Connection", "keep-alive")
+                        val cookie = android.webkit.CookieManager.getInstance().getCookie(currentUrl)
+                        if (!cookie.isNullOrEmpty()) {
+                            setRequestProperty("Cookie", cookie)
+                        }
+                        setRequestProperty("Referer", currentUrl)
+                        if (existingBytes > 0) {
+                            setRequestProperty("Range", "bytes=$existingBytes-")
+                        }
+                    }
+
+                    conn.connect()
+                    val responseCode = conn.responseCode
+                    if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                        responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                        responseCode == 307 || responseCode == 308) {
+                        val location = conn.getHeaderField("Location") ?: break
+                        conn.disconnect()
+                        currentUrl = if (location.startsWith("http://") || location.startsWith("https://")) location else URL(targetUrl, location).toString()
+                        redirectCount++
+                    } else {
+                        break
                     }
                 }
 
-                connection.connect()
+                connection = conn ?: throw Exception("Failed to open connection")
                 val responseCode = connection.responseCode
 
                 val isPartial = responseCode == HttpURLConnection.HTTP_PARTIAL
@@ -441,6 +525,36 @@ object HazeDownloadEngine {
 
                 if (!isPartial && !isOk) {
                     throw Exception("HTTP Error: $responseCode ${connection.responseMessage}")
+                }
+
+                // Dynamic filename refinement from server response
+                val serverContentType = connection.contentType?.substringBefore(";")?.trim() ?: ""
+                val serverContentDisposition = connection.getHeaderField("Content-Disposition") ?: ""
+                if (serverContentType.isNotEmpty() && (mimeType.isEmpty() || mimeType == "*/*")) {
+                    mimeType = serverContentType
+                }
+
+                if (fileName.endsWith(".bin", ignoreCase = true) || !fileName.contains(".")) {
+                    val betterName = HazeFileNameResolver.resolveBestFileName(
+                        url = currentUrl,
+                        contentDisposition = serverContentDisposition,
+                        mimeType = serverContentType,
+                        suggestedName = fileName.removeSuffix(".bin")
+                    )
+                    if (betterName != fileName && !betterName.endsWith(".bin", ignoreCase = true)) {
+                        val newTarget = File(targetFile.parentFile, betterName)
+                        if (targetFile.exists()) {
+                            targetFile.renameTo(newTarget)
+                        }
+                        fileName = betterName
+                        targetFile = newTarget
+                        HazeDatabase.getInstance(context).updateDownloadStatus(
+                            downloadId = downloadId,
+                            status = STATUS_DOWNLOADING,
+                            filePath = targetFile.absolutePath,
+                            fileName = fileName
+                        )
+                    }
                 }
 
                 if (isOk) {

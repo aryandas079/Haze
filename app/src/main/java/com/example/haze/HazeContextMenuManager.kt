@@ -150,8 +150,16 @@ object HazeContextMenuManager {
             activity.startActivity(Intent.createChooser(intent, "Share link"))
         }
 
-        addItem("Download link", R.drawable.ic_download) {
-            HazeDownloadsManager.initDownload(activity, url, "", "", "*/*", -1)
+        if (HazeFileNameResolver.isYouTubeUrl(url)) {
+            addItem("Download video / audio", R.drawable.ic_download) {
+                HazeDownloadsManager.handleYouTubeLinkDownload(activity, url)
+            }
+        } else {
+            addItem("Download link", R.drawable.ic_download) {
+                val ua = (activity.getActiveTab()?.browserTab?.renderView as? WebView)?.settings?.userAgentString ?: ""
+                val resolvedName = HazeFileNameResolver.resolveBestFileName(url)
+                HazeDownloadsManager.initDownload(activity, url, ua, "", "*/*", -1, false, resolvedName)
+            }
         }
 
         addItem("Open in external app", R.drawable.ic_open_in_new) {
@@ -243,7 +251,15 @@ object HazeContextMenuManager {
         }
 
         addItem("Download image", R.drawable.ic_download) {
-            HazeDownloadsManager.initDownload(activity, imageUrl, "", "", "image/*", -1)
+            if (imageUrl.startsWith("data:")) {
+                HazeDownloadsManager.downloadDataUri(activity, imageUrl)
+            } else if (imageUrl.startsWith("blob:")) {
+                HazeDownloadsManager.downloadBlobUrl(activity, imageUrl, "image/*")
+            } else {
+                val ua = (activity.getActiveTab()?.browserTab?.renderView as? WebView)?.settings?.userAgentString ?: ""
+                val resolvedName = HazeFileNameResolver.resolveBestFileName(imageUrl, null, "image/jpeg", null, "jpg")
+                HazeDownloadsManager.initDownload(activity, imageUrl, ua, "", "image/jpeg", -1, false, resolvedName)
+            }
         }
 
         addItem("Copy image address", R.drawable.ic_link) {

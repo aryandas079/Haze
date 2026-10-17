@@ -746,6 +746,13 @@ class MainActivity : AppCompatActivity() {
         fun triggerHaptic(heavy: Boolean) {
             runOnUiThread { triggerStrongHaptic(isHeavy = heavy) }
         }
+
+        @JavascriptInterface
+        fun onBlobDownloaded(dataUrl: String, suggestedName: String, mimeType: String) {
+            runOnUiThread {
+                HazeDownloadsManager.downloadDataUri(this@MainActivity, dataUrl, suggestedName, mimeType)
+            }
+        }
         @JavascriptInterface
         fun focusAddressBar() {
             runOnUiThread {
@@ -5046,7 +5053,8 @@ class MainActivity : AppCompatActivity() {
         // Web download listener
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
             val isPriv = getTabFromWebView(webView)?.isPrivate ?: isPrivateMode
-            HazeDownloadsManager.initDownload(this, url, userAgent, contentDisposition, mimeType, contentLength, isPriv)
+            val resolvedName = HazeFileNameResolver.resolveBestFileName(url, contentDisposition, mimeType)
+            HazeDownloadsManager.initDownload(this, url, userAgent, contentDisposition, mimeType, contentLength, isPriv, resolvedName)
         }
 
         // Native Context Menu on Long Click

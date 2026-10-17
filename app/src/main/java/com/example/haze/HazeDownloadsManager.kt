@@ -14,11 +14,17 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.URLUtil
+import android.webkit.WebView
 import android.widget.*
 import androidx.core.content.FileProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -44,6 +50,285 @@ object HazeDownloadsManager {
         }
     }
 
+    fun downloadDataUri(
+        activity: MainActivity,
+        dataUri: String,
+        suggestedName: String? = null,
+        mimeType: String? = null
+    ) {
+        Thread {
+            try {
+                val header = dataUri.substringBefore(",", "")
+                val base64Data = dataUri.substringAfter(",", "")
+                val detectedMime = if (header.contains(":") && header.contains(";")) {
+                    header.substringAfter(":").substringBefore(";")
+                } else {
+                    mimeType?.ifEmpty { null } ?: "image/jpeg"
+                }
+                val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                val ext = HazeFileNameResolver.getExtensionFromMime(detectedMime) ?: "jpg"
+                val rawName = suggestedName?.ifEmpty { null } ?: "image_${System.currentTimeMillis()}.$ext"
+                val finalFileName = if (rawName.contains(".")) rawName else "$rawName.$ext"
+
+                val destDir = activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.filesDir
+                val localFile = File(destDir, finalFileName)
+                localFile.outputStream().use { it.write(bytes) }
+
+                HazeDownloadEngine.exportToPublicDownloads(activity, localFile, finalFileName, detectedMime)
+
+                val downloadId = System.currentTimeMillis() + (0..999).random()
+                HazeDatabase.getInstance(activity).addDownload(
+                    downloadId = downloadId,
+                    fileName = finalFileName,
+                    filePath = localFile.absolutePath,
+                    fileSize = bytes.size.toLong(),
+                    url = "data:$detectedMime",
+                    mimeType = detectedMime,
+                    status = HazeDownloadEngine.STATUS_COMPLETED
+                )
+
+                activity.runOnUiThread {
+                    activity.triggerStrongHaptic()
+                    Toast.makeText(activity, "Download completed: $finalFileName", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                activity.runOnUiThread {
+                    Toast.makeText(activity, "Download failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.start()
+    }
+
+    fun downloadBlobUrl(activity: MainActivity, blobUrl: String, mimeType: String = "*/*", suggestedName: String? = null) {
+        val webView = activity.getActiveTab()?.browserTab?.renderView as? WebView ?: return
+        val name = suggestedName ?: "file_${System.currentTimeMillis()}"
+        val js = """
+            (function() {
+                fetch('$blobUrl')
+                    .then(function(r) { return r.blob(); })
+                    .then(function(blob) {
+                        var reader = new FileReader();
+                        reader.onloadend = function() {
+                            if (window.Android && window.Android.onBlobDownloaded) {
+                                window.Android.onBlobDownloaded(reader.result, '$name', blob.type || '$mimeType');
+                            }
+                        };
+                        reader.readAsDataURL(blob);
+                    })
+                    .catch(function(err) {
+                        console.error('Blob download failed', err);
+                    });
+            })();
+        """.trimIndent()
+        activity.runOnUiThread {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    fun handleYouTubeLinkDownload(activity: MainActivity, youtubeUrl: String) {
+        val videoId = HazeFileNameResolver.extractYouTubeVideoId(youtubeUrl)
+        if (videoId.isNullOrEmpty()) {
+            val defaultName = HazeFileNameResolver.resolveBestFileName(youtubeUrl)
+            initDownload(activity, youtubeUrl, "", "", "video/mp4", -1, false, defaultName)
+            return
+        }
+
+        val isDark = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false) || activity.isPrivateMode
+        val accentColor = Color.parseColor(activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getString("accent_color", "#0A56D0"))
+        val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
+        val bottomSheet = BottomSheetDialog(activity)
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(bgColor)
+            setPadding(dpToPx(activity, 20), dpToPx(activity, 16), dpToPx(activity, 20), dpToPx(activity, 24))
+        }
+
+        val titleTv = TextView(activity).apply {
+            text = "YouTube Media Downloader"
+            textSize = 17f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+            setPadding(0, 0, 0, dpToPx(activity, 8))
+        }
+        root.addView(titleTv)
+
+        val statusTv = TextView(activity).apply {
+            text = "Resolving video information..."
+            textSize = 13f
+            setTextColor(subTextColor)
+            setPadding(0, 0, 0, dpToPx(activity, 16))
+        }
+        root.addView(statusTv)
+
+        val progress = ProgressBar(activity).apply {
+            isIndeterminate = true
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dpToPx(activity, 16)
+            }
+        }
+        root.addView(progress)
+
+        val actionsContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        root.addView(actionsContainer)
+
+        bottomSheet.setContentView(root)
+        bottomSheet.show()
+
+        Thread {
+            var resolvedTitle: String? = null
+            try {
+                val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json"
+                val conn = URL(oembedUrl).openConnection() as HttpURLConnection
+                conn.connectTimeout = 8000
+                conn.readTimeout = 8000
+                if (conn.responseCode == 200) {
+                    val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(jsonStr)
+                    resolvedTitle = json.optString("title").ifEmpty { null }
+                }
+                conn.disconnect()
+            } catch (_: Exception) {}
+
+            val finalTitle = resolvedTitle ?: "YouTube Video ($videoId)"
+            val safeTitle = HazeFileNameResolver.sanitizeFileName(finalTitle)
+
+            val pipedInstances = listOf(
+                "https://api.piped.private.coffee",
+                "https://pipedapi.kavin.rocks",
+                "https://pipedapi.adminforge.de",
+                "https://pipedapi.leptons.xyz"
+            )
+
+            var bestVideoUrl: String? = null
+            var bestAudioUrl: String? = null
+
+            for (instance in pipedInstances) {
+                try {
+                    val streamEndpoint = "$instance/streams/$videoId"
+                    val conn = URL(streamEndpoint).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 7000
+                    if (conn.responseCode == 200) {
+                        val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(jsonStr)
+
+                        val videoStreams = json.optJSONArray("videoStreams")
+                        if (videoStreams != null) {
+                            for (i in 0 until videoStreams.length()) {
+                                val item = videoStreams.optJSONObject(i) ?: continue
+                                val vUrl = item.optString("url")
+                                val format = item.optString("format", "").lowercase()
+                                val videoOnly = item.optBoolean("videoOnly", false)
+                                if (vUrl.isNotEmpty() && (format == "mp4" || !videoOnly)) {
+                                    bestVideoUrl = vUrl
+                                    break
+                                }
+                            }
+                        }
+
+                        val audioStreams = json.optJSONArray("audioStreams")
+                        if (audioStreams != null) {
+                            for (i in 0 until audioStreams.length()) {
+                                val item = audioStreams.optJSONObject(i) ?: continue
+                                val aUrl = item.optString("url")
+                                if (aUrl.isNotEmpty()) {
+                                    bestAudioUrl = aUrl
+                                    break
+                                }
+                            }
+                        }
+
+                        if (bestVideoUrl != null || bestAudioUrl != null) {
+                            conn.disconnect()
+                            break
+                        }
+                    }
+                    conn.disconnect()
+                } catch (_: Exception) {}
+            }
+
+            activity.runOnUiThread {
+                progress.visibility = View.GONE
+                statusTv.text = finalTitle
+                actionsContainer.visibility = View.VISIBLE
+
+                fun addActionBtn(btnText: String, onClick: () -> Unit) {
+                    val btn = Button(activity).apply {
+                        text = btnText
+                        setTextColor(Color.WHITE)
+                        setBackgroundColor(accentColor)
+                        val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 46)).apply {
+                            bottomMargin = dpToPx(activity, 10)
+                        }
+                        layoutParams = params
+                        setOnClickListener {
+                            activity.triggerStrongHaptic()
+                            bottomSheet.dismiss()
+                            onClick()
+                        }
+                    }
+                    actionsContainer.addView(btn)
+                }
+
+                val ua = (activity.getActiveTab()?.browserTab?.renderView as? WebView)?.settings?.userAgentString ?: ""
+
+                if (bestVideoUrl != null) {
+                    addActionBtn("Download Video (MP4)") {
+                        initDownload(
+                            activity = activity,
+                            url = bestVideoUrl!!,
+                            userAgent = ua,
+                            contentDisposition = "",
+                            mimeType = "video/mp4",
+                            contentLength = -1,
+                            isPrivate = false,
+                            suggestedFileName = "$safeTitle.mp4"
+                        )
+                    }
+                }
+
+                if (bestAudioUrl != null) {
+                    addActionBtn("Download Audio (M4A / MP3)") {
+                        initDownload(
+                            activity = activity,
+                            url = bestAudioUrl!!,
+                            userAgent = ua,
+                            contentDisposition = "",
+                            mimeType = "audio/mp4",
+                            contentLength = -1,
+                            isPrivate = false,
+                            suggestedFileName = "$safeTitle.m4a"
+                        )
+                    }
+                }
+
+                // Fallback action button
+                val outlineBtn = Button(activity).apply {
+                    text = "Open in Video Downloader Web"
+                    setTextColor(textColor)
+                    setBackgroundColor(if (isDark) Color.parseColor("#333333") else Color.parseColor("#EAEAEA"))
+                    val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dpToPx(activity, 44))
+                    layoutParams = params
+                    setOnClickListener {
+                        activity.triggerStrongHaptic()
+                        bottomSheet.dismiss()
+                        val helperUrl = "https://y2mate.nu/en1/?q=" + URLEncoder.encode("https://www.youtube.com/watch?v=$videoId", "UTF-8")
+                        activity.addNewTab(helperUrl)
+                    }
+                }
+                actionsContainer.addView(outlineBtn)
+            }
+        }.start()
+    }
+
     fun initDownload(
         activity: MainActivity,
         url: String,
@@ -51,14 +336,33 @@ object HazeDownloadsManager {
         contentDisposition: String,
         mimeType: String,
         contentLength: Long,
-        isPrivate: Boolean = false
+        isPrivate: Boolean = false,
+        suggestedFileName: String? = null
     ) {
+        if (url.startsWith("data:")) {
+            downloadDataUri(activity, url, suggestedFileName, mimeType)
+            return
+        }
+        if (url.startsWith("blob:")) {
+            downloadBlobUrl(activity, url, mimeType, suggestedFileName)
+            return
+        }
+        if (HazeFileNameResolver.isYouTubeUrl(url)) {
+            handleYouTubeLinkDownload(activity, url)
+            return
+        }
+
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val defaultFileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
+        val defaultFileName = HazeFileNameResolver.resolveBestFileName(url, contentDisposition, mimeType, suggestedFileName)
         val sizeFormatted = formatFileSize(contentLength)
         val askBeforeDownload = prefs.getBoolean("download_ask_location", false)
         
         var selectedCustomUri: String? = prefs.getString("custom_download_dir_uri", null)
+        val hostStr = try { Uri.parse(url).host ?: url } catch (_: Exception) { url }
+
+        val finalUserAgent = if (userAgent.isNotBlank()) userAgent else {
+            (activity.getActiveTab()?.browserTab?.renderView as? WebView)?.settings?.userAgentString ?: ""
+        }
 
         if (askBeforeDownload || isPrivate) {
             val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
@@ -81,7 +385,7 @@ object HazeDownloadsManager {
             dialogView.addView(tvTitle)
 
             val tvSub = TextView(activity).apply {
-                text = "Size: $sizeFormatted • From: ${Uri.parse(url).host ?: url}"
+                text = "Size: $sizeFormatted • From: $hostStr"
                 textSize = 12f
                 setTextColor(subTextColor)
                 setPadding(0, 0, 0, dpToPx(activity, 12))
@@ -171,7 +475,7 @@ object HazeDownloadsManager {
                     HazeDownloadEngine.enqueueDownload(
                         context = activity,
                         url = url,
-                        userAgent = userAgent,
+                        userAgent = finalUserAgent,
                         contentDisposition = contentDisposition,
                         mimeType = mimeType,
                         contentLength = contentLength,
@@ -189,7 +493,7 @@ object HazeDownloadsManager {
             HazeDownloadEngine.enqueueDownload(
                 context = activity,
                 url = url,
-                userAgent = userAgent,
+                userAgent = finalUserAgent,
                 contentDisposition = contentDisposition,
                 mimeType = mimeType,
                 contentLength = contentLength,
