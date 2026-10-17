@@ -517,7 +517,7 @@ object HazePrivacyShieldDashboard {
         }
 
         val tvDataSaved = TextView(activity).apply {
-            text = "💾 ${HazePrivacyShieldEngine.formatDataSaved(todayStats.dataSavedBytes)} Saved"
+            text = "${HazePrivacyShieldEngine.formatDataSaved(todayStats.dataSavedBytes)} Saved"
             textSize = 12.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
@@ -525,7 +525,7 @@ object HazePrivacyShieldDashboard {
         }
 
         val tvTimeSaved = TextView(activity).apply {
-            text = "⏱️ ${HazePrivacyShieldEngine.formatTimeSaved(todayStats.timeSavedMs)}"
+            text = "${HazePrivacyShieldEngine.formatTimeSaved(todayStats.timeSavedMs)} saved"
             textSize = 12.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(subTextColor)
@@ -1166,8 +1166,8 @@ object HazePrivacyShieldDashboard {
                     tvMalwareVal.text = String.format(java.util.Locale.US, "%,d", currentToday.malware)
                     tvTokensVal.text = String.format(java.util.Locale.US, "%,d", currentToday.tokensCleaned)
                     tvBouncesVal.text = String.format(java.util.Locale.US, "%,d", currentToday.bouncesStopped)
-                    tvDataSaved.text = "💾 ${HazePrivacyShieldEngine.formatDataSaved(currentToday.dataSavedBytes)} Saved"
-                    tvTimeSaved.text = "⏱️ ${HazePrivacyShieldEngine.formatTimeSaved(currentToday.timeSavedMs)}"
+                    tvDataSaved.text = "${HazePrivacyShieldEngine.formatDataSaved(currentToday.dataSavedBytes)} Saved"
+                    tvTimeSaved.text = "${HazePrivacyShieldEngine.formatTimeSaved(currentToday.timeSavedMs)} saved"
                     refreshGraph()
                 }
             }
@@ -1199,8 +1199,8 @@ object HazePrivacyShieldDashboard {
                 tvMalwareVal.text = "0"
                 tvTokensVal.text = "0"
                 tvBouncesVal.text = "0"
-                tvDataSaved.text = "💾 0 B Saved"
-                tvTimeSaved.text = "⏱️ 0 seconds saved"
+                tvDataSaved.text = "0 B Saved"
+                tvTimeSaved.text = "0 seconds saved"
                 refreshGraph()
                 Toast.makeText(activity, "Shield statistics reset", Toast.LENGTH_SHORT).show()
                 activity.updatePrivacyShieldButton()
@@ -1762,16 +1762,16 @@ object HazePrivacyShieldDashboard {
         }
         compatCard.addView(tvModeDesc)
 
-        // Quick Actions Row: [ 🔄 Troubleshoot ] [ 🧹 Reset Data ] [ 🩺 Diagnose ]
+        // Quick Actions Row: [ Troubleshoot ] [ Reset Data ] [ Diagnose ]
         val actionsRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             weightSum = 3f
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
-        fun createActionButton(label: String, icon: String, onClick: () -> Unit): TextView {
+        fun createActionButton(label: String, onClick: () -> Unit): TextView {
             return TextView(activity).apply {
-                text = "$icon $label"
+                text = label
                 textSize = 11.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(accentColor)
@@ -1791,7 +1791,7 @@ object HazePrivacyShieldDashboard {
             }
         }
 
-        val btnTroubleshoot = createActionButton("Troubleshoot", "🔄") {
+        val btnTroubleshoot = createActionButton("Troubleshoot") {
             HazeSiteCompatibilityManager.scheduleTroubleshootingReload(host)
             Toast.makeText(activity, "Reloading with cache bypassed & filters suspended...", Toast.LENGTH_LONG).show()
             val tab = activity.getActiveTab()?.browserTab
@@ -1799,7 +1799,7 @@ object HazePrivacyShieldDashboard {
             tab?.navigationController?.reload()
         }
 
-        val btnResetData = createActionButton("Reset Data", "🧹") {
+        val btnResetData = createActionButton("Reset Data") {
             val builder = AlertDialog.Builder(activity)
             builder.setTitle("Reset Site Data for $host?")
             builder.setMessage("This will clear cookies, cache, and local storage specifically for $host without logging you out of other websites.")
@@ -1816,7 +1816,7 @@ object HazePrivacyShieldDashboard {
             builder.show()
         }
 
-        val btnDiagnose = createActionButton("Diagnose", "🩺") {
+        val btnDiagnose = createActionButton("Diagnose") {
             showSiteDiagnosticsDialog(activity, host, currentUrl, isDark, accentColor, cardColor, cardBorderColor, textColor, subTextColor)
         }
 
@@ -2661,7 +2661,7 @@ object HazePrivacyShieldDashboard {
             }
         }
         val btnRepair = TextView(activity).apply {
-            text = "🩺 1-Tap Compatibility Repair & Reload"
+            text = "1-Tap Compatibility Repair & Reload"
             textSize = 13.5f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.WHITE)

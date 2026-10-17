@@ -248,6 +248,24 @@ object HazeVpnDialogManager {
         }
         root.addView(tvSubtext)
 
+        // Community Relay Speed Disclaimer
+        val tvDisclaimer = TextView(activity).apply {
+            text = "Community Relay: Free encrypted tunnel. Network throughput may fluctuate depending on public exit node traffic."
+            textSize = 11.5f
+            gravity = Gravity.CENTER
+            setTextColor(subTextColor)
+            setLineSpacing(dpToPx(activity, 2).toFloat(), 1f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dpToPx(activity, 20)
+                marginStart = dpToPx(activity, 12)
+                marginEnd = dpToPx(activity, 12)
+            }
+        }
+        root.addView(tvDisclaimer)
+
         // Pulse Animation for Connecting state
         var pulseAnimator: ObjectAnimator? = null
 
