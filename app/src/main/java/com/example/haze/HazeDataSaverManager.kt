@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.TrafficStats
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.util.TypedValue
 import android.view.Gravity
@@ -65,29 +67,44 @@ object HazeDataSaverManager {
 
     fun getDataUsageStats(context: Context): DataUsageStats {
         val prefs = getPrefs(context)
-        // Measured saved bytes from Privacy Shield and Data Saver compression
+        // Clean out legacy fake baseline if present
+        if (prefs.contains(PREF_BASELINE_TRAFFIC_BYTES) || prefs.contains("data_saver_baseline_traffic_bytes")) {
+            prefs.edit().remove(PREF_BASELINE_TRAFFIC_BYTES).remove("data_saver_baseline_traffic_bytes").apply()
+        }
+
+        // Real data saved bytes from Privacy Shield and web optimizations
+        val todayStats = HazePrivacyShieldEngine.getBlockedToday(context)
         val dbStats = HazeDatabase.getInstance(context).getPrivacyStats()
-        var savedBytes = dbStats.dataSavedBytes
+        val savedBytes = todayStats.dataSavedBytes.coerceAtLeast(dbStats.dataSavedBytes)
 
         // Total network bytes transmitted by the app uid
         val uid = Process.myUid()
         val totalAppRx = TrafficStats.getUidRxBytes(uid)
         val totalAppTx = TrafficStats.getUidTxBytes(uid)
-        val measuredAppTraffic = if (totalAppRx > 0) (totalAppRx + totalAppTx) else 0L
+        val currentUidTraffic = (if (totalAppRx > 0) totalAppRx else 0L) + (if (totalAppTx > 0) totalAppTx else 0L)
 
-        // Provide realistic, calibrated baseline if freshly installed or TrafficStats reset
-        val baseline = prefs.getLong(PREF_BASELINE_TRAFFIC_BYTES, 0L)
-        val normalTrafficBytes: Long
-        if (baseline == 0L) {
-            // Calibrate to realistic monthly baseline matching requested spec
-            val defaultNormal = 8_400_000_000L // 8.4 GB
-            val defaultSaved = 2_100_000_000L  // 2.1 GB
-            prefs.edit().putLong(PREF_BASELINE_TRAFFIC_BYTES, defaultNormal).apply()
-            normalTrafficBytes = defaultNormal + measuredAppTraffic
-            savedBytes = defaultSaved + savedBytes
+        // Store accumulated traffic across device reboots or process recycles
+        val lastSeenUidTraffic = prefs.getLong("last_seen_uid_traffic", 0L)
+        var accumulatedTraffic = prefs.getLong("accumulated_traffic_bytes", 0L)
+
+        if (currentUidTraffic >= lastSeenUidTraffic) {
+            val delta = currentUidTraffic - lastSeenUidTraffic
+            accumulatedTraffic += delta
+            prefs.edit()
+                .putLong("last_seen_uid_traffic", currentUidTraffic)
+                .putLong("accumulated_traffic_bytes", accumulatedTraffic)
+                .apply()
         } else {
-            normalTrafficBytes = baseline + measuredAppTraffic
+            // Reboot / counter reset occurred
+            accumulatedTraffic += currentUidTraffic
+            prefs.edit()
+                .putLong("last_seen_uid_traffic", currentUidTraffic)
+                .putLong("accumulated_traffic_bytes", accumulatedTraffic)
+                .apply()
         }
+
+        // Normal traffic is total raw data that would have passed through without savings
+        val normalTrafficBytes = accumulatedTraffic + savedBytes
 
         return DataUsageStats(
             normalTrafficBytes = normalTrafficBytes,
@@ -98,13 +115,17 @@ object HazeDataSaverManager {
     }
 
     private fun formatBytes(bytes: Long): String {
+        if (bytes <= 0L) return "0 MB"
         val gb = bytes.toDouble() / (1024 * 1024 * 1024)
-        return if (gb >= 1.0) {
-            String.format(Locale.US, "%.1f GB", gb)
-        } else {
-            val mb = bytes.toDouble() / (1024 * 1024)
-            String.format(Locale.US, "%.1f MB", mb)
+        if (gb >= 1.0) {
+            return String.format(Locale.US, "%.1f GB", gb)
         }
+        val mb = bytes.toDouble() / (1024 * 1024)
+        if (mb >= 1.0) {
+            return String.format(Locale.US, "%.1f MB", mb)
+        }
+        val kb = bytes.toDouble() / 1024
+        return String.format(Locale.US, "%.1f KB", kb)
     }
 
     // =========================================================================
@@ -278,7 +299,10 @@ object HazeDataSaverManager {
         statsCard.addView(cardTitle)
 
         // Stats Table
-        fun addStatRow(label: String, value: String, isGreen: Boolean = false) {
+        var tvNormalVal: TextView? = null
+        var tvSavedVal: TextView? = null
+
+        fun addStatRow(label: String, value: String, isGreen: Boolean = false): TextView {
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -300,11 +324,18 @@ object HazeDataSaverManager {
             row.addView(tvLabel)
             row.addView(tvVal)
             statsCard.addView(row)
+            return tvVal
         }
 
-        addStatRow("Normal traffic:", stats.normalTrafficFormatted)
-        addStatRow("Saved:", stats.savedFormatted, isGreen = true)
+        tvNormalVal = addStatRow("Normal traffic:", stats.normalTrafficFormatted)
+        tvSavedVal = addStatRow("Saved:", stats.savedFormatted, isGreen = true)
         root.addView(statsCard)
+
+        fun updateDataSaverStatsUI() {
+            val currentStats = getDataUsageStats(activity)
+            tvNormalVal?.text = currentStats.normalTrafficFormatted
+            tvSavedVal?.text = currentStats.savedFormatted
+        }
 
         // Protection Toggles
         fun addFeatureToggle(title: String, desc: String, prefKey: String, defaultValue: Boolean = true) {
@@ -343,6 +374,7 @@ object HazeDataSaverManager {
                 setOnCheckedChangeListener { _, isChecked ->
                     activity.triggerStrongHaptic()
                     prefs.edit().putBoolean(prefKey, isChecked).apply()
+                    updateDataSaverStatsUI()
                 }
             }
 
@@ -360,8 +392,33 @@ object HazeDataSaverManager {
         mainSwitch.setOnCheckedChangeListener { _, isChecked ->
             activity.triggerStrongHaptic()
             setDataSaverEnabled(activity, isChecked)
+            updateDataSaverStatsUI()
             onToggled?.invoke(isChecked)
             Toast.makeText(activity, if (isChecked) "Data Saver enabled" else "Data Saver disabled", Toast.LENGTH_SHORT).show()
+        }
+
+        // Live updating listener: updates statistics immediately when items are saved or traffic changes
+        val shieldListener = object : HazePrivacyShieldEngine.ShieldListener {
+            override fun onShieldEvent(category: String, totalBlocked: Long) {
+                activity.runOnUiThread {
+                    updateDataSaverStatsUI()
+                }
+            }
+        }
+        HazePrivacyShieldEngine.addListener(shieldListener)
+
+        val handler = Handler(Looper.getMainLooper())
+        val trafficRunnable = object : Runnable {
+            override fun run() {
+                updateDataSaverStatsUI()
+                handler.postDelayed(this, 2000)
+            }
+        }
+        handler.postDelayed(trafficRunnable, 2000)
+
+        dialog.setOnDismissListener {
+            HazePrivacyShieldEngine.removeListener(shieldListener)
+            handler.removeCallbacks(trafficRunnable)
         }
 
         dialog.setContentView(root)

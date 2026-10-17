@@ -606,6 +606,8 @@ class MainActivity : AppCompatActivity() {
     private val currentTabsList: MutableList<Tab>
         get() = if (isPrivateMode) privateTabs else normalTabs
 
+    fun getOpenTabCount(): Int = currentTabsList.size
+
     private var activeNormalTabIndex = -1
     private var activePrivateTabIndex = -1
     private val activeTabIndex: Int
@@ -2782,6 +2784,16 @@ class MainActivity : AppCompatActivity() {
                     openInspect = inspectBlocked,
                     initialTopTab = topTab
                 )
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_performance", false)) {
+            window.decorView.postDelayed({
+                HazePerformanceManager.showPerformanceDialog(this)
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_data_saver", false)) {
+            window.decorView.postDelayed({
+                HazeDataSaverManager.showDataSaverDialog(this)
             }, 300)
         }
         val startUrl = intent.getStringExtra("load_url")

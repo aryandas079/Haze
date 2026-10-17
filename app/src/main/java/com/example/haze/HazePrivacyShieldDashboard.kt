@@ -476,7 +476,7 @@ object HazePrivacyShieldDashboard {
             return Pair(box, tvVal)
         }
 
-        val (adsBox, tvAdsVal) = createMetricBox("Ads", todayStats.ads, accentColor)
+        val (adsBox, tvAdsVal) = createMetricBox("Ads", todayStats.ads, Color.parseColor("#06B6D4")) // Vibrant Cyan
         val (trackersBox, tvTrackersVal) = createMetricBox("Trackers", todayStats.trackers, Color.parseColor("#8B5CF6")) // Purple
         val (popupsBox, tvPopupsVal) = createMetricBox("Popups", todayStats.popups, Color.parseColor("#F59E0B")) // Amber
         val (malwareBox, tvMalwareVal) = createMetricBox("Malware", todayStats.malware, Color.parseColor("#EF4444")) // Crimson Red
