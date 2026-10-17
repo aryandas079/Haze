@@ -248,25 +248,27 @@ class ChromiumBrowserTab(
                     val script = com.example.haze.HazeAntiTrackingEngine.generateAntiFingerprintScript(webView.context)
                     view?.evaluateJavascript(script, null)
 
-                    val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
-                    val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
-                    if (compiledCosmetic.isNotEmpty()) {
-                        val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-                        val earlyCss = """
-                            (function() {
-                                var s = document.getElementById('__haze_cosmetic_style');
-                                if (!s) {
-                                    s = document.createElement('style');
-                                    s.id = '__haze_cosmetic_style';
-                                    s.type = 'text/css';
-                                    (document.head || document.documentElement).appendChild(s);
-                                }
-                                s.textContent = '$escapedCss';
-                            })();
-                        """.trimIndent()
-                        view?.evaluateJavascript(earlyCss, null)
+                    if (HazePrivacyShieldEngine.isShieldEnabled(webView.context)) {
+                        val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
+                        val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
+                        if (compiledCosmetic.isNotEmpty()) {
+                            val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+                            val earlyCss = """
+                                (function() {
+                                    var s = document.getElementById('__haze_cosmetic_style');
+                                    if (!s) {
+                                        s = document.createElement('style');
+                                        s.id = '__haze_cosmetic_style';
+                                        s.type = 'text/css';
+                                        (document.head || document.documentElement).appendChild(s);
+                                    }
+                                    s.textContent = '$escapedCss';
+                                })();
+                            """.trimIndent()
+                            view?.evaluateJavascript(earlyCss, null)
+                        }
+                        view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
                     }
-                    view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
                 }
                 observer?.onPageStarted(this@ChromiumBrowserTab, nonNullUrl, faviconBitmap)
             }
@@ -296,26 +298,28 @@ class ChromiumBrowserTab(
 
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
                     view?.evaluateJavascript(com.example.haze.HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
-                    val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
-                    val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
-                    if (compiledCosmetic.isNotEmpty()) {
-                        val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-                        val cosmeticCss = """
-                            (function() {
-                                var s = document.getElementById('__haze_cosmetic_style');
-                                if (!s) {
-                                    s = document.createElement('style');
-                                    s.id = '__haze_cosmetic_style';
-                                    s.type = 'text/css';
-                                    (document.head || document.documentElement).appendChild(s);
-                                }
-                                s.textContent = '$escapedCss';
-                            })();
-                        """.trimIndent()
-                        view?.evaluateJavascript(cosmeticCss, null)
+                    if (HazePrivacyShieldEngine.isShieldEnabled(webView.context)) {
+                        val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
+                        val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
+                        if (compiledCosmetic.isNotEmpty()) {
+                            val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+                            val cosmeticCss = """
+                                (function() {
+                                    var s = document.getElementById('__haze_cosmetic_style');
+                                    if (!s) {
+                                        s = document.createElement('style');
+                                        s.id = '__haze_cosmetic_style';
+                                        s.type = 'text/css';
+                                        (document.head || document.documentElement).appendChild(s);
+                                    }
+                                    s.textContent = '$escapedCss';
+                                })();
+                            """.trimIndent()
+                            view?.evaluateJavascript(cosmeticCss, null)
+                        }
+                        view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
+                        view?.evaluateJavascript("try { if (window.__hazeCleanAdSections) window.__hazeCleanAdSections(); } catch(_) {}", null)
                     }
-                    view?.evaluateJavascript(DYNAMIC_BANNER_CLEANER_SCRIPT, null)
-                    view?.evaluateJavascript("try { if (window.__hazeCleanAdSections) window.__hazeCleanAdSections(); } catch(_) {}", null)
                 }
                 if (nonNullUrl.contains("myaccount.google.com") || 
                     nonNullUrl.contains("accounts.google.com/CheckCookie") ||
@@ -1635,7 +1639,7 @@ class ChromiumBrowserTab(
                         s = document.createElement('style');
                         s.id = '__haze_dynamic_banner_css';
                         s.type = 'text/css';
-                        s.textContent = 'ins.adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[src*="amazon-adsystem"], iframe[src*="adnxs"], iframe[src*="criteo"], iframe[src*="pubmatic"], iframe[src*="openx"], iframe[src*="rubicon"], iframe[src*="smartadserver"], iframe[src*="teads"], iframe[src*="adform"], iframe[id*="google_ads"], iframe[id*="ad-"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id^="div-gpt-ad"], div[id*="div-gpt-ad"], div[id*="ad-slot"], div[id*="ad-container"], div[id*="ad-wrapper"], div[id*="ad-banner"], div[id*="ad-placeholder"], div[id*="ad-section"], div[id*="ad-box"], div[id*="ad-holder"], div[class*="ad-slot"], div[class*="ad-container"], div[class*="ad-wrapper"], div[class*="ad-placeholder"], div[class*="ad-banner"], div[class*="ad-section"], div[class*="ad-box"], div[class*="ad-holder"], div[class*="ad_wrapper"], div[class*="ad_container"], div[class*="ad_banner"], div[class*="ad_slot"], div[class*="ad_placeholder"], div[class*="ad_section"], div[class*="google-ad"], div[class*="google_ad"], div[id*="google-ad"], div[id*="google_ad"], section[class*="ad-"], section[id*="ad-"], section[class*="advert"], section[id*="advert"], section[class*="sponsor"], aside[class*="ad-"], aside[id*="ad-"], aside[class*="advert"], aside[class*="sponsor"], .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-container, .ad-wrapper, .ad-unit, .ad-holder, .ad-space, .ad-area, .ad-section, .ad-placeholder, .ad-label, .ad-notice, .ad-title, .ad-header, .ad-caption, .advertisement-label, .ad-badge, .ad-notice, .sponsored-label, .sponsored-tag, .advertisement, .advertisement-container, .advertisement-wrapper, .advertisement-banner, .advertisement-slot, .advertisement-box, .advertisement-section, .advertisement-placeholder, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad-wrapper], [data-ad-placeholder], [data-ad], [data-ad-type], [data-google-query-id], [aria-label="Advertisement"], [aria-label="Sponsored"], [aria-label="Advert"], [aria-label="Anuncio"], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .sponsored-wrapper, .sponsored-container, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .in-article-ad, .in-content-ad, .native-ad, .native_ad, .sticky-ad, .floating-ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget, .ima-ad-container, .video-ad-overlay, .vjs-ad-loading, .jw-flag-ads { display: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; }';
+                        s.textContent = 'ins.adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"], iframe[src*="googleadservices.com"], iframe[src*="amazon-adsystem.com"], iframe[src*="adnxs.com"], iframe[src*="criteo.com"], iframe[src*="pubmatic.com"], iframe[src*="openx.net"], iframe[src*="rubiconproject.com"], iframe[src*="smartadserver.com"], iframe[src*="teads.tv"], iframe[src*="adform.net"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id^="div-gpt-ad"], div.ad-slot, div.ad-container, div.ad-wrapper, div.ad-section, div.ad-banner, div.ad-box, div.ad-unit, div.ad-holder, div.ad-space, div.ad-area, div.ad-placeholder, div.advertisement, div.advertisement-container, div.advertisement-wrapper, div.advertisement-banner, div.advertisement-slot, div.advertisement-box, div.advertisement-section, div.advertisement-placeholder, section.advertisement, section.ad-container, section.ad-slot, aside.advertisement, aside.ad-container, aside.ad-slot, .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-container, .ad-wrapper, .ad-unit, .ad-holder, .ad-space, .ad-area, .ad-section, .ad-placeholder, .ad-label, .ad-notice, .ad-title, .ad-header, .ad-caption, .advertisement-label, .ad-badge, .sponsored-label, .sponsored-tag, .advertisement, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad-wrapper], [data-ad-placeholder], [data-google-query-id], [aria-label="Advertisement" i], [aria-label="Sponsored" i], [aria-label="Advert" i], [aria-label="Anuncio" i], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .sponsored-wrapper, .sponsored-container, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .in-article-ad, .in-content-ad, .native-ad, .native_ad, .sticky-ad, .floating-ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget, .ima-ad-container, .video-ad-overlay, .vjs-ad-loading, .jw-flag-ads { display: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; width: 0 !important; max-width: 0 !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important; border: none !important; outline: none !important; opacity: 0 !important; pointer-events: none !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; }';
                         (document.head || document.documentElement).appendChild(s);
                     }
                 } catch(_) {}
@@ -1706,9 +1710,19 @@ class ChromiumBrowserTab(
                     } catch(_) {}
                 }
 
+                function isStrictAdIdentifier(s) {
+                    if (!s || typeof s !== 'string') return false;
+                    // Strip non-ad words that contain 'ad'
+                    var clean = s.replace(/\b(read|lead|thread|road|broad|shadow|head|load|download|upload)[-_a-z0-9]*/gi, '');
+                    return /(?:^|[\s_-])(?:ads?|advertisement|advert|sponsored|dfp|gpt-ad|google_ads|banner-ad|ad-slot|ad-unit|ad-container|ad-wrapper|taboola|outbrain|revcontent|mgid)(?:[\s_-]|$)/i.test(clean);
+                }
+
                 // 5. Intelligent Ad Section Collapser & Remover
                 function collapseElementAndSection(el) {
-                    if (!el || el === document.body || el === document.documentElement) return;
+                    if (!el || !el.parentElement) return;
+                    var tag = (el.tagName || '').toLowerCase();
+                    if (tag === 'body' || tag === 'html' || tag === 'main' || tag === 'article' || tag === 'header' || tag === 'nav' || tag === 'footer' || tag === 'form') return;
+
                     try {
                         // Collapse element itself
                         el.style.setProperty('display', 'none', 'important');
@@ -1721,40 +1735,49 @@ class ChromiumBrowserTab(
                         el.style.setProperty('visibility', 'hidden', 'important');
                         el.style.setProperty('pointer-events', 'none', 'important');
 
-                        // Climb parent hierarchy to collapse the entire containing section / wrapper
+                        // Climb parent hierarchy to collapse ONLY genuine empty ad wrappers / ad slots
                         var curr = el.parentElement;
                         var levels = 0;
-                        while (curr && curr !== document.body && curr !== document.documentElement && levels < 4) {
-                            var tag = curr.tagName.toLowerCase();
-                            var cls = (curr.className || '').toString().toLowerCase();
-                            var id = (curr.id || '').toString().toLowerCase();
-                            var isAdWrapper = /ad[-_]|advert|sponsor|dfp|gpt|banner|placement|adholder|adslot|adbox|adunit|adwrap|adcontainer|adsection|taboola|outbrain|revcontent|mgid/i.test(cls + ' ' + id) ||
-                                tag === 'aside' || tag === 'section';
+                        while (curr && levels < 3) {
+                            var pTag = (curr.tagName || '').toLowerCase();
+                            if (pTag === 'body' || pTag === 'html' || pTag === 'main' || pTag === 'article' || pTag === 'header' || pTag === 'nav' || pTag === 'footer' || pTag === 'form') {
+                                break;
+                            }
 
-                            var hasMeaningfulContent = false;
+                            // If this parent has any headings or an article role or substantive text, DO NOT collapse it!
+                            if (curr.querySelector('article, h1, h2, h3, h4, [role="article"]')) {
+                                break;
+                            }
+
+                            var pCls = (curr.className || '').toString();
+                            var pId = (curr.id || '').toString();
+                            var isExplicitAdContainer = isStrictAdIdentifier(pCls) || isStrictAdIdentifier(pId);
+
+                            var hasRealContent = false;
                             for (var i = 0; i < curr.children.length; i++) {
                                 var child = curr.children[i];
                                 if (child === el) continue;
-                                var cTag = child.tagName.toLowerCase();
+                                var cTag = (child.tagName || '').toLowerCase();
                                 if (cTag === 'script' || cTag === 'style' || cTag === 'noscript' || cTag === 'template') continue;
                                 if (child.style && child.style.display === 'none') continue;
-                                var cText = (child.textContent || '').trim().toLowerCase();
+                                
+                                var cText = (child.textContent || '').trim();
                                 if (/^(advertisement|sponsored|promoted|advert|anuncio|publicidad|werbung|anzeige|ads? by google|partner content)$/i.test(cText)) {
                                     child.style.setProperty('display', 'none', 'important');
                                     continue;
                                 }
-                                var cCls = (child.className || '').toString().toLowerCase();
-                                var cId = (child.id || '').toString().toLowerCase();
-                                if (/ad[-_]|advert|sponsor|dfp|gpt/i.test(cCls + ' ' + cId) || cTag === 'ins' || cTag === 'iframe') {
+                                var cCls = (child.className || '').toString();
+                                var cId = (child.id || '').toString();
+                                if (isStrictAdIdentifier(cCls) || isStrictAdIdentifier(cId) || cTag === 'ins' || cTag === 'iframe') {
                                     continue;
                                 }
-                                if (cText.length > 30 || child.querySelector('img, video, p, article, h1, h2, h3')) {
-                                    hasMeaningfulContent = true;
+                                if (cText.length > 40 || child.querySelector('img, video, p, article, h1, h2, h3, h4, a[href]')) {
+                                    hasRealContent = true;
                                     break;
                                 }
                             }
 
-                            if (isAdWrapper || !hasMeaningfulContent) {
+                            if (isExplicitAdContainer && !hasRealContent) {
                                 curr.style.setProperty('display', 'none', 'important');
                                 curr.style.setProperty('height', '0px', 'important');
                                 curr.style.setProperty('min-height', '0px', 'important');
@@ -1778,7 +1801,7 @@ class ChromiumBrowserTab(
                         dismissAnnoyingOverlays();
 
                         // A. Clean ad iframes
-                        var adIframes = document.querySelectorAll('iframe[src*="doubleclick"], iframe[src*="googlesyndication"], iframe[src*="googleadservices"], iframe[src*="amazon-adsystem"], iframe[src*="adnxs"], iframe[src*="criteo"], iframe[src*="pubmatic"], iframe[src*="openx"], iframe[src*="rubicon"], iframe[src*="smartadserver"], iframe[src*="teads"], iframe[src*="adform"], iframe[id*="google_ads"], iframe[id*="ad-"]');
+                        var adIframes = document.querySelectorAll('iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"], iframe[src*="googleadservices.com"], iframe[src*="amazon-adsystem.com"], iframe[src*="adnxs.com"], iframe[src*="criteo.com"], iframe[src*="pubmatic.com"], iframe[src*="openx.net"], iframe[src*="rubiconproject.com"], iframe[src*="smartadserver.com"], iframe[src*="teads.tv"], iframe[src*="adform.net"], iframe[id*="google_ads"]');
                         for (var j = 0; j < adIframes.length; j++) {
                             var frame = adIframes[j];
                             try { frame.src = 'about:blank'; } catch(_) {}
@@ -1786,13 +1809,13 @@ class ChromiumBrowserTab(
                         }
 
                         // B. Clean ad containers, slots, ins, and sections
-                        var adElements = document.querySelectorAll('ins.adsbygoogle, [id*="google_ads"], [id^="dfp-"], [id^="gpt-"], [id*="gpt-ad"], [id^="div-gpt-ad"], [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-container], [data-ad-placeholder], [data-ad], [data-google-query-id], [aria-label="Advertisement"], [aria-label="Sponsored"], div[class*="ad-slot"], div[class*="ad-container"], div[class*="ad-wrapper"], div[class*="ad-section"], div[class*="advertisement"], div[class*="banner-ad"], section[class*="ad-"], aside[class*="ad-"]');
+                        var adElements = document.querySelectorAll('ins.adsbygoogle, [id*="google_ads"], [id^="dfp-"], [id^="gpt-"], [id*="gpt-ad"], [id^="div-gpt-ad"], [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-container], [data-ad-placeholder], [data-google-query-id], [aria-label="Advertisement" i], [aria-label="Sponsored" i], div.ad-slot, div.ad-container, div.ad-wrapper, div.ad-section, div.ad-banner, div.advertisement, section.advertisement, section.ad-container, aside.advertisement');
                         for (var k = 0; k < adElements.length; k++) {
                             collapseElementAndSection(adElements[k]);
                         }
 
-                        // C. Ad Label Section Hunter (find sections whose header or label is ADVERTISEMENT/SPONSORED)
-                        var labelCandidates = document.querySelectorAll('span, div, p, small, header, h4, h5, h6');
+                        // C. Ad Label Section Hunter (find elements whose label is ADVERTISEMENT/SPONSORED)
+                        var labelCandidates = document.querySelectorAll('span, p, small, header, h5, h6');
                         for (var m = 0; m < labelCandidates.length; m++) {
                             var cand = labelCandidates[m];
                             if (cand.children.length === 0) {
