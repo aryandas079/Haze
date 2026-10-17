@@ -8415,7 +8415,7 @@ class MainActivity : AppCompatActivity() {
         if (menuBtn.isShown) {
             popupWindow.showAsDropDown(menuBtn, 0, -(finalPopupHeight + menuBtn.height + 24))
         } else {
-            popupWindow.showAtLocation(webContainer, Gravity.TOP or Gravity.END, 32, 140)
+            popupWindow.showAtLocation(webContainer, Gravity.BOTTOM or Gravity.END, dpToPx(16), dpToPx(80))
         }
     }
 
@@ -8836,6 +8836,8 @@ class MainActivity : AppCompatActivity() {
         // Handled centrally in dispatchTouchEvent for 100% reliable interception across all Android views
     }
 
+    private var isBottomZoneTap = false
+
     private fun resetGestures() {
         isAddressBarTouch = false
         isAddressBarSwiping = false
@@ -8845,6 +8847,7 @@ class MainActivity : AppCompatActivity() {
         isLeftEdge = false
         isRightEdge = false
         childTouchesCanceled = false
+        isBottomZoneTap = false
         activeGestureCurrView = null
         activeGestureAdjacentView = null
         activeGestureTargetIndex = -1
@@ -8869,6 +8872,7 @@ class MainActivity : AppCompatActivity() {
                 val screenHeight = resources.displayMetrics.heightPixels
                 val bottomZoneThreshold = screenHeight - dpToPx(85)
                 isBottomSwipeUpCandidate = (gestureStartY >= bottomZoneThreshold)
+                isBottomZoneTap = (gestureStartY >= bottomZoneThreshold && isAddressBarHidden)
 
                 isAddressBarTouch = false
                 isAddressBarSwiping = false
@@ -9288,9 +9292,16 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val screenHeight = resources.displayMetrics.heightPixels
-                if (isAddressBarHidden && isBottomSwipeUpCandidate && absY < dpToPx(12) && absX < dpToPx(12) && gestureStartY >= screenHeight - dpToPx(35)) {
-                    showAddressBar(animated = true)
+                if (isBottomZoneTap && absY < dpToPx(18) && absX < dpToPx(18)) {
                     triggerStrongHaptic(isHeavy = false)
+                    showAddressBar(animated = true)
+                    resetGestures()
+                    return true
+                }
+
+                if (isAddressBarHidden && isBottomSwipeUpCandidate && absY < dpToPx(18) && absX < dpToPx(18) && gestureStartY >= screenHeight - dpToPx(85)) {
+                    triggerStrongHaptic(isHeavy = false)
+                    showAddressBar(animated = true)
                     resetGestures()
                     return true
                 }
