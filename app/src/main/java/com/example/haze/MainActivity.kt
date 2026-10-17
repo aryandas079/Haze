@@ -505,10 +505,13 @@ class MainActivity : AppCompatActivity() {
 
         val pillBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics)
+            cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 17f, resources.displayMetrics)
             setColor(if (isDark) Color.parseColor("#35383E") else Color.parseColor("#E8EAED"))
         }
         btnSearchEngineDropdown.background = pillBg
+        val pillPadStart = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, resources.displayMetrics).toInt()
+        val pillPadEnd = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 7f, resources.displayMetrics).toInt()
+        btnSearchEngineDropdown.setPaddingRelative(pillPadStart, 0, pillPadEnd, 0)
 
         val currentTab = getActiveTab()
         val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
@@ -3379,41 +3382,41 @@ class MainActivity : AppCompatActivity() {
 
         return when {
             host.contains("google.") || n == "google" || n.startsWith("google ") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.28-2.1 3.66-5.2 3.66-9.12z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.41 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.25C.45 8.16 0 9.98 0 12c0 2.02.45 3.84 1.25 5.43l4.03-3.14z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.59 1.25 6.57l4.03 3.14c.95-2.83 3.6-4.96 6.72-4.96z"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.28-2.1 3.66-5.2 3.66-9.12z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.41 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.25C.45 8.16 0 9.98 0 12c0 2.02.45 3.84 1.25 5.43l4.03-3.14z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.59 1.25 6.57l4.03 3.14c.95-2.83 3.6-4.96 6.72-4.96z"/></svg>"""
 
             host.contains("youtube.") || host.contains("youtu.be") || n.contains("youtube") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"/><polygon fill="#FFFFFF" points="9.545,15.568 15.818,12 9.545,8.432"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:34px; height:34px; display:block;"><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"/><polygon fill="#FFFFFF" points="9.545,15.568 15.818,12 9.545,8.432"/></svg>"""
 
             host.contains("instagram.") || n.contains("instagram") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><defs><radialGradient id="hazeIgGrad" cx="20%" cy="110%" r="130%"><stop offset="0%" stop-color="#FFD600"/><stop offset="20%" stop-color="#FF7A00"/><stop offset="50%" stop-color="#FF0069"/><stop offset="70%" stop-color="#D300C5"/><stop offset="100%" stop-color="#7638FA"/></radialGradient></defs><rect x="0" y="0" width="24" height="24" rx="6.5" fill="url(#hazeIgGrad)"/><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="17" cy="7" r="1.1" fill="#FFFFFF"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><defs><radialGradient id="hazeIgGrad" cx="20%" cy="110%" r="130%"><stop offset="0%" stop-color="#FFD600"/><stop offset="20%" stop-color="#FF7A00"/><stop offset="50%" stop-color="#FF0069"/><stop offset="70%" stop-color="#D300C5"/><stop offset="100%" stop-color="#7638FA"/></radialGradient></defs><rect x="0" y="0" width="24" height="24" rx="6.5" fill="url(#hazeIgGrad)"/><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="17" cy="7" r="1.1" fill="#FFFFFF"/></svg>"""
 
             host.contains("reddit.") || n.contains("reddit") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#FF4500"/><path fill="#FFFFFF" d="M12 3.8a.9.9 0 0 1 .88 1.09l1.86.39a3.73 3.73 0 0 1 3.53-1.05 1.4 1.4 0 1 1 1.18 2.14c-.03.24-.06.48-.09.72 1.3 1.23 2.07 2.87 2.07 4.61 0 3.9-4.43 7.05-9.87 7.05S1.7 15.7 1.7 11.8c0-1.74.77-3.38 2.07-4.61a4.8 4.8 0 0 1-.09-.72 1.4 1.4 0 1 1 2.29-1.1c1.18.06 2.28.54 3.1 1.33l1.25-.26a.9.9 0 0 1 .88-1.09l.8.2zM8.78 12.6a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm6.44 0a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm-5.92 2.54c.76.63 1.76 1 2.7 1s1.94-.37 2.7-1a.5.5 0 0 0-.64-.76c-.57.47-1.34.76-2.06.76s-1.49-.29-2.06-.76a.5.5 0 0 0-.64.76z"/><circle cx="8.78" cy="11.2" r="0.9" fill="#FF4500"/><circle cx="15.22" cy="11.2" r="0.9" fill="#FF4500"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><circle cx="12" cy="12" r="12" fill="#FF4500"/><path fill="#FFFFFF" d="M12 3.8a.9.9 0 0 1 .88 1.09l1.86.39a3.73 3.73 0 0 1 3.53-1.05 1.4 1.4 0 1 1 1.18 2.14c-.03.24-.06.48-.09.72 1.3 1.23 2.07 2.87 2.07 4.61 0 3.9-4.43 7.05-9.87 7.05S1.7 15.7 1.7 11.8c0-1.74.77-3.38 2.07-4.61a4.8 4.8 0 0 1-.09-.72 1.4 1.4 0 1 1 2.29-1.1c1.18.06 2.28.54 3.1 1.33l1.25-.26a.9.9 0 0 1 .88-1.09l.8.2zM8.78 12.6a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm6.44 0a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm-5.92 2.54c.76.63 1.76 1 2.7 1s1.94-.37 2.7-1a.5.5 0 0 0-.64-.76c-.57.47-1.34.76-2.06.76s-1.49-.29-2.06-.76a.5.5 0 0 0-.64.76z"/><circle cx="8.78" cy="11.2" r="0.9" fill="#FF4500"/><circle cx="15.22" cy="11.2" r="0.9" fill="#FF4500"/></svg>"""
 
             host.contains("spotify.") || n.contains("spotify") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#1DB954"/><path fill="#121212" d="M17.5 17.08c-.22.36-.68.48-1.04.26-2.85-1.74-6.44-2.14-10.67-1.17-.41.09-.83-.16-.92-.58-.09-.41.16-.83.58-.92 4.63-1.06 8.62-.61 11.79 1.33.36.22.48.68.26 1.08zm1.4-3.71c-.28.45-.88.6-1.33.32-3.26-2-8.23-2.58-12.08-1.42-.51.15-1.06-.14-1.21-.65-.15-.51.14-1.06.65-1.21 4.41-1.34 9.89-.69 13.65 1.63.45.28.6.88.32 1.33zm.13-3.85c-3.9-2.32-10.35-2.53-14.1-1.39-.6.18-1.24-.16-1.42-.76-.18-.6.16-1.24.76-1.42 4.31-1.31 11.44-1.06 15.93 1.61.54.32.72 1.02.4 1.56-.32.54-1.02.72-1.57.4z"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><circle cx="12" cy="12" r="12" fill="#1DB954"/><path fill="#121212" d="M17.5 17.08c-.22.36-.68.48-1.04.26-2.85-1.74-6.44-2.14-10.67-1.17-.41.09-.83-.16-.92-.58-.09-.41.16-.83.58-.92 4.63-1.06 8.62-.61 11.79 1.33.36.22.48.68.26 1.08zm1.4-3.71c-.28.45-.88.6-1.33.32-3.26-2-8.23-2.58-12.08-1.42-.51.15-1.06-.14-1.21-.65-.15-.51.14-1.06.65-1.21 4.41-1.34 9.89-.69 13.65 1.63.45.28.6.88.32 1.33zm.13-3.85c-3.9-2.32-10.35-2.53-14.1-1.39-.6.18-1.24-.16-1.42-.76-.18-.6.16-1.24.76-1.42 4.31-1.31 11.44-1.06 15.93 1.61.54.32.72 1.02.4 1.56-.32.54-1.02.72-1.57.4z"/></svg>"""
 
             host.contains("amazon.") || n.contains("amazon") ->
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#232F3E"/><path fill="#FFFFFF" d="M11.66 13.06c-1.14 0-1.89-.17-2.27-.52-.37-.34-.44-.89-.44-1.63 0-.68.12-1.27.37-1.75.25-.49.63-.84 1.14-1.05.51-.21 1.15-.32 1.93-.32.61 0 1.13.06 1.57.18.43.12.78.27 1.05.45v2.33c0 .73-.24 1.3-.72 1.69-.49.4-1.37.62-2.63.62zm1.2-6.52c-.75 0-1.44.09-2.09.28-.65.19-1.21.49-1.68.9-.47.42-.8.95-1 1.6l1.7.23c.12-.41.34-.73.66-.96.32-.23.75-.35 1.28-.35.8 0 1.38.23 1.73.68.35.45.52 1.15.52 2.1v.22c-.44-.13-.91-.23-1.4-.31-.49-.07-1.04-.11-1.64-.11-1.23 0-2.23.28-2.98.85-.75.57-1.13 1.38-1.13 2.44 0 .97.35 1.74 1.05 2.31.7.57 1.63.85 2.8.85 1.05 0 1.92-.3 2.62-.91v.76h1.83V9.65c0-1.33-.36-2.28-1.07-2.85-.71-.57-1.78-.86-3.19-.86z"/><path fill="#FF9900" d="M19.7 18.05c-3.16 2.32-7.73 2.7-11.83 1.12-2.45-.94-4.52-2.5-5.91-4.47-.13-.19.01-.4.21-.29 3.96 2.17 8.68 2.68 13.08.82.72-.3 1.48-.1 1.65.34.11.28-.2.62-.2.62s1.42-.16 2.22-.92c.16-.16.35-.04.26.17-.46 1.05-1.57 2.05-1.68 2.53z"/><path fill="#FF9900" d="M20.5 16.5c-.32.41-1.07.6-1.58.64-.15.01-.22-.12-.08-.22.8-.57 1.58-1.48 1.58-1.48s.5 1.22 1.37 1.83c.17.12.06.27-.12.23-.55-.13-1.17-.49-1.17-.49v-.51z"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><rect width="24" height="24" rx="6" fill="#131A22"/><path fill="#FFFFFF" d="M11.5 6.5c-2.4 0-4.1 1.3-4.5 3.3h2.3c.3-1 1.2-1.6 2.2-1.6 1.3 0 2.2.8 2.2 2.1v.6c-.6-.1-1.3-.2-2.1-.2-2.6 0-4.3 1.2-4.3 3.1 0 1.8 1.4 3 3.3 3 1.5 0 2.6-.7 3.1-1.8v1.5h2.2V11c0-2.8-1.9-4.5-4.4-4.5zm.7 8.5c-.8 0-1.7-.5-1.7-1.5 0-1.1.9-1.6 2.2-1.6.6 0 1.2.1 1.6.2v.9c-.3 1.2-1.2 2-2.1 2z"/><path fill="#FF9900" d="M18.5 17.8c-2.5 1.7-6.2 2.3-9.5 1.2-2-.7-3.7-1.9-4.8-3.5-.1-.2 0-.3.2-.2 3.2 1.6 7 2 10.6.6.6-.2 1.2 0 1.3.4.1.2 0 .5-.1.5s1.1-.1 1.8-.7c.1-.1.3 0 .2.2-.3.6-1.1 1.2-1.2 1.5z"/><path fill="#FF9900" d="M19.2 16.6c-.3.3-.8.5-1.3.5-.1 0-.2-.1-.1-.2.6-.4 1.3-1.1 1.3-1.1s.4.9 1.1 1.4c.1.1 0 .2-.1.2-.4-.1-.9-.4-.9-.8z"/></svg>"""
 
             host.contains("github.") || n.contains("github") -> {
-                val ghBg = if (isDark) "#333333" else "#24292F"
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="$ghBg"/><path fill="#FFFFFF" d="M12 3a9 9 0 0 0-2.85 17.54c.45.08.62-.2.62-.43v-1.52c-2.5.54-3.03-1.2-3.03-1.2-.41-1.04-1-1.32-1-1.32-.82-.56.06-.55.06-.55.9.06 1.38.93 1.38.93.8 1.37 2.1 1 2.62.75.08-.58.31-.98.57-1.2-2-.23-4.1-1-4.1-4.45 0-.98.35-1.79.93-2.42-.1-.23-.4-1.15.1-2.39 0 0 .76-.24 2.5.93a8.67 8.67 0 0 1 4.54 0c1.73-1.17 2.48-.93 2.48-.93.5 1.24.2 2.16.1 2.39.58.63.92 1.44.92 2.42 0 3.47-2.11 4.22-4.12 4.44.32.28.61.83.61 1.67V20.1c0 .24.16.52.62.43A9 9 0 0 0 12 3z"/></svg>"""
+                val ghFill = if (isDark) "#FFFFFF" else "#24292F"
+                """<svg viewBox="0 0 24 24" style="fill: $ghFill; width:32px; height:32px; display:block;"><path d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 12 2z"/></svg>"""
             }
 
             host.contains("twitter.") || host.contains("x.com") || n == "x" || n.contains("twitter") -> {
                 if (n.contains("twitter") && !n.contains("x")) {
-                    """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path fill="#FFFFFF" d="M19.5 7.55a6.4 6.4 0 0 1-1.83.5 3.2 3.2 0 0 0 1.4-1.76 6.38 6.38 0 0 1-2.02.77 3.19 3.19 0 0 0-5.43 2.9A9.05 9.05 0 0 1 5 6.64a3.19 3.19 0 0 0 .99 4.25 3.17 3.17 0 0 1-1.44-.4v.04a3.19 3.19 0 0 0 2.56 3.13 3.22 3.22 0 0 1-1.44.05 3.19 3.19 0 0 0 2.98 2.22 6.4 6.4 0 0 1-3.96 1.37c-.26 0-.51-.02-.76-.04a9.03 9.03 0 0 0 4.89 1.43c5.87 0 9.08-4.86 9.08-9.08v-.41a6.5 6.5 0 0 0 1.59-1.65z"/></svg>"""
+                    """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><path fill="#1DA1F2" d="M23 4.5a9.4 9.4 0 0 1-2.7.7 4.7 4.7 0 0 0 2.1-2.6 9.4 9.4 0 0 1-3 1.1 4.7 4.7 0 0 0-8 4.3 13.3 13.3 0 0 1-9.7-4.9 4.7 4.7 0 0 0 1.5 6.3 4.6 4.6 0 0 1-2.1-.6v.1a4.7 4.7 0 0 0 3.8 4.6 4.7 4.7 0 0 1-2.1.1 4.7 4.7 0 0 0 4.4 3.3A9.4 9.4 0 0 1 1 18.7a13.3 13.3 0 0 0 7.2 2.1c8.6 0 13.3-7.1 13.3-13.3v-.6A9.6 9.6 0 0 0 23 4.5z"/></svg>"""
                 } else {
                     val xBg = if (isDark) "#2F3438" else "#000000"
-                    """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="$xBg"/><path fill="#FFFFFF" d="M17.53 4h2.51l-5.48 6.27L21 20h-5.05l-3.96-5.17L7.46 20H4.95l5.86-6.7L4.5 4h5.18l3.58 4.73L17.53 4zm-.88 14.5h1.39L8.41 5.4H6.92l9.73 13.1z"/></svg>"""
+                    """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><rect width="24" height="24" rx="6" fill="$xBg"/><path fill="#FFFFFF" d="M17.53 4h2.51l-5.48 6.27L21 20h-5.05l-3.96-5.17L7.46 20H4.95l5.86-6.7L4.5 4h5.18l3.58 4.73L17.53 4zm-.88 14.5h1.39L8.41 5.4H6.92l9.73 13.1z"/></svg>"""
                 }
             }
 
             host.contains("wikipedia.") || n.contains("wikipedia") -> {
                 val wpBg = if (isDark) "#2D3035" else "#EAECF0"
                 val wpFill = if (isDark) "#FFFFFF" else "#202124"
-                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="$wpBg"/><path fill="$wpFill" d="M15.4 17.5l-1.9-5.3-1.6 5.3h-1.9l-2.6-8.5h1.9l1.6 5.9 1.7-5.9h1.9l1.7 5.9 1.6-5.9h1.9l-2.6 8.5h-2.3z"/></svg>"""
+                """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><rect width="24" height="24" rx="6" fill="$wpBg"/><path fill="$wpFill" d="M15.4 17.5l-1.9-5.3-1.6 5.3h-1.9l-2.6-8.5h1.9l1.6 5.9 1.7-5.9h1.9l1.7 5.9 1.6-5.9h1.9l-2.6 8.5h-2.3z"/><path fill="$wpFill" d="M7.8 9h2.8v0.8h-2.8z M16.8 9h2.8v0.8h-2.8z"/></svg>"""
             }
 
             host.contains("notion.") || n.contains("notion") -> {
@@ -3874,6 +3877,9 @@ class MainActivity : AppCompatActivity() {
             setStroke(1, strokeColor)
         }
         addressBarInner.background = shape
+        val padStart = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, resources.displayMetrics).toInt()
+        val padEnd = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, resources.displayMetrics).toInt()
+        addressBarInner.setPaddingRelative(padStart, 0, padEnd, 0)
         addressBarInner.elevation = 0f
         addressBarInner.outlineProvider = null
         

@@ -108,7 +108,7 @@ class HazeOmniboxManager(
             name = "Brave Search",
             prefix = "br",
             searchUrlPattern = "https://search.brave.com/search?q=%s",
-            iconRes = R.drawable.ic_shield_check,
+            iconRes = R.drawable.ic_brave,
             category = "Essential",
             description = "Independent search index"
         ),
@@ -126,7 +126,7 @@ class HazeOmniboxManager(
             name = "Yahoo Search",
             prefix = "y",
             searchUrlPattern = "https://search.yahoo.com/search?p=%s",
-            iconRes = R.drawable.ic_search,
+            iconRes = R.drawable.ic_yahoo,
             category = "Essential",
             description = "Web search and news"
         ),
@@ -135,7 +135,7 @@ class HazeOmniboxManager(
             name = "Ecosia",
             prefix = "eco",
             searchUrlPattern = "https://www.ecosia.org/search?q=%s",
-            iconRes = R.drawable.ic_globe,
+            iconRes = R.drawable.ic_ecosia,
             category = "Essential",
             description = "Search with an environmental mission"
         ),
@@ -1005,7 +1005,10 @@ class HazeOmniboxManager(
             R.drawable.ic_threads,
             R.drawable.ic_vimeo,
             R.drawable.ic_amazon,
-            R.drawable.ic_x
+            R.drawable.ic_x,
+            R.drawable.ic_brave,
+            R.drawable.ic_yahoo,
+            R.drawable.ic_ecosia
         )
     }
 

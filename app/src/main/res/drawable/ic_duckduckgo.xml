@@ -3,19 +3,24 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- Orange Circular Background -->
     <path
         android:fillColor="#DE5833"
         android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2z"/>
+    <!-- White Duck Head & Body -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M12.2,6.5c-1.8,0 -3.2,1.2 -3.2,2.8 0,0.8 0.3,1.5 0.9,2 -0.8,0.5 -1.5,1.4 -1.5,2.6 0,1.8 1.7,3.2 3.8,3.2 2.1,0 3.8,-1.4 3.8,-3.2 0,-0.7 -0.3,-1.4 -0.8,-1.9 0.4,-0.6 0.7,-1.4 0.7,-2.3 0,-1.8 -1.7,-3.2 -3.7,-3.2z"/>
+        android:pathData="M12.5,6c-2.2,0 -3.8,1.5 -3.8,3.5 0,1 0.4,1.8 1.1,2.4 -1,0.6 -1.8,1.7 -1.8,3.1 0,2.2 2,4 4.5,4s4.5,-1.8 4.5,-4c0,-0.9 -0.4,-1.7 -1,-2.3 0.5,-0.7 0.8,-1.7 0.8,-2.7 0,-2.2 -2,-4 -4.3,-4z"/>
+    <!-- Yellow/Orange Bill -->
     <path
         android:fillColor="#F4A228"
-        android:pathData="M14.5,8.8c0.6,-0.1 1.8,0.2 2.3,0.7 -0.4,0.6 -1.2,1 -2.3,1.1V8.8z"/>
+        android:pathData="M15,8.8c0.8,-0.1 2.2,0.3 2.8,0.9 -0.5,0.7 -1.5,1.2 -2.8,1.3V8.8z"/>
+    <!-- Black Eye -->
     <path
         android:fillColor="#222222"
-        android:pathData="M11.5,8.3a0.7,0.7 0 1,0 0,1.4 0.7,0.7 0 1,0 0,-1.4z"/>
+        android:pathData="M11.8,8.2a0.8,0.8 0 1,0 0,1.6 0.8,0.8 0 1,0 0,-1.6z"/>
+    <!-- Green Bowtie -->
     <path
         android:fillColor="#60B158"
-        android:pathData="M12.2,14.7l-1.3,0.8 0.4,-1.2 -0.8,-0.9 1.2,-0.1 0.5,-1.1 0.5,1.1 1.2,0.1 -0.8,0.9 0.4,1.2z"/>
+        android:pathData="M12.5,15.2l-1.5,0.9 0.5,-1.4 -1,-1 1.4,-0.1 0.6,-1.3 0.6,1.3 1.4,0.1 -1,1 0.5,1.4z"/>
 </vector>

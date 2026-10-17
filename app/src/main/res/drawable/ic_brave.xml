@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Brave Lion Shield Silhouette -->
+    <path
+        android:fillColor="#FB542B"
+        android:pathData="M12,2L4.5,5.8c0,0 0.5,7.2 1.5,9.6 1.3,3.1 6,6.6 6,6.6s4.7,-3.5 6,-6.6c1,-2.4 1.5,-9.6 1.5,-9.6L12,2z"/>
+    <!-- Darker Orange Facets -->
+    <path
+        android:fillColor="#D83B10"
+        android:pathData="M12,2l-7.5,3.8c0,0 0.4,4.5 1,7.2l6.5,-3.5V2z M12,2l7.5,3.8c0,0 -0.4,4.5 -1,7.2l-6.5,-3.5V2z"/>
+    <!-- Bright Top Brow -->
+    <path
+        android:fillColor="#FF7A59"
+        android:pathData="M12,5.5l-4.5,2.5 1.5,3 3,-1.5 3,1.5 1.5,-3L12,5.5z"/>
+    <!-- White Eyes & Snout Bridge -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.2,11.5l1.6,0.3 -0.5,1.2z M14.8,11.5l-1.6,0.3 0.5,1.2z M12,12l-1.5,2.5h3L12,12z"/>
+    <!-- Lower Chin / Muzzle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M10.8,15.2l1.2,2.3 1.2,-2.3H10.8z"/>
+</vector>
