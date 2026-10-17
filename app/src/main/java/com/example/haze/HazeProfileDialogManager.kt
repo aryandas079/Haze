@@ -242,34 +242,6 @@ object HazeProfileDialogManager {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
-        // Passwords and Autofill: Open saved passwords of the logged in Google account
-        primaryList.addView(
-            createMenuItem(activity, R.drawable.ic_key, "Passwords and autofill", textColor = textColor, subTextColor = subTextColor) {
-                activity.triggerStrongHaptic()
-                dialog.dismiss()
-                var opened = false
-                try {
-                    val intent = Intent("com.google.android.gms.credential.manager.SETTINGS").apply {
-                        setPackage("com.google.android.gms")
-                    }
-                    activity.startActivity(intent)
-                    opened = true
-                } catch (_: Exception) {}
-                if (!opened) {
-                    try {
-                        val intent = Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
-                            data = Uri.parse("package:com.google.android.gms")
-                        }
-                        activity.startActivity(intent)
-                        opened = true
-                    } catch (_: Exception) {}
-                }
-                if (!opened) {
-                    activity.addNewTab("https://passwords.google.com")
-                }
-            }
-        )
-
         // Manage your Google Account: Open accounts.google.com / myaccount.google.com in Haze browser only
         primaryList.addView(
             createMenuItem(activity, R.drawable.ic_person, "Manage your Google Account", textColor = textColor, subTextColor = subTextColor) {
@@ -281,15 +253,6 @@ object HazeProfileDialogManager {
                     "https://accounts.google.com/"
                 }
                 activity.addNewTab(targetUrl)
-            }
-        )
-
-        // Customize profile: Open personalization dialog directly
-        primaryList.addView(
-            createMenuItem(activity, R.drawable.ic_palette, "Customize profile", textColor = textColor, subTextColor = subTextColor) {
-                activity.triggerStrongHaptic()
-                dialog.dismiss()
-                activity.showPersonalizeDialog()
             }
         )
 
@@ -306,25 +269,35 @@ object HazeProfileDialogManager {
             }
         )
 
-        // Google Web Services Sign-In: Only show if not performed yet
-        if (!HazeAccountManager.hasCompletedGoogleWebLogin(activity)) {
-            primaryList.addView(
-                createMenuItem(activity, R.drawable.ic_google_logo, "Google Web Services", "Sign in to Gmail, YouTube & Google Search", textColor = textColor, subTextColor = subTextColor) {
-                    activity.triggerStrongHaptic()
-                    dialog.dismiss()
-                    HazeAccountManager.setCompletedGoogleWebLogin(activity, true)
-                    val loginUrl = "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=https://www.google.com/"
-                    activity.loadUrlFromInput(loginUrl)
-                }
-            )
-        }
-
-        // Password Manager: Open passwords in Android settings
+        // Google Web Services: Opens the complete Google App Suite
         primaryList.addView(
-            createMenuItem(activity, R.drawable.ic_key, "Password Manager", "Google passwords, passkeys & autofill", textColor = textColor, subTextColor = subTextColor) {
+            createMenuItem(
+                activity,
+                R.drawable.ic_google_logo,
+                "Google Web Services",
+                "Gmail, YouTube, Drive & full app suite",
+                textColor = textColor,
+                subTextColor = subTextColor
+            ) {
                 activity.triggerStrongHaptic()
                 dialog.dismiss()
-                HazeSecurityManager.requestGooglePasswordManagerIntegration(activity)
+                openGoogleAppsSuite(activity, user)
+            }
+        )
+
+        // Password Manager: Opens Haze Password Manager
+        primaryList.addView(
+            createMenuItem(
+                activity,
+                R.drawable.ic_key,
+                "Password Manager",
+                "Haze passwords, passkeys & autofill",
+                textColor = textColor,
+                subTextColor = subTextColor
+            ) {
+                activity.triggerStrongHaptic()
+                dialog.dismiss()
+                activity.openPasswordManager()
             }
         )
 
@@ -573,6 +546,295 @@ object HazeProfileDialogManager {
         }
 
         root.addView(content)
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    // =========================================================================
+    // 3. GOOGLE APPS SUITE PANEL (Full Google Web Services & Workspace Suite)
+    // =========================================================================
+    fun openGoogleAppsSuite(activity: MainActivity, user: HazeAccountManager.HazeUser? = null) {
+        val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+
+        val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val accentColor = Color.parseColor(accentColorHex)
+
+        val bgColor = if (isDark) Color.parseColor("#1C1C1C") else Color.WHITE
+        val itemBgColor = if (isDark) Color.parseColor("#282828") else Color.parseColor("#F4F6FB")
+        val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
+        val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
+        val dividerColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
+
+        val dialog = BottomSheetDialog(activity)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+
+        dialog.setOnShowListener {
+            val sheetResId = dialog.context.resources.getIdentifier("design_bottom_sheet", "id", dialog.context.packageName)
+            val bottomSheet = if (sheetResId != 0) dialog.findViewById<View>(sheetResId) else null
+            if (bottomSheet != null) {
+                val behavior = BottomSheetBehavior.from(bottomSheet)
+                behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                behavior.skipCollapsed = true
+            }
+        }
+
+        val root = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadii = floatArrayOf(
+                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
+                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
+                setColor(bgColor)
+            }
+            setPadding(dpToPx(activity, 16), dpToPx(activity, 8), dpToPx(activity, 16), dpToPx(activity, 20))
+        }
+
+        // Drag handle
+        val handleWrapper = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 18)).apply {
+                bottomMargin = dpToPx(activity, 8)
+            }
+        }
+        val handlePill = View(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(dpToPx(activity, 36), dpToPx(activity, 4)).apply {
+                gravity = Gravity.CENTER
+            }
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 2).toFloat()
+                setColor(if (isDark) Color.parseColor("#444444") else Color.parseColor("#D0D0D0"))
+            }
+        }
+        handleWrapper.addView(handlePill)
+        root.addView(handleWrapper)
+
+        // Header
+        val header = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(activity, 8), dpToPx(activity, 4), dpToPx(activity, 8), dpToPx(activity, 12))
+        }
+
+        val ivLogo = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_google_logo)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 32), dpToPx(activity, 32)).apply {
+                marginEnd = dpToPx(activity, 12)
+            }
+        }
+        header.addView(ivLogo)
+
+        val headerTextCol = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvHeaderTitle = TextView(activity).apply {
+            text = "Google Apps"
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+        }
+        val effectiveUser = user ?: HazeAccountManager.getUser(activity)
+        val tvHeaderSub = TextView(activity).apply {
+            text = if (!effectiveUser?.email.isNullOrEmpty()) "${effectiveUser!!.email} • Web Services Suite" else "Google Web Services Suite"
+            textSize = 12f
+            setTextColor(subTextColor)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        headerTextCol.addView(tvHeaderTitle)
+        headerTextCol.addView(tvHeaderSub)
+        header.addView(headerTextCol)
+
+        val btnClose = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_close)
+            setColorFilter(subTextColor)
+            val pad = dpToPx(activity, 8)
+            setPadding(pad, pad, pad, pad)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 36), dpToPx(activity, 36))
+            setBackgroundResource(getSelectableRes(activity))
+            setOnClickListener { dialog.dismiss() }
+        }
+        header.addView(btnClose)
+        root.addView(header)
+
+        // Divider
+        val divider = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 1)).apply {
+                bottomMargin = dpToPx(activity, 12)
+            }
+            setBackgroundColor(dividerColor)
+        }
+        root.addView(divider)
+
+        val scroll = NestedScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            isVerticalScrollBarEnabled = false
+        }
+
+        val scrollContent = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        data class GoogleApp(
+            val name: String,
+            val url: String,
+            val iconRes: Int,
+            val tintColor: String? = null
+        )
+
+        val apps = listOf(
+            GoogleApp("Search", "https://www.google.com", R.drawable.ic_google_logo, null),
+            GoogleApp("Gmail", "https://mail.google.com", R.drawable.ic_mail, "#EA4335"),
+            GoogleApp("YouTube", "https://www.youtube.com", R.drawable.ic_youtube, null),
+            GoogleApp("Drive", "https://drive.google.com", R.drawable.ic_folder, "#34A853"),
+            GoogleApp("Maps", "https://maps.google.com", R.drawable.ic_map, "#4285F4"),
+            GoogleApp("Gemini", "https://gemini.google.com", R.drawable.ic_sparkles, "#1A73E8"),
+            GoogleApp("Photos", "https://photos.google.com", R.drawable.ic_image, "#FBBC04"),
+            GoogleApp("Translate", "https://translate.google.com", R.drawable.ic_translate, "#1A73E8"),
+            GoogleApp("Calendar", "https://calendar.google.com", R.drawable.ic_sync, "#4285F4"),
+            GoogleApp("Docs", "https://docs.google.com", R.drawable.ic_file, "#4285F4"),
+            GoogleApp("Sheets", "https://sheets.google.com", R.drawable.ic_grid, "#34A853"),
+            GoogleApp("Slides", "https://slides.google.com", R.drawable.ic_file, "#FBBC04"),
+            GoogleApp("Keep", "https://keep.google.com", R.drawable.ic_edit, "#FBBC04"),
+            GoogleApp("Meet", "https://meet.google.com", R.drawable.ic_play, "#00897B"),
+            GoogleApp("News", "https://news.google.com", R.drawable.ic_globe, "#1A73E8"),
+            GoogleApp("Contacts", "https://contacts.google.com", R.drawable.ic_person, "#1A73E8")
+        )
+
+        val columns = 4
+        for (i in apps.indices step columns) {
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = dpToPx(activity, 10)
+                }
+            }
+
+            for (col in 0 until columns) {
+                val appIndex = i + col
+                if (appIndex < apps.size) {
+                    val app = apps[appIndex]
+                    val item = LinearLayout(activity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        val p = dpToPx(activity, 6)
+                        setPadding(p, p, p, p)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        setBackgroundResource(getSelectableRes(activity))
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
+                            activity.triggerStrongHaptic()
+                            dialog.dismiss()
+                            activity.addNewTab(app.url)
+                        }
+                    }
+
+                    val iconContainer = FrameLayout(activity).apply {
+                        layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 48), dpToPx(activity, 48)).apply {
+                            bottomMargin = dpToPx(activity, 6)
+                        }
+                        background = GradientDrawable().apply {
+                            cornerRadius = dpToPx(activity, 16).toFloat()
+                            setColor(itemBgColor)
+                        }
+                    }
+
+                    val ivApp = ImageView(activity).apply {
+                        val iconSize = dpToPx(activity, 26)
+                        layoutParams = FrameLayout.LayoutParams(iconSize, iconSize).apply {
+                            gravity = Gravity.CENTER
+                        }
+                        setImageResource(app.iconRes)
+                        if (app.tintColor != null) {
+                            setColorFilter(Color.parseColor(app.tintColor))
+                        }
+                    }
+                    iconContainer.addView(ivApp)
+                    item.addView(iconContainer)
+
+                    val tvApp = TextView(activity).apply {
+                        text = app.name
+                        textSize = 11.5f
+                        setTextColor(textColor)
+                        gravity = Gravity.CENTER
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    }
+                    item.addView(tvApp)
+                    row.addView(item)
+                } else {
+                    val emptyHolder = View(activity).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, 1, 1f)
+                    }
+                    row.addView(emptyHolder)
+                }
+            }
+            scrollContent.addView(row)
+        }
+
+        // Divider
+        val bottomDivider = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(activity, 1)).apply {
+                topMargin = dpToPx(activity, 4)
+                bottomMargin = dpToPx(activity, 12)
+            }
+            setBackgroundColor(dividerColor)
+        }
+        scrollContent.addView(bottomDivider)
+
+        // "More from Google" Button
+        val btnMore = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            val pX = dpToPx(activity, 16)
+            val pY = dpToPx(activity, 12)
+            setPadding(pX, pY, pX, pY)
+            background = GradientDrawable().apply {
+                cornerRadius = dpToPx(activity, 16).toFloat()
+                setColor(itemBgColor)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dpToPx(activity, 8)
+            }
+            setBackgroundResource(getSelectableRes(activity))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                activity.triggerStrongHaptic()
+                dialog.dismiss()
+                activity.addNewTab("https://about.google/products/")
+            }
+        }
+
+        val ivMore = ImageView(activity).apply {
+            setImageResource(R.drawable.ic_open_in_new)
+            setColorFilter(accentColor)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 18), dpToPx(activity, 18)).apply {
+                marginEnd = dpToPx(activity, 8)
+            }
+        }
+        val tvMore = TextView(activity).apply {
+            text = "Browse all Google products & services"
+            textSize = 13.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentColor)
+        }
+        btnMore.addView(ivMore)
+        btnMore.addView(tvMore)
+        scrollContent.addView(btnMore)
+
+        scroll.addView(scrollContent)
+        root.addView(scroll)
+
         dialog.setContentView(root)
         dialog.show()
     }

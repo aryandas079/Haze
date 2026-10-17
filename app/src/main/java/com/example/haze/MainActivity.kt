@@ -2729,6 +2729,16 @@ class MainActivity : AppCompatActivity() {
                 readerModeManager.showVoiceOptions()
             }, 1200)
         }
+        if (intent.getBooleanExtra("open_profile", false)) {
+            webContainer.postDelayed({
+                HazeProfileDialogManager.showProfilePanel(this)
+            }, 300)
+        }
+        if (intent.getBooleanExtra("open_google_apps", false)) {
+            webContainer.postDelayed({
+                HazeProfileDialogManager.openGoogleAppsSuite(this)
+            }, 300)
+        }
         if (intent.getBooleanExtra("open_weather", false)) {
             webContainer.postDelayed({
                 if (::weatherManager.isInitialized) weatherManager.showWeatherOverlay()
@@ -8187,7 +8197,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openPasswordManager() {
+    fun openPasswordManager() {
         HazePasswordManager.show(this) {
             passwordImportLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
         }
