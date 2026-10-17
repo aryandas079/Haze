@@ -1,18 +1,9 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <!-- Purple Rounded Background -->
+    android:viewportWidth="3386.34"
+    android:viewportHeight="3010.5">
     <path
-        android:fillColor="#6001D2"
-        android:pathData="M19,2H5C3.34,2 2,3.34 2,5v14c0,1.66 1.34,3 3,3h14c1.66,0 3,-1.34 3,-3V5C22,3.34 20.66,2 19,2z"/>
-    <!-- Iconic White Y! -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M6.2,6.5h3.1l2.4,5.2 2.4,-5.2h3l-3.8,7.3v4.7h-2.5v-4.7L6.2,6.5z"/>
-    <!-- Exclamation mark '!' -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M17.4,6.5h1.9l-0.3,7.5h-1.3L17.4,6.5z M17.3,16.5c0,-0.6 0.5,-1.1 1.1,-1.1s1.1,0.5 1.1,1.1c0,0.6 -0.5,1.1 -1.1,1.1S17.3,17.1 17.3,16.5z"/>
+        android:fillColor="#5F01D1"
+        android:pathData="M0,732.88h645.84l376.07,962.1 380.96,-962.1h628.76l-946.8,2277.62H451.98l259.19,-603.53L0.02,732.88z m2763.84,768.75h-704.26L2684.65,0l701.69,0.03z m-519.78,143.72c216.09,0 391.25,175.17 391.25,391.22 0,216.06 -175.16,391.23 -391.25,391.23 -216.06,0 -391.19,-175.17 -391.19,-391.23 0,-216.05 175.16,-391.22 391.19,-391.22"/>
 </vector>
