@@ -453,6 +453,7 @@ class MainActivity : AppCompatActivity() {
 
     fun updatePrivacyShieldButton() {
         val searchIcon = findViewById<ImageView>(R.id.searchIcon) ?: return
+        val btnSearchEngineDropdown = findViewById<LinearLayout>(R.id.btnSearchEngineDropdown)
         val currentTab = getActiveTab()
         val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
         val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
@@ -461,6 +462,8 @@ class MainActivity : AppCompatActivity() {
         val accentColor = Color.parseColor(accentColorHex)
 
         if (!isHome && !isSearchActive) {
+            btnSearchEngineDropdown?.visibility = View.GONE
+            searchIcon.visibility = View.VISIBLE
             val shieldEnabled = HazePrivacyShieldEngine.isShieldEnabled(this)
             searchIcon.setImageResource(R.drawable.ic_privacy_shield)
             searchIcon.setColorFilter(if (shieldEnabled) accentColor else hintColor)
@@ -469,9 +472,48 @@ class MainActivity : AppCompatActivity() {
                 HazePrivacyShieldDashboard.showDashboard(this@MainActivity)
             }
         } else {
-            searchIcon.setImageResource(R.drawable.ic_search)
-            searchIcon.setColorFilter(hintColor)
+            searchIcon.visibility = View.GONE
             searchIcon.setOnClickListener(null)
+            btnSearchEngineDropdown?.visibility = View.VISIBLE
+            updateSearchEnginePill()
+        }
+    }
+
+    fun updateSearchEnginePill() {
+        val btnSearchEngineDropdown = findViewById<LinearLayout>(R.id.btnSearchEngineDropdown) ?: return
+        val ivActiveEngineIcon = findViewById<ImageView>(R.id.ivActiveEngineIcon) ?: return
+        val ivActiveEngineChevron = findViewById<ImageView>(R.id.ivActiveEngineChevron) ?: return
+        if (!::omniboxManager.isInitialized) return
+
+        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+
+        val searchEngineName = prefs.getString("search_engine", "Google") ?: "Google"
+        val activeEngine = omniboxManager.getAllEngines().find { 
+            it.name.equals(searchEngineName, ignoreCase = true) ||
+            (it.id == "wikipedia" && searchEngineName.startsWith("Wikipedia", ignoreCase = true))
+        } ?: omniboxManager.defaultEngines[0]
+
+        ivActiveEngineIcon.setImageResource(activeEngine.iconRes)
+        if (omniboxManager.isBrandIcon(activeEngine.iconRes)) {
+            ivActiveEngineIcon.clearColorFilter()
+        } else {
+            ivActiveEngineIcon.setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+        }
+
+        ivActiveEngineChevron.setColorFilter(hintColor)
+
+        val pillBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, resources.displayMetrics)
+            setColor(if (isDark) Color.parseColor("#35383E") else Color.parseColor("#E8EAED"))
+        }
+        btnSearchEngineDropdown.background = pillBg
+
+        val currentTab = getActiveTab()
+        val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
+        if (isHome || isSearchActive) {
+            addressBar.hint = "Search with ${activeEngine.name} or enter address"
         }
     }
 
@@ -981,6 +1023,24 @@ class MainActivity : AppCompatActivity() {
         searchEngineSelectorBar = findViewById(R.id.searchEngineSelectorBar)
         searchEngineChipContainer = findViewById(R.id.searchEngineChipContainer)
         omniboxManager = HazeOmniboxManager(this, prefs)
+
+        val btnSearchEngineDropdown = findViewById<LinearLayout>(R.id.btnSearchEngineDropdown)
+        btnSearchEngineDropdown?.setOnClickListener {
+            triggerStrongHaptic(it)
+            val ivActiveEngineChevron = findViewById<ImageView>(R.id.ivActiveEngineChevron)
+            omniboxManager.showSearchEngineDropdown(
+                anchorView = btnSearchEngineDropdown,
+                chevronView = ivActiveEngineChevron
+            ) { newEngine ->
+                prefs.edit().putString("search_engine", newEngine.name).apply()
+                updateSearchEnginePill()
+                val query = getUserTypedQuery()
+                if (query.isNotEmpty()) {
+                    mainHandler.removeCallbacks(suggestionDebounce)
+                    mainHandler.post(suggestionDebounce)
+                }
+            }
+        }
 
         btnQrScan.setOnClickListener {
             triggerStrongHaptic(it)
@@ -1498,14 +1558,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.GONE
         btnQrScan.visibility = View.VISIBLE
         findViewById<ImageButton>(R.id.btnVoiceSearch)?.visibility = View.VISIBLE
-        searchEngineSelectorBar.visibility = View.VISIBLE
-        omniboxManager.renderSearchEngineChips(searchEngineChipContainer) { selectedEngine ->
-            val typed = getUserTypedQuery()
-            if (typed.isNotEmpty()) {
-                val url = omniboxManager.buildSearchUrl(selectedEngine, typed)
-                loadUrlFromInput(url)
-            }
-        }
+        searchEngineSelectorBar.visibility = View.GONE
 
         val text = getUserTypedQuery()
         if (text.isEmpty()) {
@@ -2740,6 +2793,34 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra("open_search", false)) {
             window.decorView.postDelayed({ activateSearchMode() }, 200)
+        }
+        if (intent.getBooleanExtra("open_engine_dropdown", false)) {
+            window.decorView.postDelayed({
+                val btnSearchEngineDropdown = findViewById<LinearLayout>(R.id.btnSearchEngineDropdown)
+                val ivActiveEngineChevron = findViewById<ImageView>(R.id.ivActiveEngineChevron)
+                if (btnSearchEngineDropdown != null) {
+                    omniboxManager.showSearchEngineDropdown(
+                        anchorView = btnSearchEngineDropdown,
+                        chevronView = ivActiveEngineChevron
+                    ) { newEngine ->
+                        prefs.edit().putString("search_engine", newEngine.name).apply()
+                        updateSearchEnginePill()
+                        val query = getUserTypedQuery()
+                        if (query.isNotEmpty()) {
+                            mainHandler.removeCallbacks(suggestionDebounce)
+                            mainHandler.post(suggestionDebounce)
+                        }
+                    }
+                }
+            }, 600)
+        }
+        val setEngine = intent.getStringExtra("set_search_engine")
+        if (setEngine != null) {
+            prefs.edit().putString("search_engine", setEngine).apply()
+            updateSearchEnginePill()
+        }
+        if (intent.getBooleanExtra("dismiss_dropdown", false)) {
+            HazeOmniboxManager.activeDropdownWindow?.dismiss()
         }
         if (intent.hasExtra("activate_search")) {
             val rawQ = intent.getStringExtra("activate_search") ?: ""
@@ -10424,6 +10505,10 @@ class MainActivity : AppCompatActivity() {
     private fun handleBackNavigation() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                if (HazeOmniboxManager.activeDropdownWindow?.isShowing == true) {
+                    HazeOmniboxManager.activeDropdownWindow?.dismiss()
+                    return
+                }
                 if (HazeDevToolsManager.isDevToolsVisible(this@MainActivity)) {
                     HazeDevToolsManager.hideDevTools(this@MainActivity)
                     return

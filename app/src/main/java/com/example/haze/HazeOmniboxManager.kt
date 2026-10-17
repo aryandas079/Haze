@@ -30,6 +30,7 @@ import java.util.Locale
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.HorizontalScrollView
+import android.widget.PopupWindow
 import android.widget.ScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -50,6 +51,7 @@ class HazeOmniboxManager(
 ) {
     companion object {
         val DEFAULT_PINNED_IDS = listOf("google", "bing", "duckduckgo", "youtube", "chatgpt")
+        var activeDropdownWindow: PopupWindow? = null
     }
 
     data class SearchEngine(
@@ -88,7 +90,7 @@ class HazeOmniboxManager(
             name = "Bing",
             prefix = "b",
             searchUrlPattern = "https://www.bing.com/search?q=%s",
-            iconRes = R.drawable.ic_search,
+            iconRes = R.drawable.ic_bing,
             category = "Essential",
             description = "Web search and AI-powered search"
         ),
@@ -115,7 +117,7 @@ class HazeOmniboxManager(
             name = "Perplexity",
             prefix = "px",
             searchUrlPattern = "https://www.perplexity.ai/search?q=%s",
-            iconRes = R.drawable.ic_sparkles,
+            iconRes = R.drawable.ic_perplexity,
             category = "Essential",
             description = "AI answers with sources"
         ),
@@ -383,7 +385,7 @@ class HazeOmniboxManager(
         // 6. Knowledge & Technical Search
         SearchEngine(
             id = "wikipedia",
-            name = "Wikipedia",
+            name = "Wikipedia (en)",
             prefix = "w",
             searchUrlPattern = "https://en.wikipedia.org/wiki/Special:Search?search=%s",
             iconRes = R.drawable.ic_wikipedia,
@@ -984,6 +986,231 @@ class HazeOmniboxManager(
         return view
     }
 
+    fun isBrandIcon(iconRes: Int): Boolean {
+        return iconRes in listOf(
+            R.drawable.ic_google_logo,
+            R.drawable.ic_duckduckgo,
+            R.drawable.ic_bing,
+            R.drawable.ic_perplexity,
+            R.drawable.ic_wikipedia,
+            R.drawable.ic_youtube,
+            R.drawable.ic_reddit,
+            R.drawable.ic_facebook,
+            R.drawable.ic_instagram,
+            R.drawable.ic_netflix,
+            R.drawable.ic_tiktok,
+            R.drawable.ic_twitch,
+            R.drawable.ic_pinterest,
+            R.drawable.ic_spotify,
+            R.drawable.ic_threads,
+            R.drawable.ic_vimeo,
+            R.drawable.ic_amazon,
+            R.drawable.ic_x
+        )
+    }
+
+    fun getDropdownSearchEngines(): List<SearchEngine> {
+        val list = mutableListOf<SearchEngine>()
+        val all = getAllEngines()
+        val preferredIds = listOf("google", "bing", "duckduckgo", "perplexity", "wikipedia", "brave", "yahoo", "ecosia")
+        for (id in preferredIds) {
+            all.find { it.id == id }?.let { list.add(it) }
+        }
+        for (custom in getCustomEngines()) {
+            if (!list.any { it.id == custom.id }) {
+                list.add(custom)
+            }
+        }
+        return list
+    }
+
+    /**
+     * Shows sleek floating dropdown selector for default search engine.
+     * Aligns right above the omnibox search engine pill container.
+     */
+    fun showSearchEngineDropdown(
+        anchorView: View,
+        chevronView: ImageView?,
+        onEngineSelected: (SearchEngine) -> Unit
+    ) {
+        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val currentEngineName = prefs.getString("search_engine", "Google") ?: "Google"
+        val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
+        val accentColor = Color.parseColor(accentColorHex)
+
+        val cardBgColor = if (isDark) Color.parseColor("#25272B") else Color.parseColor("#FFFFFF")
+        val strokeColor = if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#DADCE0")
+        val headerColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
+        val textColor = if (isDark) Color.parseColor("#E8EAED") else Color.parseColor("#202124")
+
+        val dpToPx = { dp: Float ->
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, activity.resources.displayMetrics).toInt()
+        }
+
+        // Card Container
+        val cardLayout = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(18f).toFloat()
+                setColor(cardBgColor)
+                setStroke(dpToPx(1f), strokeColor)
+            }
+            elevation = dpToPx(10f).toFloat()
+            clipToOutline = true
+        }
+
+        // Header: "Search with:"
+        val tvHeader = TextView(activity).apply {
+            text = "Search with:"
+            textSize = 12.5f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextColor(headerColor)
+            setPadding(dpToPx(16f), dpToPx(14f), dpToPx(16f), dpToPx(8f))
+        }
+        cardLayout.addView(tvHeader)
+
+        // Scrollable list of engines
+        val scrollView = ScrollView(activity).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        val itemsContainer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dpToPx(8f))
+        }
+
+        var popupWindowRef: PopupWindow? = null
+
+        val engines = getDropdownSearchEngines()
+        for (engine in engines) {
+            val isSelected = engine.name.equals(currentEngineName, ignoreCase = true) ||
+                             (engine.id == "wikipedia" && currentEngineName.startsWith("Wikipedia", ignoreCase = true))
+
+            val row = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dpToPx(46f)
+                ).apply {
+                    setMargins(dpToPx(6f), dpToPx(1f), dpToPx(6f), dpToPx(1f))
+                }
+                setPadding(dpToPx(12f), 0, dpToPx(14f), 0)
+                isClickable = true
+                isFocusable = true
+
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dpToPx(12f).toFloat()
+                    if (isSelected) {
+                        setColor(if (isDark) Color.parseColor("#263859") else Color.parseColor("#E8F0FE"))
+                    } else {
+                        setColor(Color.TRANSPARENT)
+                    }
+                }
+            }
+
+            // Engine Icon
+            val ivIcon = ImageView(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(dpToPx(20f), dpToPx(20f)).apply {
+                    marginEnd = dpToPx(14f)
+                }
+                setImageResource(engine.iconRes)
+                if (isBrandIcon(engine.iconRes)) {
+                    clearColorFilter()
+                } else {
+                    setColorFilter(if (isDark) Color.WHITE else Color.parseColor("#202124"))
+                }
+            }
+            row.addView(ivIcon)
+
+            // Engine Name
+            val tvName = TextView(activity).apply {
+                text = engine.name
+                textSize = 14.5f
+                typeface = android.graphics.Typeface.create(
+                    if (isSelected) "sans-serif-medium" else "sans-serif",
+                    if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL
+                )
+                setTextColor(if (isSelected && !isDark) Color.parseColor("#1A73E8") else textColor)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(tvName)
+
+            // Right checkmark if selected
+            if (isSelected) {
+                val ivCheck = ImageView(activity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dpToPx(18f), dpToPx(18f))
+                    setImageResource(R.drawable.ic_check)
+                    setColorFilter(if (isDark) Color.parseColor("#8AB4F8") else Color.parseColor("#1A73E8"))
+                }
+                row.addView(ivCheck)
+            }
+
+            row.setOnClickListener {
+                activity.triggerStrongHaptic(isHeavy = false)
+                recordEngineUsage(engine.id)
+                onEngineSelected(engine)
+                popupWindowRef?.dismiss()
+            }
+
+            itemsContainer.addView(row)
+        }
+
+        scrollView.addView(itemsContainer)
+        cardLayout.addView(scrollView)
+
+        val popupWidth = dpToPx(260f)
+        val popupWindow = PopupWindow(
+            cardLayout,
+            popupWidth,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            isOutsideTouchable = true
+            elevation = dpToPx(10f).toFloat()
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            animationStyle = android.R.style.Animation_Dialog
+        }
+        popupWindowRef = popupWindow
+        activeDropdownWindow?.dismiss()
+        activeDropdownWindow = popupWindow
+
+        chevronView?.animate()?.rotation(180f)?.setDuration(200)?.start()
+
+        popupWindow.setOnDismissListener {
+            if (activeDropdownWindow == popupWindow) {
+                activeDropdownWindow = null
+            }
+            chevronView?.animate()?.rotation(0f)?.setDuration(200)?.start()
+        }
+
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(popupWidth, View.MeasureSpec.EXACTLY)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(dpToPx(420f), View.MeasureSpec.AT_MOST)
+        cardLayout.measure(widthSpec, heightSpec)
+        val popupHeight = cardLayout.measuredHeight
+
+        val location = IntArray(2)
+        anchorView.getLocationOnScreen(location)
+        val anchorX = location[0]
+        val anchorY = location[1]
+
+        val y = Math.max(dpToPx(16f), anchorY - popupHeight - dpToPx(8f))
+        val x = Math.max(dpToPx(8f), anchorX)
+
+        try {
+            popupWindow.showAtLocation(anchorView, android.view.Gravity.NO_GRAVITY, x, y)
+        } catch (e: Exception) {
+            android.util.Log.e("HazeOmnibox", "Error showing engine dropdown", e)
+            try {
+                popupWindow.showAsDropDown(anchorView)
+            } catch (e2: Exception) {
+                android.util.Log.e("HazeOmnibox", "Error falling back to showAsDropDown", e2)
+            }
+        }
+    }
+
     /**
      * Render Search Engine Selector Chips
      */
@@ -1031,23 +1258,7 @@ class HazeOmniboxManager(
             }
             chip.background = bg
 
-            val isBranded = engine.iconRes in listOf(
-                R.drawable.ic_google_logo,
-                R.drawable.ic_duckduckgo,
-                R.drawable.ic_youtube,
-                R.drawable.ic_reddit,
-                R.drawable.ic_facebook,
-                R.drawable.ic_instagram,
-                R.drawable.ic_netflix,
-                R.drawable.ic_tiktok,
-                R.drawable.ic_twitch,
-                R.drawable.ic_pinterest,
-                R.drawable.ic_spotify,
-                R.drawable.ic_threads,
-                R.drawable.ic_vimeo,
-                R.drawable.ic_amazon,
-                R.drawable.ic_x
-            )
+            val isBranded = isBrandIcon(engine.iconRes)
 
             val iv = ImageView(activity).apply {
                 layoutParams = LinearLayout.LayoutParams(dp16, dp16).apply {
@@ -1401,23 +1612,7 @@ class HazeOmniboxManager(
                     isFocusable = true
                 }
 
-                val isBranded = engine.iconRes in listOf(
-                    R.drawable.ic_google_logo,
-                    R.drawable.ic_duckduckgo,
-                    R.drawable.ic_youtube,
-                    R.drawable.ic_reddit,
-                    R.drawable.ic_facebook,
-                    R.drawable.ic_instagram,
-                    R.drawable.ic_netflix,
-                    R.drawable.ic_tiktok,
-                    R.drawable.ic_twitch,
-                    R.drawable.ic_pinterest,
-                    R.drawable.ic_spotify,
-                    R.drawable.ic_threads,
-                    R.drawable.ic_vimeo,
-                    R.drawable.ic_amazon,
-                    R.drawable.ic_x
-                )
+                val isBranded = isBrandIcon(engine.iconRes)
 
                 // Left squircle icon container
                 val iconBox = LinearLayout(activity).apply {

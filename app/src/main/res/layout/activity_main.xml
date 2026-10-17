@@ -319,13 +319,47 @@
             android:paddingEnd="8dp"
             android:elevation="0dp">
 
+            <!-- Privacy Shield Icon (visible only during webpage browsing) -->
             <ImageView
                 android:id="@+id/searchIcon"
                 android:layout_width="20dp"
                 android:layout_height="20dp"
-                android:src="@drawable/ic_search"
+                android:src="@drawable/ic_privacy_shield"
                 android:contentDescription="Search Icon"
+                android:visibility="gone"
                 app:tint="#5F6368" />
+
+            <!-- Engine Selector Dropdown Pill (visible on homescreen & during search) -->
+            <LinearLayout
+                android:id="@+id/btnSearchEngineDropdown"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="7dp"
+                android:paddingEnd="6dp"
+                android:layout_marginStart="-4dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_engine_pill"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/ivActiveEngineIcon"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_google_logo"
+                    android:contentDescription="Search Engine" />
+
+                <ImageView
+                    android:id="@+id/ivActiveEngineChevron"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginStart="3dp"
+                    android:src="@drawable/ic_chevron_down"
+                    app:tint="#9AA0A6"
+                    android:contentDescription="Select Engine" />
+            </LinearLayout>
 
             <EditText
                 android:id="@+id/addressBar"
@@ -338,7 +372,7 @@
                 android:imeOptions="actionSearch|flagNoExtractUi"
                 android:inputType="text|textNoSuggestions"
                 android:maxLines="1"
-                android:paddingStart="10dp"
+                android:paddingStart="4dp"
                 android:paddingEnd="6dp"
                 android:singleLine="true"
                 android:textColor="#202124"
