@@ -992,7 +992,6 @@ class HazeOmniboxManager(
             R.drawable.ic_duckduckgo,
             R.drawable.ic_bing,
             R.drawable.ic_perplexity,
-            R.drawable.ic_wikipedia,
             R.drawable.ic_youtube,
             R.drawable.ic_reddit,
             R.drawable.ic_facebook,
