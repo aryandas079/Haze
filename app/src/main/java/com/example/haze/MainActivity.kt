@@ -8075,7 +8075,6 @@ class MainActivity : AppCompatActivity() {
             Pair(if (isDesktopActive) "Mobile Site" else "Desktop Site", R.drawable.ic_desktop),
             Pair("Find on Page", R.drawable.ic_search),
             Pair("Share", R.drawable.ic_share),
-            Pair("Save Offline", R.drawable.ic_download),
             Pair("DevTools", R.drawable.ic_code),
             Pair("Extra", R.drawable.ic_extra),
             Pair("Settings", R.drawable.ic_settings)
