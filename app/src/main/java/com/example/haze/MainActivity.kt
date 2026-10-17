@@ -2710,6 +2710,20 @@ class MainActivity : AppCompatActivity() {
         if (triggerTranslate != null) {
             executeInPageTranslation(triggerTranslate)
         }
+        if (intent.getBooleanExtra("open_reader", false)) {
+            webContainer.postDelayed({ toggleReadingMode() }, 300)
+        }
+        if (intent.hasExtra("test_reader_translate")) {
+            val targetLang = intent.getStringExtra("test_reader_translate") ?: "es"
+            webContainer.postDelayed({
+                readerModeManager.translateToLanguage(targetLang)
+            }, 1200)
+        }
+        if (intent.getBooleanExtra("test_reader_revert", false)) {
+            webContainer.postDelayed({
+                readerModeManager.revertTranslation()
+            }, 1200)
+        }
         if (intent.hasExtra("set_dark_mode")) {
             val dark = intent.getBooleanExtra("set_dark_mode", false)
             prefs.edit().putBoolean("is_dark", dark).apply()

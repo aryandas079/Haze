@@ -19,8 +19,14 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.*
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
+import java.util.regex.Pattern
 
 /**
  * Haze Immersive Flow Reader
@@ -47,6 +53,18 @@ class HazeReaderModeManager(
     private var readerDialog: Dialog? = null
     private var activeWebView: WebView? = null
     private var googleTtsEngine: String? = null
+    private var currentTranslateAction: ((String, String) -> Unit)? = null
+    private var currentRevertAction: (() -> Unit)? = null
+
+    fun translateToLanguage(targetCode: String, targetName: String = "") {
+        val lang = HazeTranslationManager.SUPPORTED_LANGUAGES.find { it.second.equals(targetCode, ignoreCase = true) }
+        val name = if (targetName.isNotEmpty()) targetName else (lang?.first ?: targetCode)
+        currentTranslateAction?.invoke(targetCode, name)
+    }
+
+    fun revertTranslation() {
+        currentRevertAction?.invoke()
+    }
 
     // Appearance State (Persisted)
     private var currentThemeIndex: Int
@@ -307,6 +325,13 @@ class HazeReaderModeManager(
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         readerDialog = dialog
 
+        val originalSentences = sentences.toList()
+        var currentDisplayTitle: String? = null
+        var currentDisplayContentHtml: String? = null
+        var currentActiveLangCode: String? = null
+        var currentActiveLangName: String? = null
+        var isTranslating = false
+
         val isDark = prefs.getBoolean("is_dark", false)
         val defaultAccent = Color.parseColor(prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
 
@@ -391,6 +416,34 @@ class HazeReaderModeManager(
         header.addView(btnTranslate)
         header.addView(btnAppearance)
         topContainer.addView(header)
+
+        // Floating In-Reader Translation Progress Bar
+        val translationBar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+            setPadding(dpToPx(16), dpToPx(8), dpToPx(16), dpToPx(8))
+            setBackgroundColor(if (isDark) Color.parseColor("#27292D") else Color.parseColor("#E8F0FE"))
+        }
+
+        val translationSpinner = ProgressBar(activity, null, android.R.attr.progressBarStyleSmall).apply {
+            indeterminateTintList = ColorStateList.valueOf(defaultAccent)
+            layoutParams = LinearLayout.LayoutParams(dpToPx(18), dpToPx(18)).apply {
+                marginEnd = dpToPx(10)
+            }
+        }
+
+        val tvTranslationStatus = TextView(activity).apply {
+            text = "Translating article..."
+            textSize = 12.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(if (isDark) Color.WHITE else Color.parseColor("#174EA6"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        translationBar.addView(translationSpinner)
+        translationBar.addView(tvTranslationStatus)
+        topContainer.addView(translationBar)
 
         // --- 2. Floating Read Aloud Player Bar (Image 4 inspired) ---
         val readAloudBar = LinearLayout(activity).apply {
@@ -627,10 +680,10 @@ class HazeReaderModeManager(
                 </head>
                 <body class="${if (isLineFocusEnabled) "line-focus" else ""}">
                     <div class="article-badge">ARTICLE</div>
-                    <h1>$title</h1>
+                    <h1>${currentDisplayTitle ?: title}</h1>
                     <div class="article-meta">$authorHtml<span>$readTime</span>$wordCountHtml</div>
                     <hr class="divider"/>
-                    <div id="haze-content">$contentHtml</div>
+                    <div id="haze-content">${currentDisplayContentHtml ?: contentHtml}</div>
                     <script>
                         window.onscroll = function() {
                             var totalHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
@@ -660,6 +713,52 @@ class HazeReaderModeManager(
                                 this.classList.add('haze-highlight');
                             });
                         }
+                        window.hazeGetTranslatableItems = function() {
+                            var items = [];
+                            var h1 = document.querySelector('h1');
+                            if (h1 && h1.innerText.trim()) {
+                                items.push({ id: '__title__', text: h1.innerText.trim() });
+                            }
+                            var headings = document.querySelectorAll('h2, h3, h4');
+                            for (var h = 0; h < headings.length; h++) {
+                                var hd = headings[h];
+                                if (!hd.id) hd.id = 'haze-h-' + h;
+                                var ht = hd.innerText.trim();
+                                if (ht) items.push({ id: hd.id, text: ht });
+                            }
+                            var sents = document.querySelectorAll('.haze-sentence');
+                            for (var s = 0; s < sents.length; s++) {
+                                var el = sents[s];
+                                var st = el.innerText.trim();
+                                if (st) items.push({ id: el.id, text: st });
+                            }
+                            var others = document.querySelectorAll('figcaption, th, td, dt, dd');
+                            for (var o = 0; o < others.length; o++) {
+                                var oth = others[o];
+                                if (!oth.querySelector('.haze-sentence')) {
+                                    if (!oth.id) oth.id = 'haze-oth-' + o;
+                                    var ot = oth.innerText.trim();
+                                    if (ot && ot.length > 1) items.push({ id: oth.id, text: ot });
+                                }
+                            }
+                            return JSON.stringify(items);
+                        };
+                        window.hazeApplyTranslations = function(mapOrJson) {
+                            try {
+                                var map = typeof mapOrJson === 'string' ? JSON.parse(mapOrJson) : mapOrJson;
+                                if (map['__title__']) {
+                                    var h1 = document.querySelector('h1');
+                                    if (h1) h1.innerText = map['__title__'];
+                                }
+                                for (var key in map) {
+                                    if (key === '__title__') continue;
+                                    var el = document.getElementById(key);
+                                    if (el) {
+                                        el.innerText = map[key];
+                                    }
+                                }
+                            } catch(e) {}
+                        };
                     </script>
                 </body>
                 </html>
@@ -676,9 +775,10 @@ class HazeReaderModeManager(
 
             header.setBackgroundColor(headerBg)
             tvTitle.setTextColor(headerFg)
+            tvTitle.text = if (currentActiveLangName != null) "Reader Mode • $currentActiveLangName" else "Reader Mode"
             btnClose.setColorFilter(headerFg)
             btnReadAloud.setColorFilter(headerFg)
-            btnTranslate.setColorFilter(headerFg)
+            btnTranslate.setColorFilter(if (currentActiveLangCode != null) Color.parseColor(theme.accent) else headerFg)
             btnAppearance.setColorFilter(headerFg)
 
             val barBg = if (isDarkTheme) Color.parseColor("#27292D") else Color.parseColor(if (theme.name == "Parchment") "#EFE2C6" else "#F1F3F4")
@@ -697,6 +797,16 @@ class HazeReaderModeManager(
             if (index < 0 || index >= sentences.size || tts == null) return
             currentSentenceIndex = index
             val sentence = sentences[index]
+            if (currentActiveLangCode != null) {
+                val targetLocale = Locale.forLanguageTag(currentActiveLangCode!!)
+                val result = tts?.setLanguage(targetLocale)
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    val baseLocale = Locale.forLanguageTag(currentActiveLangCode!!.substringBefore("-"))
+                    tts?.setLanguage(baseLocale)
+                }
+            } else {
+                tts?.setLanguage(Locale.getDefault())
+            }
             tts?.setSpeechRate(ttsSpeed)
             tts?.speak(sentence, TextToSpeech.QUEUE_FLUSH, null, "haze_sent_$index")
             isTtsSpeaking = true
@@ -794,19 +904,147 @@ class HazeReaderModeManager(
             showVoiceSelectionDialog()
         }
 
-        // --- 5. Translate Button ---
+        fun executeRevert() {
+            stopTts()
+            currentActiveLangCode = null
+            currentActiveLangName = null
+            currentDisplayTitle = null
+            currentDisplayContentHtml = null
+            sentences = originalSentences
+            currentSentenceIndex = 0
+            reloadContent()
+            Toast.makeText(activity, "Restored original article", Toast.LENGTH_SHORT).show()
+        }
+
+        fun executeTranslation(targetCode: String, targetName: String) {
+            if (targetCode == currentActiveLangCode) {
+                Toast.makeText(activity, "Already translated to $targetName", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            stopTts()
+            isTranslating = true
+            translationBar.visibility = View.VISIBLE
+            tvTranslationStatus.text = "Translating article into $targetName..."
+
+            webView.evaluateJavascript("window.hazeGetTranslatableItems()") { rawJson ->
+                val cleanJson = if (rawJson != null && rawJson.startsWith("\"") && rawJson.endsWith("\"")) {
+                    try {
+                        org.json.JSONTokener(rawJson).nextValue().toString()
+                    } catch (_: Exception) { rawJson }
+                } else rawJson ?: "[]"
+
+                val itemsToTranslate = mutableListOf<Pair<String, String>>()
+                try {
+                    val jsonArray = JSONArray(cleanJson)
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.optJSONObject(i)
+                        if (obj != null) {
+                            val id = obj.optString("id")
+                            val text = obj.optString("text")
+                            if (id.isNotEmpty() && text.isNotEmpty()) {
+                                itemsToTranslate.add(Pair(id, text))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                if (itemsToTranslate.isEmpty()) {
+                    isTranslating = false
+                    translationBar.visibility = View.GONE
+                    Toast.makeText(activity, "Could not extract article text to translate", Toast.LENGTH_SHORT).show()
+                    return@evaluateJavascript
+                }
+
+                Thread {
+                    val translatedMap = translateBatch(itemsToTranslate, targetCode)
+                    activity.runOnUiThread {
+                        isTranslating = false
+                        translationBar.visibility = View.GONE
+
+                        if (dialog.isShowing) {
+                            currentActiveLangCode = targetCode
+                            currentActiveLangName = targetName
+
+                            // Update TTS sentences
+                            val newSentences = mutableListOf<String>()
+                            for (i in 0 until originalSentences.size) {
+                                val tr = translatedMap["haze-s-$i"]
+                                newSentences.add(if (!tr.isNullOrBlank()) tr else originalSentences[i])
+                            }
+                            sentences = newSentences
+                            currentSentenceIndex = 0
+
+                            // Apply to live DOM
+                            val jsonMap = JSONObject()
+                            for ((k, v) in translatedMap) {
+                                jsonMap.put(k, v)
+                            }
+                            val quotedJson = JSONObject.quote(jsonMap.toString())
+                            webView.evaluateJavascript("window.hazeApplyTranslations($quotedJson);", null)
+
+                            // Update cached display title and content HTML
+                            translatedMap["__title__"]?.let {
+                                currentDisplayTitle = it
+                            }
+                            webView.evaluateJavascript("document.getElementById('haze-content').innerHTML;") { innerHtmlRaw ->
+                                if (innerHtmlRaw != null && innerHtmlRaw != "null") {
+                                    val cleanHtml = if (innerHtmlRaw.startsWith("\"") && innerHtmlRaw.endsWith("\"")) {
+                                        try {
+                                            org.json.JSONTokener(innerHtmlRaw).nextValue().toString()
+                                        } catch (_: Exception) { innerHtmlRaw }
+                                    } else innerHtmlRaw
+                                    currentDisplayContentHtml = cleanHtml
+                                }
+                            }
+
+                            val theme = themes[currentThemeIndex]
+                            tvTitle.text = "Reader Mode • $targetName"
+                            btnTranslate.setColorFilter(Color.parseColor(theme.accent))
+                            Toast.makeText(activity, "Translated to $targetName", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }.start()
+            }
+        }
+
+        currentTranslateAction = { code, name -> executeTranslation(code, name) }
+        currentRevertAction = { executeRevert() }
+        dialog.setOnDismissListener {
+            currentTranslateAction = null
+            currentRevertAction = null
+        }
+
+        // --- 5. In-Reader Translate Button ---
         btnTranslate.setOnClickListener {
             activity.triggerStrongHaptic(it)
-            val names = HazeTranslationManager.SUPPORTED_LANGUAGES.map { it.first }.toTypedArray()
+            if (isTranslating) {
+                Toast.makeText(activity, "Translation is in progress...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val isCurrentlyTranslated = currentActiveLangCode != null
+            val options = mutableListOf<String>()
+            if (isCurrentlyTranslated) {
+                options.add("★ Show Original Article")
+            }
+            for (lang in HazeTranslationManager.SUPPORTED_LANGUAGES) {
+                options.add(lang.first)
+            }
+
             AlertDialog.Builder(activity)
-                .setTitle("Translate Article To")
-                .setItems(names) { _, which ->
-                    val chosen = HazeTranslationManager.SUPPORTED_LANGUAGES[which]
-                    val currentTab = activity.getActiveTab()
-                    if (currentTab != null) {
-                        dialog.dismiss()
-                        HazeTranslationManager.translateTab(activity, currentTab, chosen.second, chosen.third)
+                .setTitle(if (isCurrentlyTranslated) "Translate / Revert" else "Translate Reader To")
+                .setItems(options.toTypedArray()) { _, which ->
+                    if (isCurrentlyTranslated && which == 0) {
+                        executeRevert()
+                        return@setItems
                     }
+
+                    val langIndex = if (isCurrentlyTranslated) which - 1 else which
+                    val chosen = HazeTranslationManager.SUPPORTED_LANGUAGES[langIndex]
+                    executeTranslation(chosen.second, chosen.first)
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -1116,5 +1354,103 @@ class HazeReaderModeManager(
         appearanceDialog.findViewById<TextView>(
             activity.resources.getIdentifier("alertTitle", "id", "android")
         )?.setTextColor(textColor)
+    }
+
+    /**
+     * Translates a list of (id, text) pairs in batches using Google's translate service.
+     * Preserves index markers [[[0]]], [[[1]]], etc. to map translations back to DOM element IDs.
+     */
+    private fun translateBatch(
+        items: List<Pair<String, String>>,
+        targetLang: String
+    ): Map<String, String> {
+        val results = mutableMapOf<String, String>()
+        if (items.isEmpty()) return results
+
+        // Group into chunks of ~30 items or ~2,800 chars to respect request sizes
+        val chunks = mutableListOf<List<Pair<String, String>>>()
+        var currentChunk = mutableListOf<Pair<String, String>>()
+        var currentChunkLen = 0
+
+        for (item in items) {
+            val itemLen = item.second.length + 15
+            if (currentChunk.isNotEmpty() && (currentChunkLen + itemLen > 2800 || currentChunk.size >= 35)) {
+                chunks.add(currentChunk)
+                currentChunk = mutableListOf()
+                currentChunkLen = 0
+            }
+            currentChunk.add(item)
+            currentChunkLen += itemLen
+        }
+        if (currentChunk.isNotEmpty()) {
+            chunks.add(currentChunk)
+        }
+
+        val pattern = Pattern.compile("\\[\\s*\\[\\s*\\[\\s*(\\d+)\\s*\\]\\s*\\]\\s*\\]\\s*(.*?)(?=\\[\\s*\\[\\s*\\[\\s*\\d+\\s*\\]\\s*\\]\\s*\\]|$)", Pattern.DOTALL)
+
+        for (chunk in chunks) {
+            try {
+                val sb = StringBuilder()
+                for (i in chunk.indices) {
+                    sb.append("[[[").append(i).append("]]] ").append(chunk[i].second.trim()).append("\n")
+                }
+
+                val postPayload = "q=" + URLEncoder.encode(sb.toString(), "UTF-8")
+                val url = URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$targetLang&dt=t")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 12000
+                conn.readTimeout = 12000
+                conn.doOutput = true
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+
+                conn.outputStream.use { os ->
+                    os.write(postPayload.toByteArray(Charsets.UTF_8))
+                    os.flush()
+                }
+
+                if (conn.responseCode == 200) {
+                    val resp = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                    val fullText = parseTranslationResponse(resp)
+                    val matcher = pattern.matcher(fullText)
+                    while (matcher.find()) {
+                        val idx = matcher.group(1)?.toIntOrNull() ?: continue
+                        val text = matcher.group(2)?.trim() ?: ""
+                        if (idx in chunk.indices && text.isNotEmpty()) {
+                            results[chunk[idx].first] = text
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Fill in any missed items with original text
+        for (item in items) {
+            if (!results.containsKey(item.first)) {
+                results[item.first] = item.second
+            }
+        }
+
+        return results
+    }
+
+    private fun parseTranslationResponse(responseBody: String): String {
+        return try {
+            val sb = StringBuilder()
+            val outer = JSONArray(responseBody)
+            val segments = outer.getJSONArray(0)
+            for (i in 0 until segments.length()) {
+                val seg = segments.optJSONArray(i)
+                if (seg != null && seg.length() > 0) {
+                    sb.append(seg.optString(0, ""))
+                }
+            }
+            sb.toString()
+        } catch (_: Exception) {
+            responseBody
+        }
     }
 }
