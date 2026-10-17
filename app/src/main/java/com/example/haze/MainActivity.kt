@@ -100,6 +100,9 @@ import java.util.concurrent.Executors
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Base64
+import androidx.core.view.WindowInsetsControllerCompat
+import android.view.animation.AccelerateInterpolator
+import android.provider.Settings
 
 class MainActivity : AppCompatActivity() {
 
@@ -327,6 +330,9 @@ class MainActivity : AppCompatActivity() {
     private var lastVideoHeight = 9
     private var customVideoView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var customEngineCallback: EngineCustomViewCallback? = null
+    private var autoVideoFullscreenActive = false
+    private var currentAppOrientation = Configuration.ORIENTATION_UNDEFINED
     private lateinit var fullscreenVideoContainer: FrameLayout
 
     private var onGoogleSignInSuccess: ((HazeAccountManager.HazeUser) -> Unit)? = null
@@ -1032,6 +1038,7 @@ class MainActivity : AppCompatActivity() {
 
         webContainer = findViewById(R.id.webContainer)
         fullscreenVideoContainer = findViewById(R.id.fullscreenVideoContainer)
+        currentAppOrientation = resources.configuration.orientation
         addressBar = findViewById(R.id.addressBar)
         tabCountBtn = findViewById(R.id.tabCountBtn)
         btnTabsCircular = findViewById(R.id.btnTabsCircular)
@@ -4854,6 +4861,18 @@ class MainActivity : AppCompatActivity() {
                 }
                 return true
             }
+
+            override fun onShowCustomView(view: View, callback: EngineCustomViewCallback) {
+                runOnUiThread {
+                    enterFullscreenCustomView(view, null, callback)
+                }
+            }
+
+            override fun onHideCustomView() {
+                runOnUiThread {
+                    exitFullscreenCustomView()
+                }
+            }
         })
     }
 
@@ -5867,48 +5886,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
-                if (customVideoView != null) {
-                    callback?.onCustomViewHidden()
-                    return
-                }
-                customVideoView = view
-                customViewCallback = callback
-                fullscreenVideoContainer.removeAllViews()
-                if (view != null) {
-                    fullscreenVideoContainer.addView(
-                        view,
-                        FrameLayout.LayoutParams(
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            FrameLayout.LayoutParams.MATCH_PARENT,
-                            Gravity.CENTER
-                        )
-                    )
-                }
-                fullscreenVideoContainer.visibility = View.VISIBLE
-                webContainer.visibility = View.GONE
-                addressBarContainer.visibility = View.GONE
-                if (::topRightActions.isInitialized) {
-                    topRightActions.visibility = View.GONE
-                }
-                if (::topLeftWeather.isInitialized) {
-                    topLeftWeather.visibility = View.GONE
-                }
-                if (::floatingNavContainer.isInitialized) {
-                    floatingNavContainer.visibility = View.GONE
-                }
-                isMediaPlaying = true
+                enterFullscreenCustomView(view, callback)
             }
 
             override fun onHideCustomView() {
-                if (customVideoView == null) return
-                fullscreenVideoContainer.removeAllViews()
-                fullscreenVideoContainer.visibility = View.GONE
-                webContainer.visibility = View.VISIBLE
-                customVideoView = null
-                customViewCallback?.onCustomViewHidden()
-                customViewCallback = null
-                val currentTab = currentTabsList.getOrNull(activeTabIndex)
-                updateChromeVisibility(currentTab?.url)
+                exitFullscreenCustomView()
             }
 
             override fun onReceivedTitle(view: WebView?, title: String?) {
@@ -8802,9 +8784,260 @@ class MainActivity : AppCompatActivity() {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             Toast.makeText(this, "Switched to Landscape", Toast.LENGTH_SHORT).show()
         } else {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             Toast.makeText(this, "Switched to Portrait", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    fun enterFullscreenCustomView(
+        view: View?,
+        callback: WebChromeClient.CustomViewCallback? = null,
+        engineCallback: EngineCustomViewCallback? = null
+    ) {
+        if (view == null) return
+        if (customVideoView != null) {
+            if (customVideoView === view) return
+            fullscreenVideoContainer.removeAllViews()
+            customViewCallback?.onCustomViewHidden()
+            customEngineCallback?.onCustomViewHidden()
+        }
+
+        customVideoView = view
+        customViewCallback = callback
+        customEngineCallback = engineCallback
+        isMediaPlaying = true
+
+        // Immersive full screen: hide status and navigation bars cleanly
+        WindowCompat.getInsetsController(window, window.decorView)?.let { controller ->
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+
+        fullscreenVideoContainer.removeAllViews()
+        fullscreenVideoContainer.addView(
+            view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER
+            )
+        )
+
+        // Hide chrome elements
+        addressBarContainer.visibility = View.GONE
+        if (::topRightActions.isInitialized) topRightActions.visibility = View.GONE
+        if (::topLeftWeather.isInitialized) topLeftWeather.visibility = View.GONE
+        if (::floatingNavContainer.isInitialized) floatingNavContainer.visibility = View.GONE
+
+        // Soft, smooth entrance animation
+        fullscreenVideoContainer.alpha = 0f
+        fullscreenVideoContainer.scaleX = 0.95f
+        fullscreenVideoContainer.scaleY = 0.95f
+        fullscreenVideoContainer.visibility = View.VISIBLE
+        fullscreenVideoContainer.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(280)
+            .setInterpolator(DecelerateInterpolator(1.8f))
+            .start()
+
+        webContainer.animate()
+            .alpha(0f)
+            .setDuration(220)
+            .withEndAction {
+                webContainer.visibility = View.GONE
+                webContainer.alpha = 1f
+            }
+            .start()
+    }
+
+    fun exitFullscreenCustomView() {
+        if (customVideoView == null) return
+
+        // Restore system status and navigation bars
+        WindowCompat.getInsetsController(window, window.decorView)?.show(WindowInsetsCompat.Type.systemBars())
+
+        // Softly fade in the web container
+        webContainer.visibility = View.VISIBLE
+        webContainer.alpha = 0f
+        webContainer.animate()
+            .alpha(1f)
+            .setDuration(260)
+            .setInterpolator(DecelerateInterpolator())
+            .start()
+
+        // Softly fade out and scale down the fullscreen video container
+        fullscreenVideoContainer.animate()
+            .alpha(0f)
+            .scaleX(0.95f)
+            .scaleY(0.95f)
+            .setDuration(220)
+            .setInterpolator(AccelerateInterpolator(1.5f))
+            .withEndAction {
+                fullscreenVideoContainer.removeAllViews()
+                fullscreenVideoContainer.visibility = View.GONE
+                fullscreenVideoContainer.alpha = 1f
+                fullscreenVideoContainer.scaleX = 1f
+                fullscreenVideoContainer.scaleY = 1f
+                customVideoView = null
+                customViewCallback?.onCustomViewHidden()
+                customViewCallback = null
+                customEngineCallback?.onCustomViewHidden()
+                customEngineCallback = null
+                autoVideoFullscreenActive = false
+                val currentTab = currentTabsList.getOrNull(activeTabIndex)
+                updateChromeVisibility(currentTab?.url)
+            }
+            .start()
+    }
+
+    private fun isDeviceAutoRotationEnabled(): Boolean {
+        return try {
+            Settings.System.getInt(contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun triggerVideoFullscreenForRotation() {
+        val tab = getActiveTab() ?: return
+        val webView = tab.browserTab.renderView as? WebView ?: return
+
+        fun executeFsCheck(isRetry: Boolean) {
+            val enterFsJs = """
+                (function() {
+                    try {
+                        var isYouTube = window.location.hostname.includes('youtube.com');
+                        var videos = Array.from(document.querySelectorAll('video'));
+                        
+                        var activeVideo = videos.find(function(v) {
+                            return !v.paused && !v.ended && v.readyState > 1 && v.currentTime > 0;
+                        });
+
+                        if (!activeVideo && isYouTube) {
+                            var mainYt = document.querySelector('.html5-main-video') || document.querySelector('video');
+                            if (mainYt && !mainYt.paused) activeVideo = mainYt;
+                        }
+
+                        if (!activeVideo && videos.length === 1 && !videos[0].paused) {
+                            activeVideo = videos[0];
+                        }
+
+                        if (!activeVideo) {
+                            for (var i = 0; i < videos.length; i++) {
+                                if (!videos[i].paused && videos[i].currentTime > 0) {
+                                    activeVideo = videos[i];
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!activeVideo) return 'NO_VIDEO';
+
+                        if (document.fullscreenElement || document.webkitFullscreenElement) {
+                            return 'ALREADY_FULLSCREEN';
+                        }
+
+                        // YouTube: press 'f' button keyboard shortcut or click fullscreen button
+                        if (isYouTube) {
+                            var fsBtn = document.querySelector('.ytp-fullscreen-button') ||
+                                        document.querySelector('button[data-title-no-tooltip="Full screen"]') ||
+                                        document.querySelector('button[aria-label*="Full screen" i]') ||
+                                        document.querySelector('button[aria-label*="fullscreen" i]');
+                            if (fsBtn && fsBtn.offsetParent !== null) {
+                                fsBtn.click();
+                                return 'FS_CLICK';
+                            }
+                            var keyEvent = new KeyboardEvent('keydown', {
+                                key: 'f',
+                                code: 'KeyF',
+                                keyCode: 70,
+                                which: 70,
+                                bubbles: true,
+                                cancelable: true
+                            });
+                            var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document;
+                            player.dispatchEvent(keyEvent);
+                        }
+
+                        // Standard HTML5 video / player container
+                        var target = activeVideo.closest('.html5-video-player, .video-js, [class*="player"], [id*="player"]') || activeVideo;
+                        if (target.requestFullscreen) {
+                            target.requestFullscreen().catch(function() {
+                                if (activeVideo.webkitEnterFullscreen) activeVideo.webkitEnterFullscreen();
+                                else if (activeVideo.requestFullscreen) activeVideo.requestFullscreen();
+                            });
+                        } else if (target.webkitRequestFullscreen) {
+                            target.webkitRequestFullscreen();
+                        } else if (activeVideo.webkitEnterFullscreen) {
+                            activeVideo.webkitEnterFullscreen();
+                        }
+                        return 'FS_REQUESTED';
+                    } catch (e) {
+                        return 'ERROR:' + e.message;
+                    }
+                })();
+            """.trimIndent()
+
+            webView.evaluateJavascript(enterFsJs) { result ->
+                val res = result?.trim('"', '\'') ?: ""
+                if (res.startsWith("FS_") || res == "ALREADY_FULLSCREEN") {
+                    autoVideoFullscreenActive = true
+                } else if (!isRetry && (isMediaPlaying || res == "NO_VIDEO")) {
+                    webView.postDelayed({
+                        if (currentAppOrientation == Configuration.ORIENTATION_LANDSCAPE && customVideoView == null) {
+                            executeFsCheck(isRetry = true)
+                        }
+                    }, 150)
+                }
+            }
+        }
+
+        executeFsCheck(isRetry = false)
+    }
+
+    private fun exitVideoFullscreenForRotation() {
+        val tab = getActiveTab()
+        val webView = tab?.browserTab?.renderView as? WebView
+
+        val exitFsJs = """
+            (function() {
+                try {
+                    var isYouTube = window.location.hostname.includes('youtube.com');
+                    if (isYouTube) {
+                        var exitBtn = document.querySelector('.ytp-fullscreen-button') ||
+                                      document.querySelector('button[aria-label*="Exit full screen" i]') ||
+                                      document.querySelector('button[title*="Exit full screen" i]');
+                        if (exitBtn && exitBtn.offsetParent !== null) {
+                            exitBtn.click();
+                        }
+                        var keyEvent = new KeyboardEvent('keydown', {
+                            key: 'f',
+                            code: 'KeyF',
+                            keyCode: 70,
+                            which: 70,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document;
+                        player.dispatchEvent(keyEvent);
+                    }
+
+                    if (document.fullscreenElement || document.webkitFullscreenElement) {
+                        if (document.exitFullscreen) document.exitFullscreen().catch(function(){});
+                        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                    }
+                } catch(e) {}
+            })();
+        """.trimIndent()
+
+        webView?.evaluateJavascript(exitFsJs, null)
+
+        if (customVideoView != null) {
+            exitFullscreenCustomView()
+        }
+        autoVideoFullscreenActive = false
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -8820,6 +9053,22 @@ class MainActivity : AppCompatActivity() {
             webView?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
         } else {
             webView?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
+        }
+
+        val prevOrientation = currentAppOrientation
+        val newOrientation = newConfig.orientation
+        currentAppOrientation = newOrientation
+
+        if (prevOrientation != newOrientation) {
+            if (newOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+                if (isDeviceAutoRotationEnabled()) {
+                    triggerVideoFullscreenForRotation()
+                }
+            } else if (newOrientation == Configuration.ORIENTATION_PORTRAIT) {
+                if (customVideoView != null || autoVideoFullscreenActive) {
+                    exitVideoFullscreenForRotation()
+                }
+            }
         }
     }
 
@@ -10272,6 +10521,12 @@ class MainActivity : AppCompatActivity() {
         thumbnailCache.evictAll()
         dbExecutor.shutdownNow()
         miniPlayerManager?.release()
+        if (customVideoView != null) {
+            customViewCallback?.onCustomViewHidden()
+            customEngineCallback?.onCustomViewHidden()
+            fullscreenVideoContainer.removeAllViews()
+            customVideoView = null
+        }
         super.onDestroy()
     }
 
@@ -10286,15 +10541,8 @@ class MainActivity : AppCompatActivity() {
                     HazeDevToolsManager.hideDevTools(this@MainActivity)
                     return
                 }
-                if (customVideoView != null) {
-                    customViewCallback?.onCustomViewHidden()
-                    fullscreenVideoContainer.removeAllViews()
-                    fullscreenVideoContainer.visibility = View.GONE
-                    webContainer.visibility = View.VISIBLE
-                    customVideoView = null
-                    customViewCallback = null
-                    val currentTab = currentTabsList.getOrNull(activeTabIndex)
-                    updateChromeVisibility(currentTab?.url)
+                if (customVideoView != null || autoVideoFullscreenActive) {
+                    exitVideoFullscreenForRotation()
                     return
                 }
                 if (isSearchActive) {
