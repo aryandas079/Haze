@@ -216,6 +216,14 @@ object HazeSecurityManager {
         }
     }
 
+    fun ensureGoogleAutofillActive(activity: Activity) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!isAutofillConfigured(activity)) {
+                requestGooglePasswordManagerIntegration(activity)
+            }
+        }
+    }
+
     fun checkAndPromptGooglePasswordManager(activity: Activity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val prefs = activity.getSharedPreferences("HazeSecurityPrefs", Context.MODE_PRIVATE)
@@ -225,7 +233,7 @@ object HazeSecurityManager {
             prefs.edit().putBoolean("prompted_google_password_manager", true).apply()
             AlertDialog.Builder(activity)
                 .setTitle("Google Password Manager")
-                .setMessage("Choose a password manager to autofill and save logins and passkeys in Haze. Your selected Android credential provider controls this access.")
+                .setMessage("Choose Google Password Manager to autofill and save your passwords and passkeys across websites in Haze.")
                 .setPositiveButton("Enable") { _, _ ->
                     requestGooglePasswordManagerIntegration(activity)
                 }

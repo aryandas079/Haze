@@ -933,6 +933,10 @@ class MainActivity : AppCompatActivity() {
         fun saveCredentialPrompt(site: String, username: String, password: String) {
             runOnUiThread {
                 if (site.isBlank() || password.isBlank() || isPrivateMode) return@runOnUiThread
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val afm = getSystemService(android.view.autofill.AutofillManager::class.java)
+                    afm?.commit()
+                }
                 HazePasswordManager.promptSaveCredential(this@MainActivity, site, username, password)
             }
         }
@@ -940,6 +944,10 @@ class MainActivity : AppCompatActivity() {
         fun saveCardPrompt(cardNumber: String, holderName: String, expMonth: String, expYear: String, nickname: String) {
             runOnUiThread {
                 if (cardNumber.isBlank() || isPrivateMode) return@runOnUiThread
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val afm = getSystemService(android.view.autofill.AutofillManager::class.java)
+                    afm?.commit()
+                }
                 HazePasswordManager.promptSaveCreditCard(this@MainActivity, cardNumber, holderName, expMonth, expYear, nickname)
             }
         }
@@ -947,6 +955,10 @@ class MainActivity : AppCompatActivity() {
         fun saveAddressPrompt(fullName: String, address1: String, address2: String, city: String, state: String, zip: String, country: String, phone: String) {
             runOnUiThread {
                 if (address1.isBlank() || isPrivateMode) return@runOnUiThread
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val afm = getSystemService(android.view.autofill.AutofillManager::class.java)
+                    afm?.commit()
+                }
                 HazePasswordManager.promptSaveAddress(this@MainActivity, fullName, address1, address2, city, state, zip, country, phone)
             }
         }
@@ -955,6 +967,12 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isPrivateMode) return@runOnUiThread
                 val wv = currentTabsList.getOrNull(activeTabIndex)?.webView ?: return@runOnUiThread
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val afm = getSystemService(android.view.autofill.AutofillManager::class.java)
+                    if (afm != null && afm.isAutofillSupported && afm.isEnabled) {
+                        afm.requestAutofill(wv)
+                    }
+                }
                 HazePasswordManager.checkAndPromptAutofill(this@MainActivity, wv, url)
             }
         }
@@ -4831,6 +4849,7 @@ class MainActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             webView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+            webView.defaultFocusHighlightEnabled = false
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -8198,9 +8217,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun openPasswordManager() {
-        HazePasswordManager.show(this) {
-            passwordImportLauncher.launch(arrayOf("text/*", "text/csv", "application/csv"))
+        val user = HazeAccountManager.getUser(this)
+        val targetUrl = if (user != null && user.email.isNotEmpty()) {
+            "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=${Uri.encode("https://passwords.google.com/")}"
+        } else {
+            "https://passwords.google.com/"
         }
+        addNewTab(targetUrl)
+        HazeSecurityManager.ensureGoogleAutofillActive(this)
     }
 
     private fun showStarBookmarkDialog(popupWindow: PopupWindow) {

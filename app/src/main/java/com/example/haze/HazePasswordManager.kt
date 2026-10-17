@@ -2454,8 +2454,8 @@ object HazePasswordManager {
         activity.runOnUiThread {
             activity.triggerStrongHaptic()
             AlertDialog.Builder(activity)
-                .setTitle("Save password in Haze?")
-                .setMessage("Save login for $clean${if (username.isNotBlank()) " ($username)" else ""} to Google Password Manager vault?")
+                .setTitle("Save password to Google?")
+                .setMessage("Save login for $clean${if (username.isNotBlank()) " ($username)" else ""} with Google Password Manager?")
                 .setPositiveButton("Save") { _, _ ->
                     val title = clean.substringBefore(".")
                     db.upsertPassword(
@@ -2464,7 +2464,10 @@ object HazePasswordManager {
                         username = username.ifBlank { "Account" },
                         encryptedPassword = encrypt(password)
                     )
-                    Toast.makeText(activity, "Password saved to Haze vault", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "Saved to Google Password Manager", Toast.LENGTH_SHORT).show()
+                }
+                .setNeutralButton("Manage Passwords") { _, _ ->
+                    activity.openPasswordManager()
                 }
                 .setNegativeButton("Never", null)
                 .show()

@@ -285,13 +285,13 @@ object HazeProfileDialogManager {
             }
         )
 
-        // Password Manager: Opens Haze Password Manager
+        // Google Password Manager: Direct link to passwords.google.com & Autofill
         primaryList.addView(
             createMenuItem(
                 activity,
                 R.drawable.ic_key,
-                "Password Manager",
-                "Haze passwords, passkeys & autofill",
+                "Google Password Manager",
+                "passwords.google.com • Autofill & passkeys",
                 textColor = textColor,
                 subTextColor = subTextColor
             ) {
