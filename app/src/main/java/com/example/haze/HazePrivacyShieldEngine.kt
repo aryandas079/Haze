@@ -342,6 +342,10 @@ object HazePrivacyShieldEngine {
                 val bytes = surrogate.toByteArray(Charsets.UTF_8)
                 WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(bytes))
             }
+            lower.contains("/api/stats/") || lower.contains("/pagead/") || lower.contains("/ptracking") ||
+            lower.contains("/ad_break") || lower.contains("/get_midroll_info") || lower.contains("googlevideo.com") -> {
+                WebResourceResponse("text/plain", "UTF-8", 204, "No Content", headers, ByteArrayInputStream(ByteArray(0)))
+            }
             lower.contains(".css") -> {
                 WebResourceResponse("text/css", "UTF-8", 200, "OK", headers, ByteArrayInputStream(ByteArray(0)))
             }

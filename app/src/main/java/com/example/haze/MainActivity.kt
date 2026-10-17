@@ -4621,6 +4621,10 @@ class MainActivity : AppCompatActivity() {
 
                     if (url != HAZE_HOME_URL && !url.startsWith("haze://")) {
                         showPageLoading(5)
+                        tab.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT, null)
+                        if (url.contains("youtube.com", ignoreCase = true)) {
+                            tab.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT, null)
+                        }
                         val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
                         tab.evaluateJavascript(antiTrackingScript, null)
                         val earlyCss = """
@@ -5007,6 +5011,21 @@ class MainActivity : AppCompatActivity() {
         val isDarkWeb = prefs.getBoolean("is_dark", false) || isPrivateMode
         applyDarkModeToWebView(webView, isDarkWeb)
 
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT,
+                    setOf("https://*.youtube.com", "https://youtube.com", "https://*.youtube-nocookie.com")
+                )
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT,
+                    setOf("*")
+                )
+            }
+        } catch (_: Throwable) {}
+
         webView.addJavascriptInterface(WebAppInterface(webView), "Android")
 
         val jsEnabled = prefs.getBoolean("javascript_enabled", true)
@@ -5287,6 +5306,10 @@ class MainActivity : AppCompatActivity() {
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
                 
                 if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
+                    // Inject AdGuard universal cosmetic & paywall removal shield immediately before any element paints
+                    view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT, null)
+                    injectCosmeticAdBlockers(view, url)
+
                     // Inject Safari-grade fluid engine script immediately
                     view?.evaluateJavascript(HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
 

@@ -90,7 +90,18 @@ object HazeContentFilter {
         "#onetrust-consent-sdk", ".cc-window", "#didomi-host", ".cookie-banner",
         "[id*=\"cookie-notice\"]", ".qc-cmp2-container", "#CybotCookiebotDialog",
         "div[class*=\"adblock-modal\"]", "div[class*=\"sp-message\"]", ".fc-ab-root",
-        "div[id*=\"adblock-overlay\"]", ".adblocker-overlay", "[id*=\"adblock-detector\"]"
+        "div[id*=\"adblock-overlay\"]", ".adblocker-overlay", "[id*=\"adblock-detector\"]",
+        // Paywall, subscriber gate, and content blur overlays (AdGuard style)
+        "[class*=\"paywall\"]", "[id*=\"paywall\"]", "[class*=\"gate-overlay\"]", "[id*=\"gate-overlay\"]",
+        "[class*=\"subscriber-gate\"]", "[class*=\"subscription-barrier\"]", "[class*=\"metered-barrier\"]",
+        "[class*=\"piano-modal\"]", "[class*=\"tinypass\"]", "[id*=\"tinypass\"]",
+        ".paywall-container", "#paywall-container", ".gateway-content", ".subscriber-only",
+        "[class*=\"newsletter-modal\"]", "[class*=\"email-gate\"]", "[class*=\"newsletter-signup-overlay\"]",
+        "[class*=\"newsletter-popup\"]", "[class*=\"subscribe-modal\"]",
+        "div[class*=\"paywall-overlay\"]", "div[id*=\"paywall-overlay\"]",
+        ".tp-modal", ".tp-backdrop", ".cleanslate", "#reg-wall", ".reg-wall",
+        "div[class*=\"wall-content\"]", "div[id*=\"wall-content\"]",
+        ".modal-backdrop", ".overlay-backdrop", ".sp_message_container_root", "[id^=\"sp_message_container\"]"
     )
 
     class Compiled internal constructor(
@@ -168,6 +179,18 @@ object HazeContentFilter {
                     max-height: none !important;
                     max-width: none !important;
                     pointer-events: auto !important;
+                }
+                html, body {
+                    overflow: auto !important;
+                    position: static !important;
+                    max-height: none !important;
+                    filter: none !important;
+                    -webkit-filter: none !important;
+                }
+                article, main, .content, .article-body, .story-body {
+                    filter: none !important;
+                    -webkit-filter: none !important;
+                    user-select: auto !important;
                 }
             """.trimIndent()
             return "$hideRules\n$videoProtectionRule"
