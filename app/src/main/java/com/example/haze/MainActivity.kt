@@ -637,15 +637,15 @@ class MainActivity : AppCompatActivity() {
 
     object DefaultShortcuts {
         val list = listOf(
-            Shortcut("Google", "https://www.google.com", "https://www.google.com/s2/favicons?domain=google.com&sz=128", "M21.35,11.1H12.18V13.83H18.69C18.36,17.64 15.19,19.27 12.19,19.27C8.36,19.27 5,16.25 5,12C5,7.9 8.2,4.73 12.2,4.73C15.29,4.73 17.1,6.7 17.1,6.7L19,4.72C19,4.72 16.56,2 12.1,2C6.42,2 2.03,6.8 2.03,12C2.03,17.05 6.16,22 12.25,22C17.6,22 21.5,18.33 21.5,12.91C21.5,11.76 21.35,11.1 21.35,11.1V11.1Z", "#4285F4"),
-            Shortcut("YouTube", "https://www.youtube.com", "https://www.google.com/s2/favicons?domain=youtube.com&sz=128", "M21.58,7.19C21.35,6.33 20.67,5.65 19.81,5.42C18.25,5 12,5 12,5C12,5 5.75,5 4.19,5.42C3.33,5.65 2.65,6.33 2.42,7.19C2,8.75 2,12 2,12C2,12 2,15.25 2.42,16.81C2.65,17.67 3.33,18.35 4.19,18.58C5.75,19 12,19 12,19C12,19 18.25,19 19.81,18.58C20.67,18.35 21.35,17.67 21.58,16.81C22,15.25 22,12 22,12C22,12 22,8.75 21.58,7.19Z", "#FF0000"),
-            Shortcut("GitHub", "https://github.com", "https://www.google.com/s2/favicons?domain=github.com&sz=128", "M12,2A10,10 0 0,0 8.84,21.5C9.34,21.58 9.5,21.27 9.5,21V19.31C6.73,19.91 6.14,17.97 6.14,17.97C5.68,16.81 5.03,16.5 5.03,16.5C4.12,15.88 5.1,15.9 5.1,15.9C6.1,15.97 6.63,16.93 6.63,16.93C7.5,18.45 8.97,18 9.54,17.76C9.63,17.11 9.89,16.67 10.17,16.42C7.95,16.17 5.62,15.31 5.62,11.5C5.62,10.39 6,9.5 6.65,8.79C6.55,8.54 6.2,7.5 6.75,6.15C6.75,6.15 7.59,5.88 9.5,7.17C10.29,6.95 11.15,6.84 12,6.84C12.85,6.84 13.71,6.95 14.5,7.17C16.41,5.88 17.25,6.15 17.25,6.15C17.8,7.5 17.45,8.54 17.35,8.79C18,9.5 18.38,10.39 18.38,11.5C18.38,15.32 16.04,16.16 13.81,16.41C14.17,16.72 14.5,17.33 14.5,18.26V21C14.5,21.27 14.66,21.59 15.17,21.5A10,10 0 0,0 12,2Z", "#202124"),
-            Shortcut("Notion", "https://www.notion.so", "https://www.google.com/s2/favicons?domain=notion.so&sz=128", "M5,4H19V20H5V4M7,6V18H17V6H7M9,8H15V10H9V8M9,12H15V14H9V12M9,16H13V18H9V16Z", "#202124"),
-            Shortcut("Twitter", "https://twitter.com", "https://www.google.com/s2/favicons?domain=twitter.com&sz=128", "M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z", "#1DA1F2"),
-            Shortcut("Instagram", "https://instagram.com", "https://www.google.com/s2/favicons?domain=instagram.com&sz=128", "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z", "#E1306C"),
-            Shortcut("Reddit", "https://www.reddit.com", "https://www.google.com/s2/favicons?domain=reddit.com&sz=128", "M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.221.685-.356 1.093-.356.999 0 1.81.811 1.81 1.81 0 .633-.323 1.189-.81 1.512.03.208.051.42.051.633 0 4.316-5.013 7.82-11.196 7.82s-11.196-3.504-11.196-7.82c0-.213.02-.425.05-.633-.487-.323-.81-.879-.81-1.512 0-.999.811-1.81 1.81-1.81.408 0 .785.135 1.093.356 1.194-.856 2.85-1.418 4.674-1.488l.8-3.747 2.597.547a1.25 1.25 0 0 1 2.498-.056l.547-2.556a.625.625 0 0 1 .75-.484l3.14.662a1.248 1.248 0 0 1 1.205-.884z", "#FF4500"),
-            Shortcut("Spotify", "https://spotify.com", "https://www.google.com/s2/favicons?domain=spotify.com&sz=128", "M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.778-.179-.899-.599-.12-.42.18-.78.6-.9 4.56-1.02 8.52-.6 11.76 1.44.36.18.48.66.24 1.02zm1.44-3.84c-.301.481-.921.601-1.401.3-3.24-1.98-8.16-2.58-11.94-1.38-.54.18-1.14-.12-1.32-.66-.18-.54.12-1.14.66-1.32 4.38-1.32 9.84-.66 13.68 1.62.48.3.66.96.3 1.44zm.12-4.08C15.24 7.32 8.88 7.08 5.16 8.22c-.66.2-1.38-.16-1.58-.82-.2-.66.16-1.38.82-1.58 4.32-1.32 11.4-1.02 15.66 1.5.6.36.78 1.14.42 1.74-.36.6-1.14.78-1.74.42z", "#1DB954"),
-            Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128", "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm3.3 14.5l-1.8-4.9-1.5 4.9H10l-2.4-7.8h1.8l1.5 5.5 1.6-5.5h1.8l1.6 5.5 1.5-5.5h1.8l-2.4 7.8h-1.9z", "#202124")
+            Shortcut("Google", "https://www.google.com", "https://www.google.com/s2/favicons?domain=google.com&sz=128"),
+            Shortcut("YouTube", "https://www.youtube.com", "https://www.google.com/s2/favicons?domain=youtube.com&sz=128"),
+            Shortcut("GitHub", "https://github.com", "https://www.google.com/s2/favicons?domain=github.com&sz=128"),
+            Shortcut("Twitter", "https://twitter.com", "https://www.google.com/s2/favicons?domain=twitter.com&sz=128"),
+            Shortcut("Instagram", "https://instagram.com", "https://www.google.com/s2/favicons?domain=instagram.com&sz=128"),
+            Shortcut("Reddit", "https://www.reddit.com", "https://www.google.com/s2/favicons?domain=reddit.com&sz=128"),
+            Shortcut("Spotify", "https://spotify.com", "https://www.google.com/s2/favicons?domain=spotify.com&sz=128"),
+            Shortcut("Amazon", "https://www.amazon.com", "https://www.google.com/s2/favicons?domain=amazon.com&sz=128"),
+            Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128")
         )
     }
 
@@ -2716,6 +2716,10 @@ class MainActivity : AppCompatActivity() {
             saveCustomShortcuts(defaultShortcuts)
             changed = true
         }
+        if (intent.hasExtra("test_show_remove_shortcut_dialog")) {
+            val idx = intent.getIntExtra("test_show_remove_shortcut_dialog", 0)
+            webContainer.postDelayed({ showRemoveShortcutDialog(idx) }, 300)
+        }
         val removeIndex = intent.getIntExtra("test_remove_shortcut", -1)
         if (removeIndex != -1) {
             val list = getCustomShortcuts().toMutableList()
@@ -3105,6 +3109,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }, 200)
         }
+        if (intent.hasExtra("test_show_remove_shortcut_dialog")) {
+            val idx = intent.getIntExtra("test_show_remove_shortcut_dialog", 0)
+            webContainer.postDelayed({ showRemoveShortcutDialog(idx) }, 300)
+        }
         if (intent.hasExtra("test_remove_shortcut")) {
             val idx = intent.getIntExtra("test_remove_shortcut", 0)
             webContainer.postDelayed({ showRemoveShortcutDialog(idx) }, 300)
@@ -3237,9 +3245,10 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
     }
 
-    fun isHomeTab(tab: Tab): Boolean {
+    fun isHomeTab(tab: Tab?): Boolean {
+        if (tab == null) return true
         val u = tab.url.trim()
-        return u == HAZE_HOME_URL || u == "$HAZE_HOME_URL/" || u.startsWith("haze://home") || u == "about:blank" || u.startsWith("about:") || u.isEmpty()
+        return u == HAZE_HOME_URL || u == "$HAZE_HOME_URL/" || u.startsWith("haze://home") || u == "about:blank" || u.startsWith("about:") || u.isEmpty() || u.startsWith("https://haze.local") || u.startsWith("data:")
     }
 
     private fun reloadHomeTabs() {
@@ -3362,6 +3371,100 @@ class MainActivity : AppCompatActivity() {
         }.takeIf { it.isNotEmpty() }
     }
 
+    private fun getShortcutIconContent(s: Shortcut, isDark: Boolean, accentColor: String): String {
+        val host = try {
+            Uri.parse(s.url).host?.lowercase()?.removePrefix("www.") ?: ""
+        } catch (_: Exception) { "" }
+        val n = s.name.lowercase().trim()
+
+        return when {
+            host.contains("google.") || n == "google" || n.startsWith("google ") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.28-2.1 3.66-5.2 3.66-9.12z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.41 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.25C.45 8.16 0 9.98 0 12c0 2.02.45 3.84 1.25 5.43l4.03-3.14z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.59 1.25 6.57l4.03 3.14c.95-2.83 3.6-4.96 6.72-4.96z"/></svg>"""
+
+            host.contains("youtube.") || host.contains("youtu.be") || n.contains("youtube") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"/><polygon fill="#FFFFFF" points="9.545,15.568 15.818,12 9.545,8.432"/></svg>"""
+
+            host.contains("instagram.") || n.contains("instagram") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><defs><radialGradient id="hazeIgGrad" cx="20%" cy="110%" r="130%"><stop offset="0%" stop-color="#FFD600"/><stop offset="20%" stop-color="#FF7A00"/><stop offset="50%" stop-color="#FF0069"/><stop offset="70%" stop-color="#D300C5"/><stop offset="100%" stop-color="#7638FA"/></radialGradient></defs><rect x="0" y="0" width="24" height="24" rx="6.5" fill="url(#hazeIgGrad)"/><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><circle cx="17" cy="7" r="1.1" fill="#FFFFFF"/></svg>"""
+
+            host.contains("reddit.") || n.contains("reddit") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#FF4500"/><path fill="#FFFFFF" d="M12 3.8a.9.9 0 0 1 .88 1.09l1.86.39a3.73 3.73 0 0 1 3.53-1.05 1.4 1.4 0 1 1 1.18 2.14c-.03.24-.06.48-.09.72 1.3 1.23 2.07 2.87 2.07 4.61 0 3.9-4.43 7.05-9.87 7.05S1.7 15.7 1.7 11.8c0-1.74.77-3.38 2.07-4.61a4.8 4.8 0 0 1-.09-.72 1.4 1.4 0 1 1 2.29-1.1c1.18.06 2.28.54 3.1 1.33l1.25-.26a.9.9 0 0 1 .88-1.09l.8.2zM8.78 12.6a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm6.44 0a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8zm-5.92 2.54c.76.63 1.76 1 2.7 1s1.94-.37 2.7-1a.5.5 0 0 0-.64-.76c-.57.47-1.34.76-2.06.76s-1.49-.29-2.06-.76a.5.5 0 0 0-.64.76z"/><circle cx="8.78" cy="11.2" r="0.9" fill="#FF4500"/><circle cx="15.22" cy="11.2" r="0.9" fill="#FF4500"/></svg>"""
+
+            host.contains("spotify.") || n.contains("spotify") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#1DB954"/><path fill="#121212" d="M17.5 17.08c-.22.36-.68.48-1.04.26-2.85-1.74-6.44-2.14-10.67-1.17-.41.09-.83-.16-.92-.58-.09-.41.16-.83.58-.92 4.63-1.06 8.62-.61 11.79 1.33.36.22.48.68.26 1.08zm1.4-3.71c-.28.45-.88.6-1.33.32-3.26-2-8.23-2.58-12.08-1.42-.51.15-1.06-.14-1.21-.65-.15-.51.14-1.06.65-1.21 4.41-1.34 9.89-.69 13.65 1.63.45.28.6.88.32 1.33zm.13-3.85c-3.9-2.32-10.35-2.53-14.1-1.39-.6.18-1.24-.16-1.42-.76-.18-.6.16-1.24.76-1.42 4.31-1.31 11.44-1.06 15.93 1.61.54.32.72 1.02.4 1.56-.32.54-1.02.72-1.57.4z"/></svg>"""
+
+            host.contains("amazon.") || n.contains("amazon") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#232F3E"/><path fill="#FFFFFF" d="M11.66 13.06c-1.14 0-1.89-.17-2.27-.52-.37-.34-.44-.89-.44-1.63 0-.68.12-1.27.37-1.75.25-.49.63-.84 1.14-1.05.51-.21 1.15-.32 1.93-.32.61 0 1.13.06 1.57.18.43.12.78.27 1.05.45v2.33c0 .73-.24 1.3-.72 1.69-.49.4-1.37.62-2.63.62zm1.2-6.52c-.75 0-1.44.09-2.09.28-.65.19-1.21.49-1.68.9-.47.42-.8.95-1 1.6l1.7.23c.12-.41.34-.73.66-.96.32-.23.75-.35 1.28-.35.8 0 1.38.23 1.73.68.35.45.52 1.15.52 2.1v.22c-.44-.13-.91-.23-1.4-.31-.49-.07-1.04-.11-1.64-.11-1.23 0-2.23.28-2.98.85-.75.57-1.13 1.38-1.13 2.44 0 .97.35 1.74 1.05 2.31.7.57 1.63.85 2.8.85 1.05 0 1.92-.3 2.62-.91v.76h1.83V9.65c0-1.33-.36-2.28-1.07-2.85-.71-.57-1.78-.86-3.19-.86z"/><path fill="#FF9900" d="M19.7 18.05c-3.16 2.32-7.73 2.7-11.83 1.12-2.45-.94-4.52-2.5-5.91-4.47-.13-.19.01-.4.21-.29 3.96 2.17 8.68 2.68 13.08.82.72-.3 1.48-.1 1.65.34.11.28-.2.62-.2.62s1.42-.16 2.22-.92c.16-.16.35-.04.26.17-.46 1.05-1.57 2.05-1.68 2.53z"/><path fill="#FF9900" d="M20.5 16.5c-.32.41-1.07.6-1.58.64-.15.01-.22-.12-.08-.22.8-.57 1.58-1.48 1.58-1.48s.5 1.22 1.37 1.83c.17.12.06.27-.12.23-.55-.13-1.17-.49-1.17-.49v-.51z"/></svg>"""
+
+            host.contains("github.") || n.contains("github") -> {
+                val ghBg = if (isDark) "#333333" else "#24292F"
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="$ghBg"/><path fill="#FFFFFF" d="M12 3a9 9 0 0 0-2.85 17.54c.45.08.62-.2.62-.43v-1.52c-2.5.54-3.03-1.2-3.03-1.2-.41-1.04-1-1.32-1-1.32-.82-.56.06-.55.06-.55.9.06 1.38.93 1.38.93.8 1.37 2.1 1 2.62.75.08-.58.31-.98.57-1.2-2-.23-4.1-1-4.1-4.45 0-.98.35-1.79.93-2.42-.1-.23-.4-1.15.1-2.39 0 0 .76-.24 2.5.93a8.67 8.67 0 0 1 4.54 0c1.73-1.17 2.48-.93 2.48-.93.5 1.24.2 2.16.1 2.39.58.63.92 1.44.92 2.42 0 3.47-2.11 4.22-4.12 4.44.32.28.61.83.61 1.67V20.1c0 .24.16.52.62.43A9 9 0 0 0 12 3z"/></svg>"""
+            }
+
+            host.contains("twitter.") || host.contains("x.com") || n == "x" || n.contains("twitter") -> {
+                if (n.contains("twitter") && !n.contains("x")) {
+                    """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#1DA1F2"/><path fill="#FFFFFF" d="M19.5 7.55a6.4 6.4 0 0 1-1.83.5 3.2 3.2 0 0 0 1.4-1.76 6.38 6.38 0 0 1-2.02.77 3.19 3.19 0 0 0-5.43 2.9A9.05 9.05 0 0 1 5 6.64a3.19 3.19 0 0 0 .99 4.25 3.17 3.17 0 0 1-1.44-.4v.04a3.19 3.19 0 0 0 2.56 3.13 3.22 3.22 0 0 1-1.44.05 3.19 3.19 0 0 0 2.98 2.22 6.4 6.4 0 0 1-3.96 1.37c-.26 0-.51-.02-.76-.04a9.03 9.03 0 0 0 4.89 1.43c5.87 0 9.08-4.86 9.08-9.08v-.41a6.5 6.5 0 0 0 1.59-1.65z"/></svg>"""
+                } else {
+                    val xBg = if (isDark) "#2F3438" else "#000000"
+                    """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="$xBg"/><path fill="#FFFFFF" d="M17.53 4h2.51l-5.48 6.27L21 20h-5.05l-3.96-5.17L7.46 20H4.95l5.86-6.7L4.5 4h5.18l3.58 4.73L17.53 4zm-.88 14.5h1.39L8.41 5.4H6.92l9.73 13.1z"/></svg>"""
+                }
+            }
+
+            host.contains("wikipedia.") || n.contains("wikipedia") -> {
+                val wpBg = if (isDark) "#2D3035" else "#EAECF0"
+                val wpFill = if (isDark) "#FFFFFF" else "#202124"
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="$wpBg"/><path fill="$wpFill" d="M15.4 17.5l-1.9-5.3-1.6 5.3h-1.9l-2.6-8.5h1.9l1.6 5.9 1.7-5.9h1.9l1.7 5.9 1.6-5.9h1.9l-2.6 8.5h-2.3z"/></svg>"""
+            }
+
+            host.contains("notion.") || n.contains("notion") -> {
+                val notionBg = if (isDark) "#2F3438" else "#000000"
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="5.5" fill="$notionBg"/><path fill="#FFFFFF" d="M6.4 4.5l9.2-.6c.7-.05 1.1.2 1.4.7l2.2 2.9c.2.3.3.6.3 1v10.3c0 .8-.6 1.4-1.4 1.4H8.7c-.8 0-1.4-.6-1.4-1.4v-13c0-.6.3-1 .8-1.2l-1.7-.1zm3.8 3.8v7.8c0 .4.3.7.7.7h.8l4.4-6.3v5.6h-1.1c-.4 0-.7.3-.7.7s.3.7.7.7h3.3c.4 0 .7-.3.7-.7s-.3-.7-.7-.7h-.7V9.3c0-.4-.3-.7-.7-.7h-.9l-4.4 6.3V9.3h1.1c.4 0 .7-.3.7-.7s-.3-.7-.7-.7H10.2c-.4 0-.7.3-.7.7s.3.7.7.7z"/></svg>"""
+            }
+
+            host.contains("netflix.") || n.contains("netflix") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#000000"/><path fill="#E50914" d="M6 3.5h3.2v17H6zm8.8 0H18v17h-3.2z"/><path fill="#B81D24" d="M6 3.5l11.6 16.7h.4V3.5h-3.2v11.8L7.6 3.5z"/></svg>"""
+
+            host.contains("facebook.") || n.contains("facebook") || n == "fb" ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#1877F2"/><path fill="#FFFFFF" d="M14.5 12.5h-2v7h-3v-7h-1.5v-2.5h1.5v-1.6c0-2.1 1.3-3.4 3.3-3.4 1 0 1.8.1 2 .1v2.3h-1.4c-1 0-1.3.5-1.3 1.3v1.3h2.6l-.2 2.5z"/></svg>"""
+
+            host.contains("linkedin.") || n.contains("linkedin") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="5.5" fill="#0A66C2"/><path fill="#FFFFFF" d="M5.5 8.5h3v10.5h-3zm1.5-5a1.75 1.75 0 1 1 0 3.5 1.75 1.75 0 0 1 0-3.5zm4 5h2.9v1.4h.1c.4-.8 1.4-1.6 3-1.6 3.2 0 3.8 2.1 3.8 4.8v5.9h-3v-5.2c0-1.2 0-2.8-1.7-2.8s-2 1.3-2 2.7v5.3h-3.1z"/></svg>"""
+
+            host.contains("discord.") || n.contains("discord") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#5865F2"/><path fill="#FFFFFF" d="M18.8 6.5A13.8 13.8 0 0 0 15.4 5.3a.1.1 0 0 0-.1.05c-.15.28-.32.65-.44.93a12.8 12.8 0 0 0-5.7 0 9 9 0 0 0-.45-.93.1.1 0 0 0-.1-.05 13.7 13.7 0 0 0-3.4 1.2.1.1 0 0 0-.05.04C3.2 9.4 2.7 12.2 2.9 15a.1.1 0 0 0 .04.08 13.9 13.9 0 0 0 4.2 2.1.1.1 0 0 0 .1-.04c.32-.44.6-.9.84-1.4a.1.1 0 0 0-.06-.13 9.1 9.1 0 0 1-1.3-.62.1.1 0 0 1 0-.17c.1-.07.18-.15.27-.22a.1.1 0 0 1 .1 0 9.8 9.8 0 0 0 8.6 0 .1.1 0 0 1 .1 0c.1.07.18.15.27.22a.1.1 0 0 1 0 .17 9.1 9.1 0 0 1-1.3.62.1.1 0 0 0-.06.13c.24.5.52.95.84 1.4a.1.1 0 0 0 .1.04 13.9 13.9 0 0 0 4.2-2.1.1.1 0 0 0 .04-.08c.3-3.2-.5-6-2.3-8.5a.1.1 0 0 0-.05-.04zM8.5 13.3c-.8 0-1.5-.7-1.5-1.6s.6-1.6 1.5-1.6c.8 0 1.5.7 1.5 1.6s-.6 1.6-1.5 1.6zm6.9 0c-.8 0-1.5-.7-1.5-1.6s.6-1.6 1.5-1.6c.8 0 1.5.7 1.5 1.6s-.7 1.6-1.5 1.6z"/></svg>"""
+
+            host.contains("pinterest.") || n.contains("pinterest") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#E60023"/><path fill="#FFFFFF" d="M12 4.5a7.5 7.5 0 0 0-2.8 14.5c.1-.6.3-1.6.4-2.3l.9-3.7s-.2-.4-.2-1.1c0-1.1.6-1.9 1.4-1.9.7 0 1 .5 1 1.1 0 .7-.4 1.7-.7 2.6-.2.8.4 1.5 1.2 1.5 1.5 0 2.6-1.6 2.6-3.8 0-2-1.4-3.4-3.5-3.4-2.4 0-3.8 1.8-3.8 3.7 0 .7.3 1.5.6 1.9.1.1.1.2 0 .4l-.2.9c0 .2-.2.3-.4.2-1.3-.6-2.1-2.5-2.1-4 0-3.3 2.4-6.3 6.9-6.3 3.6 0 6.5 2.6 6.5 6.1 0 3.6-2.3 6.6-5.4 6.6-1.1 0-2-.6-2.4-1.3l-.6 2.5c-.2.9-.8 2-1.2 2.7a7.5 7.5 0 1 0 8.8-9.8z"/></svg>"""
+
+            host.contains("twitch.") || n.contains("twitch") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#9146FF"/><path fill="#FFFFFF" d="M5.5 4L4 7.5v12h4v2.5h2.5L13 19.5h3L20 15.5V4H5.5zm13 10.5l-2.5 2.5h-3.5l-2 2v-2h-3v-11h11v8.5zm-6-5.5h2v5h-2zm-4 0h2v5H8.5z"/></svg>"""
+
+            host.contains("tiktok.") || n.contains("tiktok") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><rect width="24" height="24" rx="6" fill="#000000"/><path fill="#00F2FE" d="M15.5 5.5v2.8a4.9 4.9 0 0 1 3.2 1.2v2.4a7.2 7.2 0 0 2-3.2-.8v5.5a4.8 4.8 0 1 1-4.8-4.8c.4 0 .7 0 1.1.1v2.5a2.4 2.4 0 1 0 1.3 2.2V3.5h2.4a4.8 4.8 0 0 0 0 2z"/><path fill="#FE2C55" d="M14.7 6.2v2.8a4.9 4.9 0 0 1 3.2 1.2v2.4a7.2 7.2 0 0 2-3.2-.8v5.5a4.8 4.8 0 1 1-4.8-4.8c.4 0 .7 0 1.1.1v2.5a2.4 2.4 0 1 0 1.3 2.2V4.2h2.4a4.8 4.8 0 0 0 0 2z"/><path fill="#FFFFFF" d="M15.1 5.8v2.8a4.9 4.9 0 0 1 3.2 1.2v2.4a7.2 7.2 0 0 2-3.2-.8v5.5a4.8 4.8 0 1 1-4.8-4.8c.4 0 .7 0 1.1.1v2.5a2.4 2.4 0 1 0 1.3 2.2V3.8h2.4a4.8 4.8 0 0 0 0 2z"/></svg>"""
+
+            host.contains("telegram.") || host.contains("t.me") || n.contains("telegram") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path fill="#FFFFFF" d="M17.8 7.2l-2.4 11.2c-.2.8-.7 1-1.3.6l-3.6-2.7-1.7 1.7c-.2.2-.4.4-.8.4l.3-3.6 6.6-6c.3-.3-.1-.4-.4-.2l-8.1 5.1-3.5-1.1c-.8-.2-.8-.8.2-1.1l13.6-5.2c.6-.2 1.2.2 1 1z"/></svg>"""
+
+            host.contains("whatsapp.") || n.contains("whatsapp") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#25D366"/><path fill="#FFFFFF" d="M16.8 14.3c-.2-.1-1.4-.7-1.6-.8-.2-.1-.4-.1-.5.1-.2.2-.6.8-.8 1-.1.1-.3.2-.5.1s-.9-.3-1.8-1.1c-.7-.6-1.1-1.3-1.3-1.6-.1-.2 0-.4.1-.5.1-.1.2-.2.3-.4.1-.1.1-.2.2-.3 0-.1 0-.3-.1-.4s-.5-1.3-.7-1.8c-.2-.5-.4-.4-.5-.4h-.5c-.2 0-.5.1-.7.3-.2.2-.8.8-.8 2 0 1.1.8 2.2 1 2.3.1.2 1.7 2.6 4.1 3.6.6.2 1 .4 1.4.5.6.2 1.1.2 1.5.1.5-.1 1.4-.6 1.6-1.1.2-.6.2-1.1.1-1.2 0-.1-.2-.2-.4-.3z"/><path fill="none" stroke="#FFFFFF" stroke-width="1.2" d="M12 4.5A7.5 7.5 0 0 0 5.5 15.5L4.5 19.5l4.2-1.1A7.5 7.5 0 1 0 12 4.5z"/></svg>"""
+
+            host.contains("chatgpt.") || host.contains("openai.") || n.contains("chatgpt") || n.contains("openai") ->
+                """<svg viewBox="0 0 24 24" style="width:30px; height:30px; display:block;"><circle cx="12" cy="12" r="12" fill="#10A37F"/><path fill="#FFFFFF" d="M19.3 9.9a4.8 4.8 0 0 0-.4-3.8 4.9 4.9 0 0 0-4.6-2.4 4.8 4.8 0 0 0-3.6-1.6 4.9 4.9 0 0 0-4.6 3.4 4.8 4.8 0 0 0-3.3 2.4 4.9 4.9 0 0 0 .6 5.2 4.8 4.8 0 0 0 .4 3.8 4.9 4.9 0 0 0 4.6 2.4 4.8 4.8 0 0 0 3.6 1.6 4.9 4.9 0 0 0 4.6-3.4 4.8 4.8 0 0 0 3.3-2.4 4.9 4.9 0 0 0-.6-5.2zm-6.8 9.9a3.7 3.7 0 0 1-2.4-.9l1.2-2.1a2.6 2.6 0 0 0 2.8.5l-.5 2.3a3.6 3.6 0 0 1-1.1.2zm-4.7-2.1a3.7 3.7 0 0 1-1.2-2.3l2.2-.9c.4.6 1 1 1.7 1.1l-1.3 2a3.7 3.7 0 0 1-1.4.1zm-2.4-5.3a3.7 3.7 0 0 1 1.2-2.3l1.3 2c-.3.7-.3 1.5 0 2.2l-2.2.9a3.7 3.7 0 0 1-.3-2.8zm8.6-4.2l-1.2 2.1a2.6 2.6 0 0 0-2.8-.5l.5-2.3a3.7 3.7 0 0 1 3.5.7zm-2.5 4.3l-1.5-.9 1.5-.9 1.5.9-1.5.9zm4.7 2.1a3.7 3.7 0 0 1 1.2 2.3l-2.2.9a2.6 2.6 0 0 0-1.7-1.1l1.3-2a3.7 3.7 0 0 1 1.4-.1zm2.4 5.3a3.7 3.7 0 0 1-1.2 2.3l-1.3-2c.3-.7.3-1.5 0-2.2l2.2-.9c.2.9.3 1.9.3 2.8z"/></svg>"""
+
+            s.svgPath.isNotEmpty() -> {
+                val effectiveFill = if (isDark && (s.fillColor == "#202124" || s.fillColor == "#000000" || s.fillColor.isEmpty())) "#FFFFFF" else s.fillColor.ifEmpty { accentColor }
+                """<svg viewBox="0 0 24 24" style="fill: $effectiveFill; width:30px; height:30px; display:block;"><path d="${s.svgPath}"/></svg>"""
+            }
+
+            else -> {
+                val initial = s.name.firstOrNull()?.uppercaseChar() ?: host.firstOrNull()?.uppercaseChar() ?: "S"
+                val faviconUrl = if (host.isNotEmpty()) "https://icons.duckduckgo.com/ip3/$host.ico" else s.iconUrl
+                val fallbackFavicon = if (host.isNotEmpty()) "https://www.google.com/s2/favicons?domain=$host&sz=128" else ""
+                """<img src="$faviconUrl" style="width:28px; height:28px; border-radius: 6px; object-fit: contain; display:block;" onerror="if ('$fallbackFavicon' && this.src !== '$fallbackFavicon') { this.src = '$fallbackFavicon'; } else { this.style.display='none'; this.nextElementSibling.style.display='flex'; }" /><div style="display:none; width:30px; height:30px; border-radius: 8px; background: $accentColor; color: #FFFFFF; align-items:center; justify-content:center; font-size: 14px; font-weight: 700; text-transform: uppercase;">$initial</div>"""
+            }
+        }
+    }
+
     private fun getHazeHomeHtml(): String {
         val isDarkSetting = prefs.getBoolean("is_dark", false)
         val isIncognito = isPrivateMode
@@ -3384,50 +3487,7 @@ class MainActivity : AppCompatActivity() {
         val displayShortcutsHtml = StringBuilder()
         for (i in activeShortcuts.indices) {
             val s = activeShortcuts[i]
-            val iconContent = when {
-                s.name.equals("Google", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/></svg>"""
-
-                s.name.equals("YouTube", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#FF0000" d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77C22 15.25 22 12 22 12s0-3.25-.42-4.81z"/><polygon fill="#FFFFFF" points="10,15 15.5,12 10,9"/></svg>"""
-
-                s.name.equals("Reddit", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="#FF4500"/><path fill="#FFFFFF" d="M12 7.2a1 1 0 0 1 .98 1.22l1.54.33a2.96 2.96 0 0 1 2.81-.84 1.12 1.12 0 1 1 .94 1.7c-.02.19-.05.38-.07.57 1.04.98 1.65 2.28 1.65 3.67 0 3.1-3.52 5.6-7.85 5.6S4.15 16.95 4.15 13.85c0-1.39.61-2.69 1.65-3.67a3.84 3.84 0 0 1-.07-.57 1.12 1.12 0 1 1 1.82-.88c.94.05 1.81.43 2.47 1.06l.99-.21A1 1 0 0 1 12 7.2z"/><circle cx="9.44" cy="14.48" r="1.12" fill="#FF4500"/><circle cx="14.56" cy="14.48" r="1.12" fill="#FF4500"/><path d="M9.8 16.5c.6.5 1.4.8 2.2.8s1.6-.3 2.2-.8" fill="none" stroke="#FF4500" stroke-width="0.8" stroke-linecap="round"/></svg>"""
-
-                s.name.equals("Instagram", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><defs><radialGradient id="igG" r="150%" cx="30%" cy="107%"><stop stop-color="#fdf497" offset="0%"/><stop stop-color="#fdf497" offset="5%"/><stop stop-color="#fd5949" offset="45%"/><stop stop-color="#d6249f" offset="60%"/><stop stop-color="#285AEB" offset="90%"/></radialGradient></defs><rect x="2" y="2" width="20" height="20" rx="5.5" fill="none" stroke="url(#igG)" stroke-width="2"/><circle cx="12" cy="12" r="4.2" fill="none" stroke="url(#igG)" stroke-width="2"/><circle cx="17.2" cy="6.8" r="1.2" fill="url(#igG)"/></svg>"""
-
-                s.name.equals("Spotify", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="#1DB954"/><path fill="#121212" d="M16.85 16.85c-.19.31-.58.4-.89.21-2.43-1.48-5.5-1.82-9.11-.99-.36.08-.71-.14-.79-.5-.08-.36.14-.71.5-.79 3.96-.9 7.37-.52 10.08 1.18.31.19.4.58.21.89zm1.21-3.17c-.24.39-.75.51-1.14.27-2.78-1.71-7.02-2.21-10.31-1.21-.44.13-.91-.12-1.04-.56-.13-.44.12-.91.56-1.04 3.76-1.14 8.44-.58 11.66 1.4.39.24.51.75.27 1.14zm.11-3.29c-3.33-1.98-8.84-2.16-12.04-1.19-.51.15-1.05-.14-1.2-.65-.15-.51.14-1.05.65-1.2 3.68-1.12 9.76-.9 13.59 1.38.46.27.61.87.34 1.33-.27.45-.88.6-1.34.33z"/></svg>"""
-
-                s.name.equals("Twitter", ignoreCase = true) || s.name.equals("X", ignoreCase = true) ->
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><path fill="#1DA1F2" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>"""
-
-                s.name.equals("GitHub", ignoreCase = true) -> {
-                    val ghColor = if (isDark) "#FFFFFF" else "#24292F"
-                    """<svg viewBox="0 0 24 24" style="fill: $ghColor; width:26px; height:26px;"><path d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5A10 10 0 0 0 12 2z"/></svg>"""
-                }
-
-                s.name.equals("Wikipedia", ignoreCase = true) -> {
-                    val wpBg = if (isDark) "#333333" else "#F0F0F0"
-                    val wpFill = if (isDark) "#FFFFFF" else "#202124"
-                    """<svg viewBox="0 0 24 24" style="width:26px; height:26px;"><circle cx="12" cy="12" r="12" fill="$wpBg"/><path fill="$wpFill" d="M15.3 16.5l-1.8-4.9-1.5 4.9H10l-2.4-7.8h1.8l1.5 5.5 1.6-5.5h1.8l1.6 5.5 1.5-5.5h1.8l-2.4 7.8h-1.9z"/></svg>"""
-                }
-
-                s.name.equals("Notion", ignoreCase = true) -> {
-                    val notionFill = if (isDark) "#FFFFFF" else "#000000"
-                    """<svg viewBox="0 0 24 24" style="fill: $notionFill; width:26px; height:26px;"><path d="M4.459 4.208c.746.606 1.026.56 2.428.466l13.215-.793c.28 0 .047-.28-.093-.373L18.3 2.296a2.12 2.12 0 0 0-1.493-.606L3.992 2.482c-.373 0-.466.233-.326.42zm.84 3.733v12.413c0 .84.42 1.166 1.26 1.12l14.195-.84c.84-.047.933-.653.933-1.213V7.054c0-.606-.327-.933-.933-.886L5.886 7.007c-.467.047-.587.327-.587.934zm13.121 1.12c.094.42 0 .84-.42.887l-.84.14v7.746c-.466.28-.933.466-1.353.466-.653 0-.98-.28-1.54-.933l-4.293-6.673v6.766l1.307.28c.093.42 0 .84-.42.886l-3.36.187c-.093-.42 0-.84.42-.887l.98-.233V10.22l-1.213-.14c-.094-.42 0-.84.42-.887l3.453-.233 4.433 6.813V9.52l-1.12-.14c-.093-.42 0-.84.42-.887z"/></svg>"""
-                }
-
-                s.svgPath.isNotEmpty() -> {
-                    val effectiveFill = if (isDark && (s.fillColor == "#202124" || s.fillColor == "#000000" || s.fillColor.isEmpty())) "#FFFFFF" else s.fillColor.ifEmpty { accentColor }
-                    """<svg viewBox="0 0 24 24" style="fill: $effectiveFill; width:26px; height:26px;"><path d="${s.svgPath}"/></svg>"""
-                }
-                s.iconUrl.isNotEmpty() ->
-                    """<img src="${s.iconUrl}" style="width:28px; height:28px; border-radius: 6px; object-fit: contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><div style="display:none; width:28px; height:28px; align-items:center; justify-content:center; font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
-                else ->
-                    """<div style="font-size: 15px; font-weight: 600; color: $accentColor;">${s.name.firstOrNull()?.uppercaseChar() ?: "S"}</div>"""
-            }
+            val iconContent = getShortcutIconContent(s, isDark, accentColor)
             displayShortcutsHtml.append("""
                 <div class="shortcut" 
                      ontouchstart="onShortcutTouchStart($i, this, event)"
@@ -3438,7 +3498,7 @@ class MainActivity : AppCompatActivity() {
                      onmouseup="onShortcutTouchEnd(this)"
                      onmouseleave="onShortcutTouchEnd(this)"
                      onclick="onShortcutClick($i, '${s.url}', event)" 
-                     oncontextmenu="event.preventDefault(); if (window.Android) { Android.triggerHaptic(true); Android.confirmRemoveShortcut($i); } return false;">
+                     oncontextmenu="event.preventDefault(); event.stopPropagation(); return false;">
                     <div class="shortcut-box">$iconContent</div>
                     <div class="shortcut-label">${s.name}</div>
                 </div>
@@ -3687,6 +3747,12 @@ class MainActivity : AppCompatActivity() {
                     var startTouchX = 0;
                     var startTouchY = 0;
 
+                    document.addEventListener('contextmenu', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                    }, true);
+
                     function onShortcutTouchStart(index, elem, e) {
                         isLongPressActive = false;
                         if (e && e.touches && e.touches.length > 0) {
@@ -3707,7 +3773,7 @@ class MainActivity : AppCompatActivity() {
                             if (window.Android && window.Android.confirmRemoveShortcut) {
                                 window.Android.confirmRemoveShortcut(index);
                             }
-                        }, 450);
+                        }, 380);
                     }
 
                     function onShortcutTouchMove(elem, e) {
@@ -4732,9 +4798,15 @@ class MainActivity : AppCompatActivity() {
 
         // Native Context Menu on Long Click
         webView.setOnLongClickListener {
+            val currentTab = getTabFromWebView(webView)
+            if (isHomeTab(currentTab) || isHomeTab(getActiveTab())) {
+                return@setOnLongClickListener true
+            }
             val currentUrl = webView.url ?: ""
-            if (currentUrl == HAZE_HOME_URL || currentUrl.startsWith("haze://") || currentUrl.isEmpty()) {
-                return@setOnLongClickListener false
+            if (currentUrl == HAZE_HOME_URL || currentUrl.startsWith(HAZE_HOME_URL) ||
+                currentUrl.startsWith("haze://") || currentUrl.startsWith("https://haze.local") ||
+                currentUrl.startsWith("data:") || currentUrl.startsWith("about:") || currentUrl.isEmpty()) {
+                return@setOnLongClickListener true
             }
             val result = webView.hitTestResult
             when (result.type) {
@@ -4760,12 +4832,14 @@ class MainActivity : AppCompatActivity() {
                     } else false
                 }
                 else -> {
-                    val currentUrl = webView.url ?: ""
-                    if (currentUrl.isNotEmpty() && currentUrl != HAZE_HOME_URL && !currentUrl.startsWith("haze://")) {
+                    val pageUrl = webView.url ?: ""
+                    if (pageUrl.isNotEmpty() && !isHomeTab(currentTab) && !isHomeTab(getActiveTab()) &&
+                        pageUrl != HAZE_HOME_URL && !pageUrl.startsWith("haze://") &&
+                        !pageUrl.startsWith("https://haze.local") && !pageUrl.startsWith("data:") &&
+                        !pageUrl.startsWith("about:")) {
                         val currentTitle = webView.title ?: "Web Page"
-                        val currentTab = getTabFromWebView(webView)
                         if (currentTab != null) {
-                            HazeContextMenuManager.showPageContextMenu(this, currentUrl, currentTitle, currentTab.browserTab)
+                            HazeContextMenuManager.showPageContextMenu(this, pageUrl, currentTitle, currentTab.browserTab)
                             true
                         } else false
                     } else false
