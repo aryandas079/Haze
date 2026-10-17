@@ -1406,6 +1406,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread { updatePrivacyShieldButton() }
             }
         })
+        HazeVpnManager.init(this)
 
         addressBar.setText("")
         handleCustomIntent(intent)
@@ -8059,6 +8060,7 @@ class MainActivity : AppCompatActivity() {
             Pair("Data Saver", R.drawable.ic_data_saver),
             Pair("Passwords", R.drawable.ic_key),
             Pair("Privacy Shield", R.drawable.ic_privacy_shield),
+            Pair("VPN", R.drawable.ic_vpn),
             Pair("Personalize", R.drawable.ic_palette),
             Pair("Favorites", R.drawable.ic_star),
             Pair("History", R.drawable.ic_history),
@@ -8148,6 +8150,7 @@ class MainActivity : AppCompatActivity() {
                     "Data Saver" -> HazeDataSaverManager.showDataSaverDialog(this)
                     "Passwords" -> openPasswordManager()
                     "Privacy Shield" -> HazePrivacyShieldDashboard.showDashboard(this)
+                    "VPN", "Haze VPN", "Tor Onion", "Tor Tunnel", "VPN Tunnel" -> HazeVpnDialogManager.showVpnDialog(this)
                     "Personalize" -> showPersonalizeDialog()
                     "Favorites" -> HazeBookmarksManager.showBookmarksDialog(this) { loadUrlFromInput(it) }
                     "History" -> HazeHistoryManager.showHistoryDialog(this) { loadUrlFromInput(it) }

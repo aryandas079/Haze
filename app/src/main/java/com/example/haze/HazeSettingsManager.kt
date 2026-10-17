@@ -215,6 +215,13 @@ object HazeSettingsManager {
                 showSettingsDialog(activity)
             }
         })
+        val vpnSummary = if (HazeVpnManager.isVpnEnabled(activity)) "Active (${HazeVpnManager.currentExitLocation ?: "Encrypted Tunnel"})" else "Disabled"
+        cardPrivacy.addView(createRow(activity, "Haze Secure VPN", vpnSummary, textColor, subTextColor) {
+            HazeVpnDialogManager.showVpnDialog(activity) {
+                dialog.dismiss()
+                showSettingsDialog(activity)
+            }
+        })
         cardPrivacy.addView(createRow(activity, "Google Password Manager", "Manage passwords, passkeys, and autofill credentials", textColor, subTextColor) {
             HazeSecurityManager.requestGooglePasswordManagerIntegration(activity)
         })
