@@ -3,14 +3,14 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Center Sun Disc -->
+    <!-- Center Sun Disc in Warm Golden Amber -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,12m-4.2,0a4.2,4.2 0 1,0 8.4,0a4.2,4.2 0 1,0 -8.4,0"/>
-    <!-- 8 Elegant Radiating Rays with Smooth Rounded Caps -->
+        android:fillColor="#FFA000"
+        android:pathData="M12,12m-4.8,0a4.8,4.8 0 1,0 9.6,0a4.8,4.8 0 1,0 -9.6,0"/>
+    <!-- 8 Radiating Rays with Smooth Rounded Caps in Bright Sun Gold -->
     <path
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="1.8"
+        android:strokeColor="#FFB300"
+        android:strokeWidth="2"
         android:strokeLineCap="round"
-        android:pathData="M12,1.8v3 M12,19.2v3 M1.8,12h3 M19.2,12h3 M4.79,4.79l2.12,2.12 M17.09,17.09l2.12,2.12 M4.79,19.21l2.12,-2.12 M17.09,6.91l2.12,-2.12"/>
+        android:pathData="M12,1.8v2.8 M12,19.4v2.8 M1.8,12h2.8 M19.4,12h2.8 M4.79,4.79l2,2 M17.21,17.21l2,2 M4.79,19.21l2,-2 M17.21,6.79l2,-2"/>
 </vector>

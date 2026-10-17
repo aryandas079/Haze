@@ -21,6 +21,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -149,7 +150,7 @@ class HazeWeatherManager(
         container.background = pillBg
 
         val iconAndTextColor = if (isDark) Color.WHITE else Color.parseColor("#1C1B1F")
-        ivIcon.setColorFilter(iconAndTextColor)
+        ivIcon.clearColorFilter()
         tvTemp.setTextColor(iconAndTextColor)
 
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
@@ -649,12 +650,11 @@ class HazeWeatherManager(
             gravity = Gravity.CENTER
         }
         val ivHeroIcon = ImageView(activity).apply {
-            val dp48 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, activity.resources.displayMetrics).toInt()
-            layoutParams = LinearLayout.LayoutParams(dp48, dp48).apply {
-                setMargins(0, 0, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt(), 0)
+            val dp56 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 56f, activity.resources.displayMetrics).toInt()
+            layoutParams = LinearLayout.LayoutParams(dp56, dp56).apply {
+                setMargins(0, 0, TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14f, activity.resources.displayMetrics).toInt(), 0)
             }
             setImageResource(getWeatherIconRes(data.weatherCode, data.isDay))
-            setColorFilter(textColor)
         }
         heroRow.addView(ivHeroIcon)
 
@@ -712,12 +712,26 @@ class HazeWeatherManager(
 
         val aqiCategory = getAqiCategory(data.aqi)
         val uvCategory = getUvCategory(data.uvIndex)
-        val uvIcon = if (data.isDay) R.drawable.ic_weather_sunny else R.drawable.ic_weather_clear_night
 
-        val cardPrecip = buildMetricCard("Precipitation", "${data.precipitation} $precipUnit", R.drawable.ic_water_drop, isDark, cardBgColor, borderColor, textColor, subTextColor)
-        val cardWind = buildMetricCard("Wind Speed", "${data.windSpeed.roundToInt()} $windUnit", R.drawable.ic_air, isDark, cardBgColor, borderColor, textColor, subTextColor)
-        val cardUv = buildMetricCard("UV Index", "${data.uvIndex.roundToInt()} ($uvCategory)", uvIcon, isDark, cardBgColor, borderColor, textColor, subTextColor)
-        val cardAqi = buildMetricCard("Air Quality", "${data.aqi} ($aqiCategory)", R.drawable.ic_air_quality, isDark, cardBgColor, borderColor, textColor, subTextColor)
+        val aqiColor = when {
+            data.aqi <= 50 -> Color.parseColor("#10B981")
+            data.aqi <= 100 -> Color.parseColor("#F59E0B")
+            data.aqi <= 150 -> Color.parseColor("#F97316")
+            data.aqi <= 200 -> Color.parseColor("#EF4444")
+            else -> Color.parseColor("#881337")
+        }
+        val uvColor = when {
+            data.uvIndex <= 2 -> Color.parseColor("#10B981")
+            data.uvIndex <= 5 -> Color.parseColor("#F59E0B")
+            data.uvIndex <= 7 -> Color.parseColor("#F97316")
+            data.uvIndex <= 10 -> Color.parseColor("#EF4444")
+            else -> Color.parseColor("#7C3AED")
+        }
+
+        val cardPrecip = buildMetricCard("Precipitation", "${data.precipitation} $precipUnit", R.drawable.ic_water_drop, Color.parseColor("#0288D1"), isDark, cardBgColor, borderColor, textColor, subTextColor)
+        val cardWind = buildMetricCard("Wind Speed", "${data.windSpeed.roundToInt()} $windUnit", R.drawable.ic_air, Color.parseColor("#0D9488"), isDark, cardBgColor, borderColor, textColor, subTextColor)
+        val cardUv = buildMetricCard("UV Index", "${data.uvIndex.roundToInt()} ($uvCategory)", R.drawable.ic_uv_index, uvColor, isDark, cardBgColor, borderColor, textColor, subTextColor)
+        val cardAqi = buildMetricCard("Air Quality", "${data.aqi} ($aqiCategory)", R.drawable.ic_air_quality, aqiColor, isDark, cardBgColor, borderColor, textColor, subTextColor)
 
         metricsRow1.addView(cardPrecip)
         metricsRow1.addView(cardWind)
@@ -727,8 +741,8 @@ class HazeWeatherManager(
         contentLayout.addView(metricsRow1)
         contentLayout.addView(metricsRow2)
 
-        // Humidity & Thermostat Single Wide Metric Card
-        val cardHumidity = buildMetricCard("Humidity", "${data.humidity}%", R.drawable.ic_water_drop, isDark, cardBgColor, borderColor, textColor, subTextColor).apply {
+        // Humidity Single Wide Metric Card with dedicated humidity icon
+        val cardHumidity = buildMetricCard("Humidity", "${data.humidity}%", R.drawable.ic_humidity, Color.parseColor("#0288D1"), isDark, cardBgColor, borderColor, textColor, subTextColor).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 setMargins(0, dp8, 0, 0)
             }
@@ -783,11 +797,10 @@ class HazeWeatherManager(
 
             // Weather icon
             val ivDayIcon = ImageView(activity).apply {
-                val dp24 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 24f, activity.resources.displayMetrics).toInt()
-                layoutParams = LinearLayout.LayoutParams(dp24, dp24)
+                val dp26 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 26f, activity.resources.displayMetrics).toInt()
+                layoutParams = LinearLayout.LayoutParams(dp26, dp26)
                 val isToday = index == 0
                 setImageResource(getWeatherIconRes(day.weatherCode, if (isToday) data.isDay else true))
-                setColorFilter(textColor)
             }
             dayRow.addView(ivDayIcon)
 
@@ -877,6 +890,7 @@ class HazeWeatherManager(
         label: String,
         value: String,
         iconRes: Int,
+        iconTint: Int?,
         isDark: Boolean,
         cardBgColor: Int,
         borderColor: Int,
@@ -886,7 +900,8 @@ class HazeWeatherManager(
         val dp12 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, activity.resources.displayMetrics).toInt()
         val dp8 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 8f, activity.resources.displayMetrics).toInt()
         val dp4 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, activity.resources.displayMetrics).toInt()
-        val dp20 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, activity.resources.displayMetrics).toInt()
+        val dp18 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 18f, activity.resources.displayMetrics).toInt()
+        val dp28 = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, activity.resources.displayMetrics).toInt()
 
         return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -896,7 +911,7 @@ class HazeWeatherManager(
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 14f, activity.resources.displayMetrics)
+                cornerRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics)
                 setColor(cardBgColor)
                 setStroke(1, borderColor)
             }
@@ -906,18 +921,35 @@ class HazeWeatherManager(
                 gravity = Gravity.CENTER_VERTICAL
             }
 
+            // Soft pastel circular badge for metric icon
+            val iconBadge = FrameLayout(activity).apply {
+                layoutParams = LinearLayout.LayoutParams(dp28, dp28).apply {
+                    setMargins(0, 0, dp8, 0)
+                }
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    val tint = iconTint ?: Color.parseColor("#0A56D0")
+                    setColor(Color.argb(if (isDark) 45 else 25, Color.red(tint), Color.green(tint), Color.blue(tint)))
+                }
+            }
+
             val iv = ImageView(activity).apply {
-                layoutParams = LinearLayout.LayoutParams(dp20, dp20).apply {
-                    setMargins(0, 0, dp4, 0)
+                val iconSize = dp18
+                layoutParams = FrameLayout.LayoutParams(iconSize, iconSize).apply {
+                    gravity = Gravity.CENTER
                 }
                 setImageResource(iconRes)
-                setColorFilter(subTextColor)
+                if (iconTint != null) {
+                    setColorFilter(iconTint)
+                }
             }
-            titleRow.addView(iv)
+            iconBadge.addView(iv)
+            titleRow.addView(iconBadge)
 
             val tvLbl = TextView(activity).apply {
                 text = label
-                textSize = 12f
+                textSize = 12.5f
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 setTextColor(subTextColor)
             }
             titleRow.addView(tvLbl)
@@ -925,7 +957,7 @@ class HazeWeatherManager(
 
             val tvVal = TextView(activity).apply {
                 text = value
-                textSize = 16f
+                textSize = 16.5f
                 typeface = android.graphics.Typeface.create("sans-serif-bold", android.graphics.Typeface.BOLD)
                 setTextColor(textColor)
                 setPadding(0, dp8, 0, 0)

@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Main Moisture Droplet -->
+    <path
+        android:fillColor="#0288D1"
+        android:pathData="M11,3C8.5,6.5 5,10.2 5,14c0,3.87 3.13,7 7,7s7,-3.13 7,-7c0,-3.8 -3.5,-7.5 -6,-11H11z"/>
+    <!-- Highlight Reflection Curve -->
+    <path
+        android:strokeColor="#E0F2FE"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M8.5,13.5c0,-1.8 1.2,-3.8 2.5,-5.5"/>
+</vector>

@@ -3,7 +3,15 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-  <path
-      android:fillColor="#FFFFFFFF"
-      android:pathData="M12.34,2.02C6.59,2.33 2,7.12 2,13c0,6.08 4.92,11 11,11 5.88,0 10.67,-4.59 10.98,-10.34 -3.6,1.86 -8.11,0.94 -10.64,-1.59 -2.53,-2.53 -3.45,-7.04 -1.6,-10.65z"/>
+    <!-- Glowing Golden Crescent Moon -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M12.34,2.02C6.59,2.33 2,7.12 2,13c0,6.08 4.92,11 11,11 5.88,0 10.67,-4.59 10.98,-10.34 -3.6,1.86 -8.11,0.94 -10.64,-1.59 -2.53,-2.53 -3.45,-7.04 -1.6,-10.65z"/>
+    <!-- Distant Night Stars -->
+    <path
+        android:fillColor="#FDE68A"
+        android:pathData="M19,3.5l0.6,1.2 1.2,0.6 -1.2,0.6 -0.6,1.2 -0.6,-1.2 -1.2,-0.6 1.2,-0.6z"/>
+    <path
+        android:fillColor="#FDE68A"
+        android:pathData="M21,9.5l0.4,0.8 0.8,0.4 -0.8,0.4 -0.4,0.8 -0.4,-0.8 -0.8,-0.4 0.8,-0.4z"/>
 </vector>
