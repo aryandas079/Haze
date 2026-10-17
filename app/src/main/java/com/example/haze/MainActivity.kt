@@ -294,7 +294,6 @@ class MainActivity : AppCompatActivity() {
     private var isUserTypingForward = false
     var isAddressBarHidden = false
         private set
-    private var isBottomSwipeUpCandidate = false
     private var hideAddressBarRunnable: Runnable? = null
     private val addressBarHandler = Handler(Looper.getMainLooper())
 
@@ -5085,19 +5084,7 @@ class MainActivity : AppCompatActivity() {
                         true
                     } else false
                 }
-                else -> {
-                    val pageUrl = webView.url ?: ""
-                    if (pageUrl.isNotEmpty() && !isHomeTab(currentTab) && !isHomeTab(getActiveTab()) &&
-                        pageUrl != HAZE_HOME_URL && !pageUrl.startsWith("haze://") &&
-                        !pageUrl.startsWith("https://haze.local") && !pageUrl.startsWith("data:") &&
-                        !pageUrl.startsWith("about:")) {
-                        val currentTitle = webView.title ?: "Web Page"
-                        if (currentTab != null) {
-                            HazeContextMenuManager.showPageContextMenu(this, pageUrl, currentTitle, currentTab.browserTab)
-                            true
-                        } else false
-                    } else false
-                }
+                else -> false
             }
         }
         
@@ -8854,8 +8841,6 @@ class MainActivity : AppCompatActivity() {
         // Handled centrally in dispatchTouchEvent for 100% reliable interception across all Android views
     }
 
-    private var isBottomZoneTap = false
-
     private fun resetGestures() {
         isAddressBarTouch = false
         isAddressBarSwiping = false
@@ -8865,7 +8850,6 @@ class MainActivity : AppCompatActivity() {
         isLeftEdge = false
         isRightEdge = false
         childTouchesCanceled = false
-        isBottomZoneTap = false
         activeGestureCurrView = null
         activeGestureAdjacentView = null
         activeGestureTargetIndex = -1
@@ -8887,10 +8871,6 @@ class MainActivity : AppCompatActivity() {
             MotionEvent.ACTION_DOWN -> {
                 gestureStartX = ev.rawX
                 gestureStartY = ev.rawY
-                val screenHeight = resources.displayMetrics.heightPixels
-                val bottomZoneThreshold = screenHeight - dpToPx(85)
-                isBottomSwipeUpCandidate = (gestureStartY >= bottomZoneThreshold)
-                isBottomZoneTap = (gestureStartY >= bottomZoneThreshold && isAddressBarHidden)
 
                 isAddressBarTouch = false
                 isAddressBarSwiping = false
@@ -8928,8 +8908,8 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (!isSearchActive) {
-                    // Check if touch down is inside bottom address bar
-                    if (::addressBarContainer.isInitialized && addressBarContainer.isShown) {
+                    // Check if touch down is inside bottom address bar (only when address bar is visible)
+                    if (!isAddressBarHidden && ::addressBarContainer.isInitialized && addressBarContainer.isShown) {
                         val loc = IntArray(2)
                         addressBarContainer.getLocationOnScreen(loc)
                         val left = loc[0]
@@ -8967,22 +8947,6 @@ class MainActivity : AppCompatActivity() {
                 val dy = ev.rawY - gestureStartY
                 val absX = Math.abs(dx)
                 val absY = Math.abs(dy)
-
-                // Swipe up from the bottom edge to reveal address bar ("swipping up from the down")
-                if (isBottomSwipeUpCandidate && dy < -dpToPx(12) && absY > absX) {
-                    if (isAddressBarHidden) {
-                        showAddressBar(animated = true)
-                        triggerStrongHaptic(isHeavy = false)
-                        isBottomSwipeUpCandidate = false
-                        if (!childTouchesCanceled) {
-                            val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                            super.dispatchTouchEvent(cancelEvent)
-                            cancelEvent.recycle()
-                            childTouchesCanceled = true
-                        }
-                        return true
-                    }
-                }
 
                 val currentTabForScroll = currentTabsList.getOrNull(activeTabIndex)
                 if (currentTabForScroll != null && !isHomeTab(currentTabForScroll) && !isSearchActive && !isAddressBarTouch && !isEdgeTouch) {
@@ -9299,21 +9263,6 @@ class MainActivity : AppCompatActivity() {
                         resetGestures()
                         return true
                     }
-                }
-
-                val screenHeight = resources.displayMetrics.heightPixels
-                if (isBottomZoneTap && absY < dpToPx(18) && absX < dpToPx(18)) {
-                    triggerStrongHaptic(isHeavy = false)
-                    showAddressBar(animated = true)
-                    resetGestures()
-                    return true
-                }
-
-                if (isAddressBarHidden && isBottomSwipeUpCandidate && absY < dpToPx(18) && absX < dpToPx(18) && gestureStartY >= screenHeight - dpToPx(85)) {
-                    triggerStrongHaptic(isHeavy = false)
-                    showAddressBar(animated = true)
-                    resetGestures()
-                    return true
                 }
 
                 resetGestures()
