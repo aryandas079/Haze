@@ -651,7 +651,7 @@ class MainActivity : AppCompatActivity() {
             Shortcut("X", "https://x.com", "https://www.google.com/s2/favicons?domain=x.com&sz=128"),
             Shortcut("Instagram", "https://instagram.com", "https://www.google.com/s2/favicons?domain=instagram.com&sz=128"),
             Shortcut("Reddit", "https://www.reddit.com", "https://www.google.com/s2/favicons?domain=reddit.com&sz=128"),
-            Shortcut("Spotify", "https://spotify.com", "https://www.google.com/s2/favicons?domain=spotify.com&sz=128"),
+            Shortcut("YouTube Music", "https://music.youtube.com", "https://www.google.com/s2/favicons?domain=music.youtube.com&sz=128"),
             Shortcut("Amazon", "https://www.amazon.com", "https://www.google.com/s2/favicons?domain=amazon.com&sz=128"),
             Shortcut("Wikipedia", "https://www.wikipedia.org", "https://www.google.com/s2/favicons?domain=wikipedia.org&sz=128")
         )
@@ -3222,7 +3222,7 @@ class MainActivity : AppCompatActivity() {
             webContainer.postDelayed({ reloadHomeTabs() }, 300)
         }
         if (intent.getBooleanExtra("test_reset_shortcuts", false)) {
-            prefs.edit().remove("shortcuts_initialized_v4").remove("custom_shortcuts_json").apply()
+            prefs.edit().remove("shortcuts_initialized_v4").remove("shortcuts_initialized_v5").remove("custom_shortcuts_json").apply()
             webContainer.postDelayed({ reloadHomeTabs() }, 300)
         }
         if (intent.getBooleanExtra("test_gesture_swipe_down", false)) {
@@ -3271,14 +3271,14 @@ class MainActivity : AppCompatActivity() {
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
         val maxCap = if (shortcutsMode == "1") 4 else 9
 
-        // V4 Initialization: Preload 4 for 1 row, 9 for 2 rows, default to 2 rows
-        if (!prefs.getBoolean("shortcuts_initialized_v4", false)) {
+        // V5 Initialization: Preload 4 for 1 row, 9 for 2 rows, default to 2 rows
+        if (!prefs.getBoolean("shortcuts_initialized_v5", false)) {
             val initialMode = if (shortcutsMode == "off") "2" else shortcutsMode
             val initialCap = if (initialMode == "1") 4 else 9
             val initialShortcuts = defaultShortcuts.take(initialCap)
             saveCustomShortcuts(initialShortcuts)
             prefs.edit()
-                .putBoolean("shortcuts_initialized_v4", true)
+                .putBoolean("shortcuts_initialized_v5", true)
                 .putString("shortcuts_mode", initialMode)
                 .apply()
             return initialShortcuts
@@ -3288,12 +3288,21 @@ class MainActivity : AppCompatActivity() {
         return try {
             val arr = JSONArray(jsonStr)
             val list = mutableListOf<Shortcut>()
+            var listChanged = false
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val name = obj.getString("name")
-                val url = obj.getString("url")
+                var name = obj.getString("name")
+                var url = obj.getString("url")
                 var iconUrl = obj.optString("iconUrl", "")
                 
+                // Migrate legacy Spotify default shortcut to YouTube Music
+                if (url.contains("spotify.com", ignoreCase = true) || name.equals("spotify", ignoreCase = true)) {
+                    name = "YouTube Music"
+                    url = "https://music.youtube.com"
+                    iconUrl = "https://www.google.com/s2/favicons?domain=music.youtube.com&sz=128"
+                    listChanged = true
+                }
+
                 var svg = obj.optString("svg", "")
                 var color = obj.optString("color", "")
                 if (iconUrl.isEmpty() || !iconUrl.startsWith("data:image/png;base64,")) {
@@ -3317,6 +3326,9 @@ class MainActivity : AppCompatActivity() {
                     svgPath = svg,
                     fillColor = color
                 ))
+            }
+            if (listChanged) {
+                saveCustomShortcuts(list)
             }
             if (list.isEmpty()) {
                 val fallback = defaultShortcuts.take(maxCap)
@@ -3479,6 +3491,9 @@ class MainActivity : AppCompatActivity() {
         return when {
             host.contains("google.") || n == "google" || n.startsWith("google ") ->
                 """<svg viewBox="0 0 24 24" style="width:32px; height:32px; display:block;"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3.03h3.88c2.28-2.1 3.66-5.2 3.66-9.12z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.03c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.13C3.26 21.41 7.33 24 12 24z"/><path fill="#FBBC05" d="M5.28 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.57H1.25C.45 8.16 0 9.98 0 12c0 2.02.45 3.84 1.25 5.43l4.03-3.14z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.59 1.25 6.57l4.03 3.14c.95-2.83 3.6-4.96 6.72-4.96z"/></svg>"""
+
+            host.contains("music.youtube.") || (host.contains("youtube.") && n.contains("music")) || n.contains("youtube music") ->
+                """<svg viewBox="0 0 24 24" style="width:34px; height:34px; display:block;"><circle cx="12" cy="12" r="12" fill="#FF0000"/><circle cx="12" cy="12" r="8" fill="none" stroke="#FFFFFF" stroke-width="1.8"/><polygon fill="#FFFFFF" points="10,8.5 15.5,12 10,15.5"/></svg>"""
 
             host.contains("youtube.") || host.contains("youtu.be") || n.contains("youtube") ->
                 """<svg viewBox="0 0 24 24" style="width:34px; height:34px; display:block;"><path fill="#FF0000" d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814z"/><polygon fill="#FFFFFF" points="9.545,15.568 15.818,12 9.545,8.432"/></svg>"""
