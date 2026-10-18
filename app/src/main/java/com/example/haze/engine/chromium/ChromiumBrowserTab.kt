@@ -1188,13 +1188,10 @@ class ChromiumBrowserTab(
         val ADGUARD_UNIVERSAL_SHIELD_SCRIPT = """
             (function() {
                 var host = window.location.hostname || '';
-                var isYtMusic = host.indexOf('music.youtube.com') !== -1;
-                var isSpotify = host.indexOf('spotify.com') !== -1;
+                var href = window.location.href || '';
+                if (host.indexOf('youtube.com') !== -1 || href.indexOf('youtube.com') !== -1 || host.indexOf('spotify.com') !== -1 || href.indexOf('spotify.com') !== -1) return;
                 if (window.__hazeAdGuardShieldInjected) return;
                 window.__hazeAdGuardShieldInjected = true;
-
-                // On music.youtube.com and spotify.com, do NOT inject generic class selectors that conflict with core player frameworks
-                if (isYtMusic || isSpotify) return;
 
                 var css = [
                     'ins.adsbygoogle, .adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"], iframe[src*="googleadservices.com"], iframe[src*="amazon-adsystem.com"], iframe[src*="adnxs.com"], iframe[src*="criteo.com"], iframe[src*="pubmatic.com"], iframe[src*="openx.net"], iframe[src*="rubiconproject.com"], iframe[src*="smartadserver.com"], iframe[src*="teads.tv"], iframe[src*="adform.net"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id^="div-gpt-ad"], div.ad-slot, div.advertisement, div.advertisement-container, div.advertisement-wrapper, div.advertisement-banner, div.advertisement-slot, div.advertisement-box, div.advertisement-section, div.advertisement-placeholder, section.advertisement, section.ad-container, section.ad-slot, aside.advertisement, aside.ad-container, aside.ad-slot, .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-label, .ad-notice, .ad-title, .ad-header, .ad-caption, .advertisement-label, .ad-badge, .sponsored-label, .sponsored-tag, .advertisement, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad-wrapper], [data-ad-placeholder], [data-google-query-id], [aria-label="Advertisement" i], [aria-label="Sponsored" i], [aria-label="Advert" i], [aria-label="Anuncio" i], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .sponsored-wrapper, .sponsored-container, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .in-article-ad, .in-content-ad, .native-ad, .native_ad, .sticky-ad, .floating-ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], [data-taboola-placeholder], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget, [data-revcontent], [data-mgid], .ntv-ad, div[id*="nativo"], .ima-ad-container, .video-ad-overlay, .vjs-ad-loading, .jw-flag-ads, .jw-ad-container',
@@ -1337,7 +1334,11 @@ class ChromiumBrowserTab(
 
         val DYNAMIC_BANNER_CLEANER_SCRIPT = """
             (function() {
-                // 1. Declarative CSS injection for all known ad containers, banners, slots, sections, and wrappers
+                var host = window.location.hostname || '';
+                var href = window.location.href || '';
+                if (host.indexOf('youtube.com') !== -1 || href.indexOf('youtube.com') !== -1 || host.indexOf('spotify.com') !== -1 || href.indexOf('spotify.com') !== -1) return;
+                if (window.__hazeDynamicBannerCleanerInjected) return;
+                window.__hazeDynamicBannerCleanerInjected = true;
                 try {
                     var s = document.getElementById('__haze_dynamic_banner_css');
                     if (!s) {
@@ -1426,7 +1427,7 @@ class ChromiumBrowserTab(
                 function collapseElementAndSection(el) {
                     if (!el || !el.parentElement) return;
                     var tag = (el.tagName || '').toLowerCase();
-                    if (tag === 'body' || tag === 'html' || tag === 'main' || tag === 'article' || tag === 'header' || tag === 'nav' || tag === 'footer' || tag === 'form') return;
+                    if (tag === 'body' || tag === 'html' || tag === 'main' || tag === 'article' || tag === 'header' || tag === 'nav' || tag === 'footer' || tag === 'form' || tag.indexOf('yt') === 0 || tag.indexOf('spotify') === 0) return;
 
                     try {
                         // Collapse element itself
