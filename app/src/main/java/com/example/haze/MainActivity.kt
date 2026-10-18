@@ -4627,17 +4627,19 @@ class MainActivity : AppCompatActivity() {
                         }
                         val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
                         tab.evaluateJavascript(antiTrackingScript, null)
-                        val earlyCss = """
-                            (function() {
-                                if (window.__hazeEarlyCssInjected) return;
-                                window.__hazeEarlyCssInjected = true;
-                                var style = document.createElement('style');
-                                style.innerHTML = 'div[class*="ad-"], div[id*="ad-"], .adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted, ytd-ad-slot-renderer, ytd-promoted-video-renderer, ytd-banner-promo-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-ad-slot-renderer, ytm-companion-ad-renderer, ytm-inline-ad, #masthead-ad, ytm-statement-banner-renderer, ytm-banner-promo-renderer, ytm-compact-promoted-video-renderer, .ytp-ad-module, .video-ads { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
-                                if (document.documentElement) document.documentElement.appendChild(style);
-                                else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
-                            })();
-                        """.trimIndent()
-                        tab.evaluateJavascript(earlyCss, null)
+                        if (!url.contains("youtube.com", ignoreCase = true)) {
+                            val earlyCss = """
+                                (function() {
+                                    if (window.__hazeEarlyCssInjected) return;
+                                    window.__hazeEarlyCssInjected = true;
+                                    var style = document.createElement('style');
+                                    style.innerHTML = 'div.adsbygoogle, iframe[src*="doubleclick"], .sponsored, .promoted { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; width: 0 !important; }';
+                                    if (document.documentElement) document.documentElement.appendChild(style);
+                                    else document.addEventListener('DOMContentLoaded', function() { document.documentElement.appendChild(style); });
+                                })();
+                            """.trimIndent()
+                            tab.evaluateJavascript(earlyCss, null)
+                        }
                     }
                 }
             }
