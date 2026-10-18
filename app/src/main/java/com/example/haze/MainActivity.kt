@@ -324,7 +324,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvWeatherTemp: TextView
     private lateinit var weatherManager: HazeWeatherManager
 
+    // Status Bar Media Player Control Bar
+    private var statusBarMediaController: HazeStatusBarMediaController? = null
+
     // Picture-in-Picture / Miniplayer & Media State
+
     var isMediaPlaying = false
     private var lastVideoWidth = 16
     private var lastVideoHeight = 9
@@ -614,7 +618,7 @@ class MainActivity : AppCompatActivity() {
     private var isFullScreenMode = false
     private var activeFullScreenTabsDialog: Dialog? = null
     
-    private val currentTabsList: MutableList<Tab>
+    internal val currentTabsList: MutableList<Tab>
         get() = if (isPrivateMode) privateTabs else normalTabs
 
     fun getOpenTabCount(): Int = currentTabsList.size
@@ -912,8 +916,22 @@ class MainActivity : AppCompatActivity() {
                     lastVideoWidth = width
                     lastVideoHeight = height
                 }
+                if (!isPlaying) {
+                    statusBarMediaController?.onMediaStopped(tab)
+                }
             }
         }
+        @JavascriptInterface
+        fun onMediaDetailsChange(isPlaying: Boolean, title: String, artist: String, artworkUrl: String, isMuted: Boolean) {
+            runOnUiThread {
+                val tab = getTabForInterface(ownerTab, ownerWebView)
+                isMediaPlaying = isPlaying
+                if (isPlaying) activeMediaTab = tab
+                else if (activeMediaTab === tab && !isPlaying) activeMediaTab = null
+                statusBarMediaController?.onMediaDetailsUpdated(tab, isPlaying, title, artist, artworkUrl, isMuted)
+            }
+        }
+
         @JavascriptInterface
         fun retryLoad(url: String) {
             runOnUiThread {
@@ -1367,9 +1385,26 @@ class MainActivity : AppCompatActivity() {
         btnProfile = findViewById(R.id.btnProfile)
         ivProfileAvatar = findViewById(R.id.ivProfileAvatar)
 
+        statusBarMediaController = HazeStatusBarMediaController(this)
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                androidx.core.app.ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    9001
+                )
+            }
+        }
+
         topLeftWeather = findViewById(R.id.topLeftWeather)
         ivWeatherIcon = findViewById(R.id.ivWeatherIcon)
         tvWeatherTemp = findViewById(R.id.tvWeatherTemp)
+
         weatherManager = HazeWeatherManager(this, prefs)
         weatherManager.setupWeatherWidget(topLeftWeather, ivWeatherIcon, tvWeatherTemp)
         
@@ -1435,7 +1470,9 @@ class MainActivity : AppCompatActivity() {
         HazePrivacyShieldEngine.init(this)
         HazePrivacyShieldEngine.addListener(object : HazePrivacyShieldEngine.ShieldListener {
             override fun onShieldEvent(category: String, totalBlocked: Long) {
-                runOnUiThread { updatePrivacyShieldButton() }
+                if (category == "CONFIG_CHANGE" || category == "RESET") {
+                    runOnUiThread { updatePrivacyShieldButton() }
+                }
             }
         })
         HazeVpnManager.init(this)
@@ -1615,10 +1652,12 @@ class MainActivity : AppCompatActivity() {
         if (::topLeftWeather.isInitialized) {
             topLeftWeather.visibility = View.GONE
         }
+
         findViewById<ImageButton>(R.id.menuBtn)?.visibility = View.GONE
         btnQrScan.visibility = View.VISIBLE
         findViewById<ImageButton>(R.id.btnVoiceSearch)?.visibility = View.VISIBLE
         searchEngineSelectorBar.visibility = View.GONE
+
 
         val text = getUserTypedQuery()
         if (text.isEmpty()) {
@@ -3465,7 +3504,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun dpToPx(dp: Int): Int {
+    internal fun dpToPx(dp: Int): Int {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             dp.toFloat(),
@@ -3473,13 +3512,14 @@ class MainActivity : AppCompatActivity() {
         ).toInt()
     }
 
-    private fun dpToPx(dp: Float): Int {
+    internal fun dpToPx(dp: Float): Int {
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             dp,
             resources.displayMetrics
         ).toInt()
     }
+
 
     private val bgPhotoCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -4248,7 +4288,7 @@ class MainActivity : AppCompatActivity() {
         return newTab
     }
 
-    private fun switchTab(index: Int, animated: Boolean = true) {
+    internal fun switchTab(index: Int, animated: Boolean = true) {
         if (index < 0 || index >= currentTabsList.size) {
             tabCountBtn.text = currentTabsList.size.toString()
             return
@@ -4729,16 +4769,24 @@ class MainActivity : AppCompatActivity() {
                             (function() {
                                 if (window.__hazeMediaTrackInstalled) return;
                                 window.__hazeMediaTrackInstalled = true;
+                                var _lastReportedPlaying = null;
+                                var _lastReportedTitle = '';
+                                var _lastReportedMuted = null;
+
                                 function checkMedia() {
                                     try {
                                         var media = document.querySelectorAll('video, audio');
                                         var isPlaying = false;
                                         var width = 16;
                                         var height = 9;
+                                        var isMuted = false;
+                                        var activeEl = null;
                                         for (var i = 0; i < media.length; i++) {
                                             var m = media[i];
                                             if (!m.paused && !m.ended && m.readyState > 1) {
                                                 isPlaying = true;
+                                                activeEl = m;
+                                                isMuted = m.muted || m.volume === 0;
                                                 if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
                                                     width = m.videoWidth;
                                                     height = m.videoHeight;
@@ -4746,39 +4794,93 @@ class MainActivity : AppCompatActivity() {
                                                 break;
                                             }
                                         }
-                                        if (window.Android && window.Android.onMediaStateChange) {
-                                            window.Android.onMediaStateChange(isPlaying, width, height);
+
+                                        if (isPlaying !== _lastReportedPlaying) {
+                                            _lastReportedPlaying = isPlaying;
+                                            if (window.Android && window.Android.onMediaStateChange) {
+                                                window.Android.onMediaStateChange(isPlaying, width, height);
+                                            }
+                                        }
+
+                                        if (isPlaying) {
+                                            var title = '';
+                                            var artist = '';
+                                            var artwork = '';
+                                            if (navigator.mediaSession && navigator.mediaSession.metadata) {
+                                                title = navigator.mediaSession.metadata.title || '';
+                                                artist = navigator.mediaSession.metadata.artist || '';
+                                                if (navigator.mediaSession.metadata.artwork && navigator.mediaSession.metadata.artwork.length > 0) {
+                                                    var arts = navigator.mediaSession.metadata.artwork;
+                                                    artwork = arts[arts.length - 1].src || '';
+                                                }
+                                            }
+                                            if (!title) {
+                                                var ytTitle = document.querySelector('ytm-media-item .media-item-headline, .ytp-title-link, h1.title, h2.title');
+                                                if (ytTitle) title = (ytTitle.textContent || '').trim();
+                                            }
+                                            if (!title) {
+                                                title = (document.title || '').replace(/\s*-\s*YouTube.*$/i, '').trim();
+                                            }
+                                            if (!artwork) {
+                                                var poster = activeEl ? (activeEl.poster || '') : '';
+                                                if (poster) artwork = poster;
+                                                else {
+                                                    var ogImg = document.querySelector('meta[property="og:image"], link[rel="apple-touch-icon"]');
+                                                    if (ogImg) artwork = ogImg.getAttribute('content') || ogImg.getAttribute('href') || '';
+                                                }
+                                            }
+
+                                            if (title !== _lastReportedTitle || isMuted !== _lastReportedMuted) {
+                                                _lastReportedTitle = title;
+                                                _lastReportedMuted = isMuted;
+                                                if (window.Android && window.Android.onMediaDetailsChange) {
+                                                    window.Android.onMediaDetailsChange(true, title, artist, artwork, isMuted);
+                                                }
+                                            }
+                                        } else if (_lastReportedTitle !== '') {
+                                            _lastReportedTitle = '';
+                                            if (window.Android && window.Android.onMediaDetailsChange) {
+                                                window.Android.onMediaDetailsChange(false, '', '', '', false);
+                                            }
                                         }
                                     } catch(e) {}
                                 }
+
                                 function trackElement(el) {
                                     if (!el || el.__hazeTracked) return;
                                     el.__hazeTracked = true;
-                                    el.addEventListener('play', checkMedia, true);
-                                    el.addEventListener('playing', checkMedia, true);
-                                    el.addEventListener('pause', checkMedia, true);
-                                    el.addEventListener('ended', checkMedia, true);
-                                    el.addEventListener('ratechange', checkMedia, true);
+                                    el.addEventListener('play', checkMedia, { passive: true });
+                                    el.addEventListener('playing', checkMedia, { passive: true });
+                                    el.addEventListener('pause', checkMedia, { passive: true });
+                                    el.addEventListener('ended', checkMedia, { passive: true });
+                                    el.addEventListener('volumechange', checkMedia, { passive: true });
                                 }
+
                                 function scanElements() {
                                     var all = document.querySelectorAll('video, audio');
                                     for (var i = 0; i < all.length; i++) trackElement(all[i]);
-                                    checkMedia();
                                 }
                                 scanElements();
-                                var scanTimer = null;
-                                var observer = new MutationObserver(function() {
-                                    if (!scanTimer) {
-                                        scanTimer = setTimeout(function() {
-                                            scanTimer = null;
-                                            scanElements();
-                                        }, 500);
-                                    }
-                                });
-                                if (document.body || document.documentElement) {
-                                    observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+                                if (navigator.mediaSession) {
+                                    try {
+                                        var origMetadata = Object.getOwnPropertyDescriptor(navigator.mediaSession, 'metadata');
+                                        if (origMetadata && origMetadata.set) {
+                                            var origSet = origMetadata.set;
+                                            Object.defineProperty(navigator.mediaSession, 'metadata', {
+                                                set: function(val) {
+                                                    origSet.call(this, val);
+                                                    setTimeout(checkMedia, 100);
+                                                },
+                                                get: origMetadata.get,
+                                                configurable: true
+                                            });
+                                        }
+                                    } catch(_) {}
                                 }
-                                setInterval(checkMedia, 2000);
+
+                                document.addEventListener('DOMContentLoaded', scanElements, { passive: true });
+                                window.addEventListener('load', scanElements, { passive: true });
                             })();
                         """.trimIndent()
                         tab.evaluateJavascript(mediaScript, null)
@@ -4819,6 +4921,9 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedError(tab: IBrowserTab, errorCode: Int, description: String, failingUrl: String) {
+                if (errorCode == -3 || description.contains("ERR_ABORTED", ignoreCase = true)) {
+                    return
+                }
                 runOnUiThread {
                     if (failingUrl.isNotEmpty() && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:") && !failingUrl.startsWith("https://haze.local") && !failingUrl.startsWith("data:")) {
                         val ownerTab = getTabForInterface(tab, null)
@@ -5361,16 +5466,27 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                val failingUrl = error?.url ?: ""
+                val currentUrl = view?.url ?: ""
+                val failingHost = try { Uri.parse(failingUrl).host?.lowercase() } catch (_: Exception) { null }
+                val currentHost = try { Uri.parse(currentUrl).host?.lowercase() } catch (_: Exception) { null }
+
+                // If this SSL error is for a third-party or background subresource, cancel it silently
+                if (failingHost != null && currentHost != null && failingHost != currentHost) {
+                    handler?.cancel()
+                    return
+                }
+
                 val cert = error?.certificate
                 val issuedTo = cert?.issuedTo?.dName ?: "Unknown Entity"
                 val issuedBy = cert?.issuedBy?.dName ?: "Unknown Authority"
-                val failingUrl = error?.url ?: view?.url ?: ""
+                val targetUrl = if (failingUrl.isNotEmpty()) failingUrl else currentUrl
                 
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Security Certificate Warning")
                     .setMessage(
                         "The security certificate for this site is not trusted or invalid.\n\n" +
-                        "URL: $failingUrl\n" +
+                        "URL: $targetUrl\n" +
                         "Issued To: $issuedTo\n" +
                         "Issued By: $issuedBy\n\n" +
                         "Continuing may expose your personal information to attackers."
@@ -5402,6 +5518,11 @@ class MainActivity : AppCompatActivity() {
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true) {
+                    val errorCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.errorCode ?: -1 else -1
+                    val desc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.description?.toString() ?: "" else ""
+                    if (errorCode == -3 || desc.contains("ERR_ABORTED", ignoreCase = true)) {
+                        return
+                    }
                     val failingUrl = request.url?.toString() ?: ""
                     if (failingUrl.startsWith("haze://") || failingUrl.startsWith("about:")) return
                     val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
@@ -5414,6 +5535,10 @@ class MainActivity : AppCompatActivity() {
 
             @Suppress("DEPRECATION")
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                val desc = description ?: ""
+                if (errorCode == -3 || desc.contains("ERR_ABORTED", ignoreCase = true)) {
+                    return
+                }
                 if (failingUrl != null && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:")) {
                     val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
                     val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
@@ -5692,6 +5817,9 @@ class MainActivity : AppCompatActivity() {
                         (function() {
                             if (window.__hazeMediaTrackInstalled) return;
                             window.__hazeMediaTrackInstalled = true;
+                            var _lastReportedPlaying = null;
+                            var _lastReportedTitle = '';
+                            var _lastReportedMuted = null;
 
                             function checkMedia() {
                                 try {
@@ -5699,10 +5827,14 @@ class MainActivity : AppCompatActivity() {
                                     var isPlaying = false;
                                     var width = 16;
                                     var height = 9;
+                                    var isMuted = false;
+                                    var activeEl = null;
                                     for (var i = 0; i < media.length; i++) {
                                         var m = media[i];
                                         if (!m.paused && !m.ended && m.readyState > 1) {
                                             isPlaying = true;
+                                            activeEl = m;
+                                            isMuted = m.muted || m.volume === 0;
                                             if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
                                                 width = m.videoWidth;
                                                 height = m.videoHeight;
@@ -5710,8 +5842,54 @@ class MainActivity : AppCompatActivity() {
                                             break;
                                         }
                                     }
-                                    if (window.Android && window.Android.onMediaStateChange) {
-                                        window.Android.onMediaStateChange(isPlaying, width, height);
+
+                                    if (isPlaying !== _lastReportedPlaying) {
+                                        _lastReportedPlaying = isPlaying;
+                                        if (window.Android && window.Android.onMediaStateChange) {
+                                            window.Android.onMediaStateChange(isPlaying, width, height);
+                                        }
+                                    }
+
+                                    if (isPlaying) {
+                                        var title = '';
+                                        var artist = '';
+                                        var artwork = '';
+                                        if (navigator.mediaSession && navigator.mediaSession.metadata) {
+                                            title = navigator.mediaSession.metadata.title || '';
+                                            artist = navigator.mediaSession.metadata.artist || '';
+                                            if (navigator.mediaSession.metadata.artwork && navigator.mediaSession.metadata.artwork.length > 0) {
+                                                var arts = navigator.mediaSession.metadata.artwork;
+                                                artwork = arts[arts.length - 1].src || '';
+                                            }
+                                        }
+                                        if (!title) {
+                                            var ytTitle = document.querySelector('ytm-media-item .media-item-headline, .ytp-title-link, h1.title, h2.title');
+                                            if (ytTitle) title = (ytTitle.textContent || '').trim();
+                                        }
+                                        if (!title) {
+                                            title = (document.title || '').replace(/\s*-\s*YouTube.*$/i, '').trim();
+                                        }
+                                        if (!artwork) {
+                                            var poster = activeEl ? (activeEl.poster || '') : '';
+                                            if (poster) artwork = poster;
+                                            else {
+                                                var ogImg = document.querySelector('meta[property="og:image"], link[rel="apple-touch-icon"]');
+                                                if (ogImg) artwork = ogImg.getAttribute('content') || ogImg.getAttribute('href') || '';
+                                            }
+                                        }
+
+                                        if (title !== _lastReportedTitle || isMuted !== _lastReportedMuted) {
+                                            _lastReportedTitle = title;
+                                            _lastReportedMuted = isMuted;
+                                            if (window.Android && window.Android.onMediaDetailsChange) {
+                                                window.Android.onMediaDetailsChange(true, title, artist, artwork, isMuted);
+                                            }
+                                        }
+                                    } else if (_lastReportedTitle !== '') {
+                                        _lastReportedTitle = '';
+                                        if (window.Android && window.Android.onMediaDetailsChange) {
+                                            window.Android.onMediaDetailsChange(false, '', '', '', false);
+                                        }
                                     }
                                 } catch(e) {}
                             }
@@ -5719,37 +5897,38 @@ class MainActivity : AppCompatActivity() {
                             function trackElement(el) {
                                 if (!el || el.__hazeTracked) return;
                                 el.__hazeTracked = true;
-                                el.addEventListener('play', checkMedia, true);
-                                el.addEventListener('playing', checkMedia, true);
-                                el.addEventListener('pause', checkMedia, true);
-                                el.addEventListener('ended', checkMedia, true);
-                                el.addEventListener('ratechange', checkMedia, true);
+                                el.addEventListener('play', checkMedia, { passive: true });
+                                el.addEventListener('playing', checkMedia, { passive: true });
+                                el.addEventListener('pause', checkMedia, { passive: true });
+                                el.addEventListener('ended', checkMedia, { passive: true });
+                                el.addEventListener('volumechange', checkMedia, { passive: true });
                             }
 
                             function scanElements() {
                                 var all = document.querySelectorAll('video, audio');
-                                for (var i = 0; i < all.length; i++) {
-                                    trackElement(all[i]);
-                                }
-                                checkMedia();
+                                for (var i = 0; i < all.length; i++) trackElement(all[i]);
                             }
-
                             scanElements();
 
-                            var mediaScanTimer = null;
-                            var observer = new MutationObserver(function() {
-                                if (!mediaScanTimer) {
-                                    mediaScanTimer = setTimeout(function() {
-                                        mediaScanTimer = null;
-                                        scanElements();
-                                    }, 2000);
-                                }
-                            });
-                            if (document.body || document.documentElement) {
-                                observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+                            if (navigator.mediaSession) {
+                                try {
+                                    var origMetadata = Object.getOwnPropertyDescriptor(navigator.mediaSession, 'metadata');
+                                    if (origMetadata && origMetadata.set) {
+                                        var origSet = origMetadata.set;
+                                        Object.defineProperty(navigator.mediaSession, 'metadata', {
+                                            set: function(val) {
+                                                origSet.call(this, val);
+                                                setTimeout(checkMedia, 100);
+                                            },
+                                            get: origMetadata.get,
+                                            configurable: true
+                                        });
+                                    }
+                                } catch(_) {}
                             }
 
-                            setInterval(checkMedia, 1500);
+                            document.addEventListener('DOMContentLoaded', scanElements, { passive: true });
+                            window.addEventListener('load', scanElements, { passive: true });
                         })();
                     """.trimIndent()
                     view?.evaluateJavascript(mediaScript, null)
@@ -8852,7 +9031,8 @@ class MainActivity : AppCompatActivity() {
         addressBarContainer.visibility = View.GONE
         if (::topRightActions.isInitialized) topRightActions.visibility = View.GONE
         if (::topLeftWeather.isInitialized) topLeftWeather.visibility = View.GONE
-        if (::floatingNavContainer.isInitialized) floatingNavContainer.visibility = View.GONE
+
+
 
         // Soft, smooth entrance animation
         fullscreenVideoContainer.alpha = 0f

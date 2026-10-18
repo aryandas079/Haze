@@ -133,25 +133,19 @@ class ChromiumBrowserTab(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
-            @Suppress("DEPRECATION")
-            setRenderPriority(WebSettings.RenderPriority.HIGH)
-
             if (isPrivate) {
                 cacheMode = WebSettings.LOAD_NO_CACHE
             } else {
                 cacheMode = WebSettings.LOAD_DEFAULT
             }
 
-            // Pre-rasterizing hidden tabs increases memory pressure and can
-            // compete with the visible page for raster threads.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                offscreenPreRaster = true
+                offscreenPreRaster = false
             }
         }
 
-        if (config.enableHardwareAcceleration) {
-            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        }
+        // Native Direct RenderThread Acceleration (avoid offscreen layer allocation)
+        webView.setLayerType(View.LAYER_TYPE_NONE, null)
         webView.overScrollMode = View.OVER_SCROLL_ALWAYS
         webView.isNestedScrollingEnabled = true
         webView.isVerticalScrollBarEnabled = false
@@ -354,10 +348,14 @@ class ChromiumBrowserTab(
             }
 
             override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+                val desc = description ?: "Unknown error"
+                if (errorCode == -3 || desc.contains("ERR_ABORTED", ignoreCase = true)) {
+                    return
+                }
                 observer?.onReceivedError(
                     this@ChromiumBrowserTab,
                     errorCode,
-                    description ?: "Unknown error",
+                    desc,
                     failingUrl ?: url
                 )
             }
@@ -370,16 +368,29 @@ class ChromiumBrowserTab(
                 if (request?.isForMainFrame == true) {
                     val errorCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.errorCode ?: -1 else -1
                     val desc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) error?.description?.toString() ?: "" else ""
+                    if (errorCode == -3 || desc.contains("ERR_ABORTED", ignoreCase = true)) {
+                        return
+                    }
                     val failingUrl = request.url?.toString() ?: url
                     observer?.onReceivedError(this@ChromiumBrowserTab, errorCode, desc, failingUrl)
                 }
             }
 
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                val failingUrl = error?.url ?: ""
+                val currentUrl = view?.url ?: url
+                val failingHost = try { Uri.parse(failingUrl).host?.lowercase() } catch (_: Exception) { null }
+                val currentHost = try { Uri.parse(currentUrl).host?.lowercase() } catch (_: Exception) { null }
+
+                if (failingHost != null && currentHost != null && failingHost != currentHost) {
+                    handler?.cancel()
+                    return
+                }
+
                 val cert = error?.certificate
                 val sslInfo = SslErrorInfo(
                     primaryError = error?.primaryError ?: -1,
-                    url = error?.url ?: url,
+                    url = if (failingUrl.isNotEmpty()) failingUrl else currentUrl,
                     certificateSummary = cert?.toString() ?: "Unknown Certificate",
                     issuedTo = cert?.issuedTo?.dName ?: "Unknown",
                     issuedBy = cert?.issuedBy?.dName ?: "Unknown",
@@ -425,14 +436,16 @@ class ChromiumBrowserTab(
                     isMainFrame = isMain,
                     isPrivate = isPrivate
                 )
-                HazeDevToolsManager.recordNetworkRequest(
-                    tabId = id,
-                    url = reqUrl,
-                    method = request.method ?: "GET",
-                    headers = request.requestHeaders ?: emptyMap(),
-                    isMainFrame = isMain,
-                    isBlocked = decision.shouldBlock
-                )
+                if (HazeDevToolsManager.isDevToolsActive()) {
+                    HazeDevToolsManager.recordNetworkRequest(
+                        tabId = id,
+                        url = reqUrl,
+                        method = request.method ?: "GET",
+                        headers = request.requestHeaders ?: emptyMap(),
+                        isMainFrame = isMain,
+                        isBlocked = decision.shouldBlock
+                    )
+                }
                 if (decision.shouldBlock) {
                     if (isMain && decision.isHarmfulPageNavigation) {
                         val isDark = (ctx.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES || isPrivate
@@ -445,16 +458,7 @@ class ChromiumBrowserTab(
                     }
                 }
 
-                // 1.5 - 2.0 GB Fluid Cache Engine (0-1ms cache serving)
-                val cachedResponse = com.example.haze.HazeFluidCacheEngine.interceptRequest(
-                    context = ctx,
-                    request = request,
-                    isPrivate = isPrivate
-                )
-                if (cachedResponse != null) {
-                    return cachedResponse
-                }
-
+                // Native Chromium C++ Cache & Network Stack handles all other assets with HTTP/2 & HTTP/3 QUIC
                 return null
             }
 
@@ -522,13 +526,15 @@ class ChromiumBrowserTab(
                         ConsoleMessage.MessageLevel.TIP, ConsoleMessage.MessageLevel.DEBUG -> HazeDevToolsManager.ConsoleLogEntry.Level.INFO
                         else -> HazeDevToolsManager.ConsoleLogEntry.Level.LOG
                     }
-                    HazeDevToolsManager.recordConsoleMessage(
-                        tabId = id,
-                        message = consoleMessage.message(),
-                        sourceId = consoleMessage.sourceId(),
-                        lineNumber = consoleMessage.lineNumber(),
-                        level = level
-                    )
+                    if (HazeDevToolsManager.isDevToolsActive()) {
+                        HazeDevToolsManager.recordConsoleMessage(
+                            tabId = id,
+                            message = consoleMessage.message(),
+                            sourceId = consoleMessage.sourceId(),
+                            lineNumber = consoleMessage.lineNumber(),
+                            level = level
+                        )
+                    }
                 }
                 return super.onConsoleMessage(consoleMessage)
             }
@@ -763,7 +769,7 @@ class ChromiumBrowserTab(
 
     companion object {
         const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        const val SPOTIFY_DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        const val SPOTIFY_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         // A clean mobile UA that looks like Android Chrome — avoids WebView fingerprinting
         const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 11; Redmi Note 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
@@ -772,114 +778,7 @@ class ChromiumBrowserTab(
                 if (window.__hazeSpotifyEngineInitialized) return;
                 window.__hazeSpotifyEngineInitialized = true;
 
-                // 1. Spoofer for Desktop Chrome on Linux (Optimal Spotify Web Player support)
-                try {
-                    Object.defineProperty(navigator, 'platform', {
-                        get: function() { return 'Linux x86_64'; },
-                        configurable: true
-                    });
-                    if (navigator.userAgentData) {
-                        try {
-                            Object.defineProperty(navigator.userAgentData, 'mobile', { get: function() { return false; }, configurable: true });
-                            Object.defineProperty(navigator.userAgentData, 'platform', { get: function() { return 'Linux'; }, configurable: true });
-                        } catch(_) {}
-                    }
-                } catch(_) {}
-
-                // 2. Network Interceptor: Hook fetch & XHR to return mock 200 OK for ad logic
-                try {
-                    var origFetch = window.fetch;
-                    window.fetch = function(input, init) {
-                        var url = (typeof input === 'string') ? input : (input && input.url ? input.url : '');
-                        if (url && (
-                            url.indexOf('/ad-logic/') !== -1 ||
-                            url.indexOf('/melody/v1/ad') !== -1 ||
-                            url.indexOf('/commercial-break/') !== -1 ||
-                            url.indexOf('/audio-ad/') !== -1 ||
-                            url.indexOf('/ad-slot/') !== -1 ||
-                            url.indexOf('audio-ak-spotify-com') !== -1 ||
-                            url.indexOf('doubleclick.net') !== -1 ||
-                            url.indexOf('googleads') !== -1
-                        )) {
-                            return Promise.resolve(new Response(JSON.stringify({
-                                ad: null,
-                                ads: [],
-                                breaks: [],
-                                slot: "audio_slot",
-                                duration: 0,
-                                eligible: false
-                            }), {
-                                status: 200,
-                                statusText: 'OK',
-                                headers: { 'Content-Type': 'application/json' }
-                            }));
-                        }
-                        return origFetch.apply(this, arguments);
-                    };
-                } catch(_) {}
-
-                try {
-                    var origOpen = XMLHttpRequest.prototype.open;
-                    var origSend = XMLHttpRequest.prototype.send;
-                    XMLHttpRequest.prototype.open = function(method, url) {
-                        this.__hazeUrl = url || '';
-                        return origOpen.apply(this, arguments);
-                    };
-                    XMLHttpRequest.prototype.send = function() {
-                        var url = this.__hazeUrl;
-                        if (url && (
-                            url.indexOf('/ad-logic/') !== -1 ||
-                            url.indexOf('/melody/v1/ad') !== -1 ||
-                            url.indexOf('/commercial-break/') !== -1 ||
-                            url.indexOf('/audio-ad/') !== -1 ||
-                            url.indexOf('/ad-slot/') !== -1 ||
-                            url.indexOf('audio-ak-spotify-com') !== -1 ||
-                            url.indexOf('doubleclick.net') !== -1 ||
-                            url.indexOf('googleads') !== -1
-                        )) {
-                            Object.defineProperty(this, 'status', { get: function() { return 200; } });
-                            Object.defineProperty(this, 'readyState', { get: function() { return 4; } });
-                            Object.defineProperty(this, 'responseText', { get: function() { return '{"ad":null,"ads":[],"breaks":[],"slot":"audio_slot","duration":0,"eligible":false}'; } });
-                            var self = this;
-                            setTimeout(function() {
-                                if (self.onload) self.onload();
-                                if (self.onreadystatechange) self.onreadystatechange();
-                            }, 5);
-                            return;
-                        }
-                        return origSend.apply(this, arguments);
-                    };
-                } catch(_) {}
-
-                function dismissSpotifyModals() {
-                    try {
-                        var modals = document.querySelectorAll('[data-testid="login-modal"], [data-testid="upsell-modal"], div.GenericModal__overlay');
-                        for (var i = 0; i < modals.length; i++) {
-                            var closeBtn = modals[i].querySelector('button[aria-label*="Close" i], [data-testid="close-button"], button[data-testid="dismiss-button"]');
-                            if (closeBtn) closeBtn.click();
-                            else modals[i].remove();
-                        }
-                        var cookieBtn = document.getElementById('onetrust-accept-btn-handler');
-                        if (cookieBtn) cookieBtn.click();
-                    } catch(_) {}
-                }
-
-                // Clean up any residual alternate floating player
-                try {
-                    var oldPlayer = document.getElementById('__haze_floating_player');
-                    if (oldPlayer) oldPlayer.remove();
-                } catch(_) {}
-
-                // Dismiss modals cleanly on load and idle without polling loop
-                function superviseSpotify() {
-                    try {
-                        dismissSpotifyModals();
-                    } catch(_) {}
-                }
-                setTimeout(superviseSpotify, 1000);
-                setTimeout(superviseSpotify, 3500);
-
-                // 6. CSS Styles: Ad removal, touch play buttons, responsive player layout
+                // 1. Cosmetic CSS: Remove banner ads, sponsored cards, upsell modals without breaking player
                 try {
                     var s = document.getElementById('__haze_spotify_engine_css');
                     if (!s) {
@@ -891,11 +790,64 @@ class ChromiumBrowserTab(
                             '[data-testid="tracklist-row"] button[data-testid="play-button"], [data-testid="compact-track-row"] button[data-testid="play-button"], [data-testid="tracklist-row"] [aria-label*="Play" i] { opacity: 1 !important; visibility: visible !important; display: inline-flex !important; pointer-events: auto !important; }',
                             '[data-testid="tracklist-row"], [data-testid="compact-track-row"] { cursor: pointer !important; min-height: 52px !important; }',
                             '.now-playing-bar-container, footer[data-testid="now-playing-bar"] { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; z-index: 99999 !important; }',
-                            '[data-testid="upsell-modal"], [data-testid="login-modal"] { display: none !important; pointer-events: none !important; }',
-                            'div.GenericModal__overlay { pointer-events: none !important; background: transparent !important; }'
+                            '[data-testid="upsell-modal"], [data-testid="login-modal"] { display: none !important; pointer-events: none !important; }'
                         ].join('\n');
                         (document.head || document.documentElement).appendChild(s);
                     }
+                } catch(_) {}
+
+                // 2. Audio playback & Ad supervisor: Mute commercial audio breaks and un-mute music smoothly
+                function handleSpotifyAudio() {
+                    try {
+                        var isAd = !!document.querySelector('[data-testid="now-playing-widget"] [aria-label*="Advertisement" i], .Root__top-bar--banner, [data-testid="ad-banner"]');
+                        var audio = document.querySelector('audio');
+                        if (audio) {
+                            if (isAd) {
+                                audio.muted = true;
+                                if (isFinite(audio.duration) && audio.duration > 0 && audio.currentTime < audio.duration) {
+                                    audio.playbackRate = 16.0;
+                                    audio.currentTime = audio.duration;
+                                }
+                            } else if (audio.muted && !audio.paused) {
+                                audio.muted = false;
+                                audio.playbackRate = 1.0;
+                            }
+                        }
+
+                        // Auto-dismiss cookie consent banner if present
+                        var cookieBtn = document.getElementById('onetrust-accept-btn-handler');
+                        if (cookieBtn) cookieBtn.click();
+                    } catch(_) {}
+                }
+
+                function monitorAudio(a) {
+                    if (!a || a.__hazeAudioMonitored) return;
+                    a.__hazeAudioMonitored = true;
+                    a.addEventListener('play', handleSpotifyAudio, true);
+                    a.addEventListener('playing', handleSpotifyAudio, true);
+                    a.addEventListener('loadedmetadata', handleSpotifyAudio, true);
+                }
+
+                var existingAudio = document.querySelector('audio');
+                if (existingAudio) monitorAudio(existingAudio);
+
+                document.addEventListener('play', function(e) {
+                    if (e.target && e.target.tagName === 'AUDIO') {
+                        monitorAudio(e.target);
+                        handleSpotifyAudio();
+                    }
+                }, true);
+
+                handleSpotifyAudio();
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', handleSpotifyAudio);
+                }
+                window.addEventListener('load', handleSpotifyAudio);
+
+                // Clean up any residual alternate floating player
+                try {
+                    var oldPlayer = document.getElementById('__haze_floating_player');
+                    if (oldPlayer) oldPlayer.remove();
                 } catch(_) {}
             })();
         """.trimIndent()
@@ -1017,16 +969,6 @@ class ChromiumBrowserTab(
                                     return !item.adSlot && !item.adSlotRenderer;
                                 });
                             }
-                        }
-
-                        // Neutralize telemetry and playback tracking
-                        if (obj.playbackTracking) {
-                            obj.playbackTracking.videostatsPlaybackUrl = { baseUrl: '' };
-                            obj.playbackTracking.videostatsDelayplayUrl = { baseUrl: '' };
-                            obj.playbackTracking.videostatsWatchtimeUrl = { baseUrl: '' };
-                            obj.playbackTracking.ptrackingUrl = { baseUrl: '' };
-                            obj.playbackTracking.qoeUrl = { baseUrl: '' };
-                            obj.playbackTracking.atrUrl = { baseUrl: '' };
                         }
 
                         if (obj.playerResponse && typeof obj.playerResponse === 'object') {
@@ -1212,15 +1154,13 @@ class ChromiumBrowserTab(
                                 try { skipBtn.click(); } catch(_) {}
                             }
 
-                            // 3. Fast-forward ad video and trigger completion
+                            // 3. Fast-forward ad video smoothly
                             if (video) {
                                 video.muted = true;
                                 if (isFinite(video.duration) && video.duration > 0) {
+                                    video.playbackRate = 16.0;
                                     video.currentTime = video.duration;
                                 }
-                                try {
-                                    video.dispatchEvent(new Event('ended'));
-                                } catch(_) {}
                             }
 
                             // 4. Remove enforcement dialogs and error modals
@@ -1238,11 +1178,10 @@ class ChromiumBrowserTab(
                     } catch(_) {}
                 }
 
-                // Hook video element events synchronously
+                // Hook video element events synchronously (NO timeupdate polling)
                 function monitorVideo(v) {
                     if (!v || v.__hazeMonitored) return;
                     v.__hazeMonitored = true;
-                    v.addEventListener('timeupdate', killAdInstantly, true);
                     v.addEventListener('loadedmetadata', killAdInstantly, true);
                     v.addEventListener('play', killAdInstantly, true);
                     v.addEventListener('playing', killAdInstantly, true);
@@ -1252,46 +1191,97 @@ class ChromiumBrowserTab(
                 var existingVideo = document.querySelector('video');
                 if (existingVideo) monitorVideo(existingVideo);
 
-                // Watch for new video elements and player class mutations
+                // Watch for new video elements and player class mutations (throttled)
+                var killAdScheduled = false;
+                function scheduleKillAd() {
+                    if (killAdScheduled) return;
+                    killAdScheduled = true;
+                    requestAnimationFrame(function() {
+                        killAdScheduled = false;
+                        killAdInstantly();
+                    });
+                }
+
                 var observer = new MutationObserver(function(mutations) {
-                    killAdInstantly();
                     for (var i = 0; i < mutations.length; i++) {
                         var m = mutations[i];
                         for (var j = 0; j < m.addedNodes.length; j++) {
                             var node = m.addedNodes[j];
                             if (node.nodeType === 1) {
-                                if (node.tagName === 'VIDEO') monitorVideo(node);
-                                else {
-                                    var nested = node.querySelector && node.querySelector('video');
-                                    if (nested) monitorVideo(nested);
+                                if (node.tagName === 'VIDEO') {
+                                    monitorVideo(node);
+                                    scheduleKillAd();
+                                } else if (node.querySelector) {
+                                    var nested = node.querySelector('video');
+                                    if (nested) {
+                                        monitorVideo(nested);
+                                        scheduleKillAd();
+                                    }
                                 }
+                            }
+                        }
+                        if (m.type === 'attributes' && m.attributeName === 'class') {
+                            var targetCls = (m.target && m.target.className) || '';
+                            if (typeof targetCls === 'string' && (targetCls.indexOf('ad-showing') !== -1 || targetCls.indexOf('ad-interrupting') !== -1)) {
+                                scheduleKillAd();
                             }
                         }
                     }
                 });
 
-                if (document.body || document.documentElement) {
-                    observer.observe(document.body || document.documentElement, {
+                var rootToObserve = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.body;
+                if (rootToObserve) {
+                    observer.observe(rootToObserve, {
                         childList: true,
                         subtree: true,
                         attributes: true,
                         attributeFilter: ['class']
                     });
                 } else {
-                    window.addEventListener('DOMContentLoaded', function() {
-                        observer.observe(document.body, {
-                            childList: true,
-                            subtree: true,
-                            attributes: true,
-                            attributeFilter: ['class']
-                        });
+                    document.addEventListener('DOMContentLoaded', function() {
+                        var target = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.body;
+                        if (target) {
+                            observer.observe(target, {
+                                childList: true,
+                                subtree: true,
+                                attributes: true,
+                                attributeFilter: ['class']
+                            });
+                        }
                     });
                 }
 
-                setInterval(killAdInstantly, 250);
                 document.addEventListener('yt-navigate-finish', killAdInstantly);
                 document.addEventListener('yt-page-data-updated', killAdInstantly);
                 killAdInstantly();
+
+                // 8. YouTube Music Auto-Play & Smooth Playback Guard
+                if (isYtMusic) {
+                    function ensureMusicSmoothPlay() {
+                        try {
+                            var mp = document.getElementById('movie_player');
+                            var v = document.querySelector('video');
+                            if (mp && typeof mp.getPlayerState === 'function') {
+                                var s = mp.getPlayerState();
+                                if ((s === -1 || s === 5 || (s === 3 && v && v.paused)) && typeof mp.playVideo === 'function') {
+                                    mp.playVideo();
+                                }
+                            } else if (v && v.paused && v.readyState >= 1) {
+                                v.play().catch(function(){});
+                            }
+                        } catch(_) {}
+                    }
+                    document.addEventListener('yt-navigate-finish', function() {
+                        setTimeout(ensureMusicSmoothPlay, 200);
+                        setTimeout(ensureMusicSmoothPlay, 800);
+                    });
+                    document.addEventListener('click', function(e) {
+                        var playBtn = e.target && e.target.closest && e.target.closest('ytmusic-play-button-renderer, [aria-label*="Play" i], .play-button');
+                        if (playBtn) {
+                            setTimeout(ensureMusicSmoothPlay, 250);
+                        }
+                    }, true);
+                }
             })();
         """.trimIndent()
 
@@ -1299,11 +1289,12 @@ class ChromiumBrowserTab(
             (function() {
                 var host = window.location.hostname || '';
                 var isYtMusic = host.indexOf('music.youtube.com') !== -1;
+                var isSpotify = host.indexOf('spotify.com') !== -1;
                 if (window.__hazeAdGuardShieldInjected) return;
                 window.__hazeAdGuardShieldInjected = true;
 
-                // On music.youtube.com, do NOT inject generic class selectors that conflict with Polymer web components
-                if (isYtMusic) return;
+                // On music.youtube.com and spotify.com, do NOT inject generic class selectors that conflict with core player frameworks
+                if (isYtMusic || isSpotify) return;
 
                 var css = [
                     'ins.adsbygoogle, .adsbygoogle, iframe[id*="google_ads"], iframe[src*="doubleclick.net"], iframe[src*="googlesyndication.com"], iframe[src*="googleadservices.com"], iframe[src*="amazon-adsystem.com"], iframe[src*="adnxs.com"], iframe[src*="criteo.com"], iframe[src*="pubmatic.com"], iframe[src*="openx.net"], iframe[src*="rubiconproject.com"], iframe[src*="smartadserver.com"], iframe[src*="teads.tv"], iframe[src*="adform.net"], div[id*="google_ads"], div[id^="dfp-"], div[id^="gpt-"], div[id*="gpt-ad"], div[id^="div-gpt-ad"], div.ad-slot, div.advertisement, div.advertisement-container, div.advertisement-wrapper, div.advertisement-banner, div.advertisement-slot, div.advertisement-box, div.advertisement-section, div.advertisement-placeholder, section.advertisement, section.ad-container, section.ad-slot, aside.advertisement, aside.ad-container, aside.ad-slot, .ad-banner, .banner-ad, .banner_ad, .ad-slot, .ad-box, .ad-label, .ad-notice, .ad-title, .ad-header, .ad-caption, .advertisement-label, .ad-badge, .sponsored-label, .sponsored-tag, .advertisement, [data-ad-unit], [data-ad-slot], [data-ad-client], [data-ad-name], [data-ad-format], [data-ad-container], [data-ad-wrapper], [data-ad-placeholder], [data-google-query-id], [aria-label="Advertisement" i], [aria-label="Sponsored" i], [aria-label="Advert" i], [aria-label="Anuncio" i], [data-advertisement], .sponsored-post, .sponsored-content, .promoted-content, .sponsored-badge, .sponsored-wrapper, .sponsored-container, .header-ad, .footer-ad, .sidebar-ad, .top-ad, .bottom-ad, .inline-ad, .in-article-ad, .in-content-ad, .native-ad, .native_ad, .sticky-ad, .floating-ad, .tbl-feed-container, .trc_rbox_div, div[id*="taboola"], [data-taboola-placeholder], .outbrain_widget, .OB-widget, div[id*="rc-widget"], .mgbox, .mgid-widget, [data-revcontent], [data-mgid], .ntv-ad, div[id*="nativo"], .ima-ad-container, .video-ad-overlay, .vjs-ad-loading, .jw-flag-ads, .jw-ad-container',
@@ -1649,26 +1640,6 @@ class ChromiumBrowserTab(
                     document.addEventListener('DOMContentLoaded', cleanAdSections);
                 }
                 window.addEventListener('load', cleanAdSections);
-
-                var collapseTimer = null;
-                var observer = new MutationObserver(function() {
-                    if (!collapseTimer) {
-                        collapseTimer = setTimeout(function() {
-                            collapseTimer = null;
-                            cleanAdSections();
-                        }, 250);
-                    }
-                });
-
-                var rootToObserve = document.documentElement || document.body;
-                if (rootToObserve) {
-                    observer.observe(rootToObserve, { childList: true, subtree: true });
-                } else {
-                    document.addEventListener('DOMContentLoaded', function() {
-                        var target = document.documentElement || document.body;
-                        if (target) observer.observe(target, { childList: true, subtree: true });
-                    });
-                }
             })();
         """.trimIndent()
     }

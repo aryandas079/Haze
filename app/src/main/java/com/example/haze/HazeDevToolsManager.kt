@@ -244,6 +244,8 @@ object HazeDevToolsManager {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), context.resources.displayMetrics).toInt()
     }
 
+    fun isDevToolsActive(): Boolean = activeTabUpdateListener != null
+
     fun isDevToolsVisible(activity: MainActivity): Boolean {
         val dock = activity.findViewById<FrameLayout>(R.id.devToolsDockContainer)
         return (dock != null && dock.visibility == View.VISIBLE) || activeDialog?.isShowing == true

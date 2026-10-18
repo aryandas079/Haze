@@ -143,7 +143,10 @@ object HazeDataSaverManager {
             if (window.__hazeDataSaverInjected) return;
             window.__hazeDataSaverInjected = true;
 
-            // 1. Block media autoplay
+            // 1. Block media autoplay (exempt music & video streaming sites)
+            var host = window.location.hostname || '';
+            if (host.indexOf('youtube.com') !== -1 || host.indexOf('spotify.com') !== -1) return;
+
             function neuterMedia(media) {
                 if (!media) return;
                 try {

@@ -441,10 +441,39 @@ object HazePrivacyShieldEngine {
         listeners.remove(listener)
     }
 
-    fun notifyListeners(category: String, total: Long) {
-        mainHandler.post {
-            for (l in listeners) {
-                try { l.onShieldEvent(category, total) } catch (e: Exception) {}
+    @Volatile private var pendingNotificationRunnable: Runnable? = null
+    @Volatile private var lastReportedCategory: String = ""
+
+    fun notifyListeners(category: String, total: Long, immediate: Boolean = false) {
+        if (listeners.isEmpty()) return
+        lastReportedCategory = category
+        if (immediate || category == "RESET" || category == "CONFIG_CHANGE" || category == "WHITELIST") {
+            synchronized(this) {
+                pendingNotificationRunnable?.let { mainHandler.removeCallbacks(it) }
+                pendingNotificationRunnable = null
+            }
+            mainHandler.post {
+                val currentTotal = cachedAllTimeTotal.get() + sessionTotalBlocked.get()
+                for (l in listeners) {
+                    try { l.onShieldEvent(category, currentTotal) } catch (_: Exception) {}
+                }
+            }
+            return
+        }
+        synchronized(this) {
+            if (pendingNotificationRunnable == null) {
+                val runnable = Runnable {
+                    synchronized(this@HazePrivacyShieldEngine) {
+                        pendingNotificationRunnable = null
+                    }
+                    val cat = lastReportedCategory
+                    val currentTotal = cachedAllTimeTotal.get() + sessionTotalBlocked.get()
+                    for (l in listeners) {
+                        try { l.onShieldEvent(cat, currentTotal) } catch (_: Exception) {}
+                    }
+                }
+                pendingNotificationRunnable = runnable
+                mainHandler.postDelayed(runnable, 200L)
             }
         }
     }
@@ -860,8 +889,8 @@ object HazePrivacyShieldEngine {
         if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
             return true
         }
-        if (host.contains("audio-ak-spotify-com") || host.contains("audio-sp-") ||
-            (host.contains("scdn.co") && path.lowercase().contains("/mp3-preview/"))) {
+        if (host.contains("audio-ak-spotify-com") || host.contains("audio-sp-") || host.contains("spotifycdn.net") ||
+            (host.contains("scdn.co") && (path.lowercase().contains("/mp3-preview/") || path.lowercase().contains("/audio/")))) {
             return true
         }
         val lowerPath = path.lowercase()

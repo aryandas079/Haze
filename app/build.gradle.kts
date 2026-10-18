@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.material)
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    implementation("androidx.media:media:1.7.0")
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
