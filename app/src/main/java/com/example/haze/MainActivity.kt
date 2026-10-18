@@ -8332,9 +8332,8 @@ class MainActivity : AppCompatActivity() {
         menuLogo.setImageResource(if (isDark) R.drawable.haze_logo_dark else R.drawable.haze_logo)
         menuDivider.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
         menuRoot.background = GradientDrawable().apply {
-            cornerRadius = dpToPx(22).toFloat()
+            cornerRadius = dpToPx(24).toFloat()
             setColor(menuSurface)
-            setStroke(dpToPx(1), menuStroke)
         }
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)

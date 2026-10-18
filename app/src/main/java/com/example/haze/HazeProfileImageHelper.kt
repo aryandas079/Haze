@@ -56,7 +56,7 @@ object HazeProfileImageHelper {
         return output
     }
 
-    fun generateInitialAvatar(initial: String, sizePx: Int = 128, bgColor: Int = Color.parseColor("#0A56D0")): Bitmap {
+    fun generateInitialAvatar(initial: String, sizePx: Int = 128, bgColor: Int = Color.parseColor("#1A73E8")): Bitmap {
         val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -70,7 +70,7 @@ object HazeProfileImageHelper {
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
             textSize = sizePx * 0.48f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             textAlign = Paint.Align.CENTER
         }
 
