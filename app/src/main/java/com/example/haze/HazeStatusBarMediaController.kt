@@ -72,6 +72,11 @@ class HazeStatusBarMediaController(
             isPlaying = playing
             isMuted = muted
 
+            if (playing) {
+                pendingStopRunnable?.let { stopHandler.removeCallbacks(it) }
+                pendingStopRunnable = null
+            }
+
             if (playing && title.isNotEmpty() && title != lastMediaTitle) {
                 lastMediaTitle = title
             }
@@ -138,11 +143,25 @@ class HazeStatusBarMediaController(
         }
     }
 
+    private val stopHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingStopRunnable: Runnable? = null
+
     fun onMediaStopped(tab: MainActivity.Tab?) {
         activity.runOnUiThread {
             if (currentPlayingTab === tab || tab == null) {
-                isPlaying = false
-                HazeMediaNotificationService.stopMediaNotification(activity)
+                // Debounce stopping: during YouTube Music / web SPA track transitions,
+                // the previous audio element ends and the next begins within 300-800ms.
+                // Stopping the notification immediately tears down MediaSession and creates audio focus thrash.
+                pendingStopRunnable?.let { stopHandler.removeCallbacks(it) }
+                val stopTask = Runnable {
+                    if (!isPlaying) {
+                        currentPlayingTab = null
+                        lastMediaTitle = ""
+                        HazeMediaNotificationService.stopMediaNotification(activity)
+                    }
+                }
+                pendingStopRunnable = stopTask
+                stopHandler.postDelayed(stopTask, 1200L)
             }
         }
     }

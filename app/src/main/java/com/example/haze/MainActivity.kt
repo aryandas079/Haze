@@ -4429,10 +4429,13 @@ class MainActivity : AppCompatActivity() {
         if (HazePerformanceManager.isPerformanceModeEnabled(this)) {
             HazePerformanceManager.unfreezeTab(nextTab)
         }
+        val isMusicTab = previousTab?.url?.contains("music.youtube.com", ignoreCase = true) == true ||
+                previousTab?.url?.contains("spotify.com", ignoreCase = true) == true
         if (previousTab != null &&
             previousTab !== nextTab &&
             activeMediaTab === previousTab &&
-            miniPlayerManager?.isActive != true
+            miniPlayerManager?.isActive != true &&
+            !isMusicTab
         ) {
             showMiniPlayer(previousTab, createBrowsingTab = false)
         }
@@ -4890,6 +4893,12 @@ class MainActivity : AppCompatActivity() {
                                 var _lastReportedPlaying = null;
                                 var _lastReportedTitle = '';
                                 var _lastReportedMuted = null;
+                                var _checkTimer = null;
+
+                                function scheduleCheckMedia(delay) {
+                                    if (_checkTimer) clearTimeout(_checkTimer);
+                                    _checkTimer = setTimeout(checkMedia, delay || 150);
+                                }
 
                                 function checkMedia() {
                                     try {
@@ -4967,11 +4976,11 @@ class MainActivity : AppCompatActivity() {
                                 function trackElement(el) {
                                     if (!el || el.__hazeTracked) return;
                                     el.__hazeTracked = true;
-                                    el.addEventListener('play', checkMedia, { passive: true });
-                                    el.addEventListener('playing', checkMedia, { passive: true });
-                                    el.addEventListener('pause', checkMedia, { passive: true });
-                                    el.addEventListener('ended', checkMedia, { passive: true });
-                                    el.addEventListener('volumechange', checkMedia, { passive: true });
+                                    el.addEventListener('play', function() { scheduleCheckMedia(50); }, { passive: true });
+                                    el.addEventListener('playing', function() { scheduleCheckMedia(50); }, { passive: true });
+                                    el.addEventListener('pause', function() { scheduleCheckMedia(300); }, { passive: true });
+                                    el.addEventListener('ended', function() { scheduleCheckMedia(200); }, { passive: true });
+                                    el.addEventListener('volumechange', function() { scheduleCheckMedia(100); }, { passive: true });
                                 }
 
                                 function scanElements() {
@@ -5467,6 +5476,20 @@ class MainActivity : AppCompatActivity() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                 if (request == null) return null
                 val reqUrl = request.url?.toString() ?: return null
+
+                // Ultra-smooth playback bypass: never delay or buffer-check video/audio streaming chunks
+                // Media Source Extensions (MSE) chunks from googlevideo.com and YouTube Music API player endpoints
+                // must be handled directly by the native Chromium network stack with 0ms overhead.
+                if (HazePrivacyShieldEngine.isYouTubeMediaRequest(reqUrl) || 
+                    HazePrivacyShieldEngine.isMediaStreamRequest(
+                        request.url?.host?.lowercase() ?: "",
+                        request.url?.path ?: "",
+                        reqUrl
+                    )
+                ) {
+                    return null
+                }
+
                 val isMainFrame = request.isForMainFrame
                 val pageUrl = if (isMainFrame) reqUrl else (request.requestHeaders?.get("Referer") ?: request.requestHeaders?.get("referer") ?: topLevelUrl)
 
@@ -5938,6 +5961,12 @@ class MainActivity : AppCompatActivity() {
                             var _lastReportedPlaying = null;
                             var _lastReportedTitle = '';
                             var _lastReportedMuted = null;
+                            var _checkTimer = null;
+
+                            function scheduleCheckMedia(delay) {
+                                if (_checkTimer) clearTimeout(_checkTimer);
+                                _checkTimer = setTimeout(checkMedia, delay || 150);
+                            }
 
                             function checkMedia() {
                                 try {
@@ -6015,11 +6044,11 @@ class MainActivity : AppCompatActivity() {
                             function trackElement(el) {
                                 if (!el || el.__hazeTracked) return;
                                 el.__hazeTracked = true;
-                                el.addEventListener('play', checkMedia, { passive: true });
-                                el.addEventListener('playing', checkMedia, { passive: true });
-                                el.addEventListener('pause', checkMedia, { passive: true });
-                                el.addEventListener('ended', checkMedia, { passive: true });
-                                el.addEventListener('volumechange', checkMedia, { passive: true });
+                                el.addEventListener('play', function() { scheduleCheckMedia(50); }, { passive: true });
+                                el.addEventListener('playing', function() { scheduleCheckMedia(50); }, { passive: true });
+                                el.addEventListener('pause', function() { scheduleCheckMedia(300); }, { passive: true });
+                                el.addEventListener('ended', function() { scheduleCheckMedia(200); }, { passive: true });
+                                el.addEventListener('volumechange', function() { scheduleCheckMedia(100); }, { passive: true });
                             }
 
                             function scanElements() {
@@ -6277,7 +6306,10 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {}
         }
         val tab = activeMediaTab
-        if (tab != null && isMediaPlaying && miniPlayerManager?.isActive != true) {
+        val currentTab = currentTabsList.getOrNull(activeTabIndex)
+        val isMusicUrl = tab?.url?.contains("music.youtube.com", ignoreCase = true) == true ||
+                tab?.url?.contains("spotify.com", ignoreCase = true) == true
+        if (tab != null && isMediaPlaying && miniPlayerManager?.isActive != true && tab !== currentTab && !isMusicUrl) {
             showMiniPlayer(tab, createBrowsingTab = false)
         }
     }

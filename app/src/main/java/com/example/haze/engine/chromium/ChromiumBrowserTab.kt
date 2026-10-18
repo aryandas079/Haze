@@ -1320,17 +1320,18 @@ class ChromiumBrowserTab(
                             var v = document.querySelector('video');
                             if (mp && typeof mp.getPlayerState === 'function') {
                                 var s = mp.getPlayerState();
-                                if ((s === -1 || s === 5 || (s === 3 && v && v.paused)) && typeof mp.playVideo === 'function') {
+                                // State: -1 unstarted, 5 cued, 3 buffering.
+                                // If unstarted or cued, prompt start cleanly. Never interfere while state is 1 (playing) or 2 (user paused).
+                                if ((s === -1 || s === 5) && typeof mp.playVideo === 'function') {
                                     mp.playVideo();
                                 }
-                            } else if (v && v.paused && v.readyState >= 1) {
+                            } else if (v && v.paused && v.readyState >= 2 && !v.__hazeUserPaused) {
                                 v.play().catch(function(){});
                             }
                         } catch(_) {}
                     }
                     document.addEventListener('yt-navigate-finish', function() {
-                        setTimeout(ensureMusicSmoothPlay, 200);
-                        setTimeout(ensureMusicSmoothPlay, 800);
+                        setTimeout(ensureMusicSmoothPlay, 350);
                     });
                     document.addEventListener('click', function(e) {
                         var playBtn = e.target && e.target.closest && e.target.closest('ytmusic-play-button-renderer, [aria-label*="Play" i], .play-button');
