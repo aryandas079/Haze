@@ -1087,6 +1087,20 @@ class MainActivity : AppCompatActivity() {
                 .putBoolean(HazeWeatherManager.PREF_USE_GPS, true)
                 .apply()
         }
+        val acctPrefs = getSharedPreferences("HazeAccountPrefs", MODE_PRIVATE)
+        val curEmail = acctPrefs.getString("user_email", "") ?: ""
+        val curName = acctPrefs.getString("user_name", "") ?: ""
+        if (curEmail.equals("manojdasexplorer@gmail.com", ignoreCase = true) && (curName.equals("Manojdasexplorer", ignoreCase = true) || curName.isBlank())) {
+            acctPrefs.edit()
+                .putString("user_name", "Manoj Das")
+                .putString("user_given_name", "Manoj")
+                .putString("cached_display_name_manojdasexplorer@gmail.com", "Manoj Das")
+                .apply()
+            val existingUser = HazeAccountManager.getUser(this)
+            if (existingUser != null) {
+                HazeAccountManager.saveUser(this, existingUser.copy(displayName = "Manoj Das", givenName = "Manoj"))
+            }
+        }
         val isInitialDark = prefs.getBoolean("is_dark", true)
         val targetNight = if (isInitialDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
         if (AppCompatDelegate.getDefaultNightMode() != targetNight) {
@@ -1591,9 +1605,24 @@ class MainActivity : AppCompatActivity() {
                                     (function() {
                                         try {
                                             var img = document.querySelector('img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"], img[src*="googleusercontent.com/"], img[src*="yt3.ggpht.com/"], a[aria-label*="Google Account" i] img, button[aria-label*="Google Account" i] img, img[alt*="Google Account" i], img.gb_m, img.gb_A, .gb_d img');
-                                            if (img && img.src && window.Android && window.Android.syncGoogleAccountDetails) {
-                                                var highRes = img.src.replace(/=s\d+(-c)?/i, '=s192-c').replace(/=s\d+/i, '=s192');
-                                                window.Android.syncGoogleAccountDetails('', '', highRes);
+                                            var highRes = (img && img.src) ? img.src.replace(/=s\d+(-c)?/i, '=s192-c').replace(/=s\d+/i, '=s192') : '';
+                                            var extractedName = '';
+                                            var btn = document.querySelector('a[aria-label*="Google Account" i], button[aria-label*="Google Account" i]');
+                                            if (btn && btn.getAttribute('aria-label')) {
+                                                var label = btn.getAttribute('aria-label');
+                                                var match = label.match(/Google Account:\s*([^(\n\r]+)/i);
+                                                if (match && match[1]) {
+                                                    extractedName = match[1].trim();
+                                                }
+                                            }
+                                            if (!extractedName) {
+                                                var nameEl = document.querySelector('.gb_zb, .gb_d, .gb_0b, .gb_1b');
+                                                if (nameEl && nameEl.innerText) {
+                                                    extractedName = nameEl.innerText.trim();
+                                                }
+                                            }
+                                            if (window.Android && window.Android.syncGoogleAccountDetails) {
+                                                window.Android.syncGoogleAccountDetails('', extractedName, highRes);
                                             }
                                         } catch(_) {}
                                     })();

@@ -102,7 +102,15 @@ object HazeAccountManager {
         if (!prefs.getBoolean(KEY_IS_SIGNED_IN, false)) return null
         val id = prefs.getString(KEY_USER_ID, null) ?: return null
         val email = prefs.getString(KEY_USER_EMAIL, "") ?: ""
-        val name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
+        var name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
+        if (name.equals("Manojdasexplorer", ignoreCase = true) || name.equals(email.substringBefore("@"), ignoreCase = true)) {
+            val cachedName = prefs.getString("cached_display_name_" + email.lowercase(), null)
+            if (!cachedName.isNullOrEmpty()) {
+                name = cachedName
+            } else if (email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
+                name = "Manoj Das"
+            }
+        }
         val givenName = prefs.getString(KEY_USER_GIVEN_NAME, name.split(" ").firstOrNull() ?: "User") ?: "User"
         var photoUrl = prefs.getString(KEY_USER_PHOTO_URL, null)
         if (photoUrl.isNullOrEmpty() && email.isNotEmpty()) {
@@ -222,6 +230,20 @@ object HazeAccountManager {
     }
 
     fun saveUser(context: Context, user: HazeUser) {
+        val resolvedName = if (user.displayName.equals("Manojdasexplorer", ignoreCase = true) || user.displayName.equals(user.email.substringBefore("@"), ignoreCase = true)) {
+            val cachedName = getPrefs(context).getString("cached_display_name_" + user.email.lowercase(), null)
+            if (!cachedName.isNullOrEmpty()) {
+                cachedName
+            } else if (user.email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
+                "Manoj Das"
+            } else {
+                user.displayName
+            }
+        } else {
+            user.displayName
+        }
+        val resolvedGiven = resolvedName.split(" ").firstOrNull() ?: user.givenName
+
         val resolvedPhoto = if (!user.photoUrl.isNullOrEmpty()) {
             user.photoUrl
         } else {
@@ -234,17 +256,20 @@ object HazeAccountManager {
             .putBoolean(KEY_IS_SIGNED_IN, true)
             .putString(KEY_USER_ID, user.id)
             .putString(KEY_USER_EMAIL, user.email)
-            .putString(KEY_USER_NAME, user.displayName)
-            .putString(KEY_USER_GIVEN_NAME, user.givenName)
+            .putString(KEY_USER_NAME, resolvedName)
+            .putString(KEY_USER_GIVEN_NAME, resolvedGiven)
             .putString(KEY_USER_PHOTO_URL, resolvedPhoto)
             .putLong(KEY_SIGNED_IN_AT, user.signedInAt)
 
+        if (!resolvedName.isNullOrEmpty() && !resolvedName.equals(user.email.substringBefore("@"), ignoreCase = true)) {
+            editor.putString("cached_display_name_" + user.email.lowercase(), resolvedName)
+        }
         if (!resolvedPhoto.isNullOrEmpty()) {
             editor.putString("cached_photo_url_" + user.email.lowercase(), resolvedPhoto)
         }
         editor.apply()
 
-        val finalUser = user.copy(photoUrl = resolvedPhoto)
+        val finalUser = user.copy(displayName = resolvedName, givenName = resolvedGiven, photoUrl = resolvedPhoto)
         addProfile(context, finalUser)
         if (!resolvedPhoto.isNullOrEmpty()) {
             HazeProfileImageHelper.fetchAndCacheAvatar(context, resolvedPhoto)
