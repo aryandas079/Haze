@@ -918,9 +918,6 @@ class MainActivity : AppCompatActivity() {
                     lastVideoWidth = width
                     lastVideoHeight = height
                 }
-                if (!isPlaying) {
-                    statusBarMediaController?.onMediaStopped(tab)
-                }
             }
         }
         @JavascriptInterface
@@ -4771,12 +4768,22 @@ class MainActivity : AppCompatActivity() {
             } else {
                 webContainer.removeView(tabToRemove.browserTab.renderView)
             }
+            if (tabToRemove === activeMediaTab) {
+                activeMediaTab = null
+                isMediaPlaying = false
+                statusBarMediaController?.onMediaStopped(tabToRemove)
+            }
             tabToRemove.browserTab.destroy()
             currentTabsList.removeAt(0)
             switchTab(0)
             return
         }
         val tabToRemove = currentTabsList[index]
+        if (tabToRemove === activeMediaTab) {
+            activeMediaTab = null
+            isMediaPlaying = false
+            statusBarMediaController?.onMediaStopped(tabToRemove)
+        }
         if (tabToRemove.swipeRefreshLayout != null) {
             webContainer.removeView(tabToRemove.swipeRefreshLayout)
         } else {
@@ -4944,131 +4951,7 @@ class MainActivity : AppCompatActivity() {
                         """.trimIndent()
                         tab.evaluateJavascript(selectionScript, null)
 
-                        val mediaScript = """
-                            (function() {
-                                if (window.__hazeMediaTrackInstalled) return;
-                                window.__hazeMediaTrackInstalled = true;
-                                var _lastReportedPlaying = null;
-                                var _lastReportedTitle = '';
-                                var _lastReportedMuted = null;
-                                var _checkTimer = null;
-
-                                function scheduleCheckMedia(delay) {
-                                    if (_checkTimer) clearTimeout(_checkTimer);
-                                    _checkTimer = setTimeout(checkMedia, delay || 150);
-                                }
-
-                                function checkMedia() {
-                                    try {
-                                        var media = document.querySelectorAll('video, audio');
-                                        var isPlaying = false;
-                                        var width = 16;
-                                        var height = 9;
-                                        var isMuted = false;
-                                        var activeEl = null;
-                                        for (var i = 0; i < media.length; i++) {
-                                            var m = media[i];
-                                            if (!m.paused && !m.ended && m.readyState > 1) {
-                                                isPlaying = true;
-                                                activeEl = m;
-                                                isMuted = m.muted || m.volume === 0;
-                                                if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
-                                                    width = m.videoWidth;
-                                                    height = m.videoHeight;
-                                                }
-                                                break;
-                                            }
-                                        }
-
-                                        if (isPlaying !== _lastReportedPlaying) {
-                                            _lastReportedPlaying = isPlaying;
-                                            if (window.Android && window.Android.onMediaStateChange) {
-                                                window.Android.onMediaStateChange(isPlaying, width, height);
-                                            }
-                                        }
-
-                                        if (isPlaying) {
-                                            var title = '';
-                                            var artist = '';
-                                            var artwork = '';
-                                            if (navigator.mediaSession && navigator.mediaSession.metadata) {
-                                                title = navigator.mediaSession.metadata.title || '';
-                                                artist = navigator.mediaSession.metadata.artist || '';
-                                                if (navigator.mediaSession.metadata.artwork && navigator.mediaSession.metadata.artwork.length > 0) {
-                                                    var arts = navigator.mediaSession.metadata.artwork;
-                                                    artwork = arts[arts.length - 1].src || '';
-                                                }
-                                            }
-                                            if (!title) {
-                                                var ytTitle = document.querySelector('ytm-media-item .media-item-headline, .ytp-title-link, h1.title, h2.title');
-                                                if (ytTitle) title = (ytTitle.textContent || '').trim();
-                                            }
-                                            if (!title) {
-                                                title = (document.title || '').replace(/\s*-\s*YouTube.*$/i, '').trim();
-                                            }
-                                            if (!artwork) {
-                                                var poster = activeEl ? (activeEl.poster || '') : '';
-                                                if (poster) artwork = poster;
-                                                else {
-                                                    var ogImg = document.querySelector('meta[property="og:image"], link[rel="apple-touch-icon"]');
-                                                    if (ogImg) artwork = ogImg.getAttribute('content') || ogImg.getAttribute('href') || '';
-                                                }
-                                            }
-
-                                            if (title !== _lastReportedTitle || isMuted !== _lastReportedMuted) {
-                                                _lastReportedTitle = title;
-                                                _lastReportedMuted = isMuted;
-                                                if (window.Android && window.Android.onMediaDetailsChange) {
-                                                    window.Android.onMediaDetailsChange(true, title, artist, artwork, isMuted);
-                                                }
-                                            }
-                                        } else if (_lastReportedTitle !== '') {
-                                            _lastReportedTitle = '';
-                                            if (window.Android && window.Android.onMediaDetailsChange) {
-                                                window.Android.onMediaDetailsChange(false, '', '', '', false);
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-
-                                function trackElement(el) {
-                                    if (!el || el.__hazeTracked) return;
-                                    el.__hazeTracked = true;
-                                    el.addEventListener('play', function() { scheduleCheckMedia(50); }, { passive: true });
-                                    el.addEventListener('playing', function() { scheduleCheckMedia(50); }, { passive: true });
-                                    el.addEventListener('pause', function() { scheduleCheckMedia(300); }, { passive: true });
-                                    el.addEventListener('ended', function() { scheduleCheckMedia(200); }, { passive: true });
-                                    el.addEventListener('volumechange', function() { scheduleCheckMedia(100); }, { passive: true });
-                                }
-
-                                function scanElements() {
-                                    var all = document.querySelectorAll('video, audio');
-                                    for (var i = 0; i < all.length; i++) trackElement(all[i]);
-                                }
-                                scanElements();
-
-                                if (navigator.mediaSession) {
-                                    try {
-                                        var origMetadata = Object.getOwnPropertyDescriptor(navigator.mediaSession, 'metadata');
-                                        if (origMetadata && origMetadata.set) {
-                                            var origSet = origMetadata.set;
-                                            Object.defineProperty(navigator.mediaSession, 'metadata', {
-                                                set: function(val) {
-                                                    origSet.call(this, val);
-                                                    setTimeout(checkMedia, 100);
-                                                },
-                                                get: origMetadata.get,
-                                                configurable: true
-                                            });
-                                        }
-                                    } catch(_) {}
-                                }
-
-                                document.addEventListener('DOMContentLoaded', scanElements, { passive: true });
-                                window.addEventListener('load', scanElements, { passive: true });
-                            })();
-                        """.trimIndent()
-                        tab.evaluateJavascript(mediaScript, null)
+                        tab.evaluateJavascript(HazeStatusBarMediaController.MEDIA_DETECTION_SCRIPT, null)
 
                         // Automatic non-English page detection hook
                         tab.evaluateJavascript(HazeTranslationManager.getLanguageDetectionScript(), null)
@@ -5176,6 +5059,7 @@ class MainActivity : AppCompatActivity() {
         if (targetView == null || targetUrl.isNullOrEmpty() || targetUrl.startsWith("haze://") || targetUrl.startsWith("about:") || targetUrl.startsWith("data:")) return
         if (!HazePrivacyShieldEngine.isShieldEnabled(this)) return
         val domain = runCatching { Uri.parse(targetUrl).host }.getOrNull()
+        if (domain?.contains("youtube.com", ignoreCase = true) == true) return
         val compiledCosmetic = HazeFilterListManager.getCosmeticCss(this, domain)
         if (compiledCosmetic.isNotEmpty()) {
             val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
@@ -5282,7 +5166,8 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView(webView: WebView) {
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        // Native Direct RenderThread Acceleration: avoid forcing intermediate offscreen GPU buffer
+        webView.setLayerType(View.LAYER_TYPE_NONE, null)
         webView.overScrollMode = View.OVER_SCROLL_ALWAYS
         webView.isNestedScrollingEnabled = true
         webView.isVerticalScrollBarEnabled = false
@@ -5913,34 +5798,6 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    // 1. Advanced Cosmetic Filtering (Element Hiding CSS) across all websites
-                    val pageDomain = runCatching { Uri.parse(url).host }.getOrNull()
-                    val compiledCss = HazeFilterListManager.getCosmeticCss(this@MainActivity, pageDomain)
-                    val escapedCss = compiledCss.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
-                    val cosmeticCss = """
-                        (function() {
-                            var style = document.getElementById('__haze_cosmetic_style');
-                            if (!style) {
-                                style = document.createElement('style');
-                                style.id = '__haze_cosmetic_style';
-                                style.type = 'text/css';
-                                (document.head || document.documentElement).appendChild(style);
-                            }
-                            if ('$escapedCss'.length > 0) {
-                                style.textContent = '$escapedCss';
-                            }
-                            // Unblock page scrolling if cookie banner or anti-adblock overlay locked overflow
-                            try {
-                                if (document.body && (getComputedStyle(document.body).overflow === 'hidden' || getComputedStyle(document.documentElement).overflow === 'hidden')) {
-                                    document.body.style.setProperty('overflow', 'auto', 'important');
-                                    document.documentElement.style.setProperty('overflow', 'auto', 'important');
-                                }
-                            } catch(_) {}
-                        })();
-                    """.trimIndent()
-                    view?.evaluateJavascript(cosmeticCss, null)
-                    updatePrivacyShieldButton()
-
                     // 2. Safe & Reliable YouTube Ad-Free Engine
                     if (url.contains("youtube.com", ignoreCase = true)) {
                         view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT, null)
@@ -5968,169 +5825,7 @@ class MainActivity : AppCompatActivity() {
                     view?.evaluateJavascript(selectionScript, null)
 
                     // Media Playback detection script injection
-                    val mediaScript = """
-                        (function() {
-                            if (window.__hazeMediaTrackInstalled) {
-                                if (window.__hazeScanMediaElements) window.__hazeScanMediaElements();
-                                return;
-                            }
-                            window.__hazeMediaTrackInstalled = true;
-                            var _lastReportedPlaying = null;
-                            var _lastReportedTitle = '';
-                            var _lastReportedMuted = null;
-                            var _checkTimer = null;
-
-                            function scheduleCheckMedia(delay) {
-                                if (_checkTimer) clearTimeout(_checkTimer);
-                                _checkTimer = setTimeout(checkMedia, delay || 100);
-                            }
-
-                            function checkMedia() {
-                                try {
-                                    var media = document.querySelectorAll('video, audio');
-                                    var isPlaying = false;
-                                    var width = 16;
-                                    var height = 9;
-                                    var isMuted = false;
-                                    var activeEl = null;
-                                    for (var i = 0; i < media.length; i++) {
-                                        var m = media[i];
-                                        if (!m.paused && !m.ended && (m.readyState >= 1 || m.currentTime > 0)) {
-                                            isPlaying = true;
-                                            activeEl = m;
-                                            isMuted = m.muted || m.volume === 0;
-                                            if (m.tagName.toLowerCase() === 'video' && m.videoWidth > 0 && m.videoHeight > 0) {
-                                                width = m.videoWidth;
-                                                height = m.videoHeight;
-                                            }
-                                            break;
-                                        }
-                                    }
-
-                                    if (isPlaying !== _lastReportedPlaying) {
-                                        _lastReportedPlaying = isPlaying;
-                                        if (window.Android && window.Android.onMediaStateChange) {
-                                            window.Android.onMediaStateChange(isPlaying, width, height);
-                                        }
-                                    }
-
-                                    if (isPlaying) {
-                                        var title = '';
-                                        var artist = '';
-                                        var artwork = '';
-                                        if (navigator.mediaSession && navigator.mediaSession.metadata) {
-                                            title = navigator.mediaSession.metadata.title || '';
-                                            artist = navigator.mediaSession.metadata.artist || '';
-                                            if (navigator.mediaSession.metadata.artwork && navigator.mediaSession.metadata.artwork.length > 0) {
-                                                var arts = navigator.mediaSession.metadata.artwork;
-                                                artwork = arts[arts.length - 1].src || '';
-                                            }
-                                        }
-                                        if (!title) {
-                                            var ytTitle = document.querySelector('yt-formatted-string.title, ytm-media-item .media-item-headline, .ytp-title-link, .song-title, .title.ytmusic-player-bar, h1.title, h2.title');
-                                            if (ytTitle) title = (ytTitle.textContent || '').trim();
-                                        }
-                                        if (!artist) {
-                                            var ytArtist = document.querySelector('.byline.ytmusic-player-bar, .yt-simple-endpoint.yt-formatted-string, .subtitle.ytmusic-player-bar');
-                                            if (ytArtist) artist = (ytArtist.textContent || '').trim();
-                                        }
-                                        if (!title) {
-                                            title = (document.title || '').replace(/\s*-\s*YouTube.*$/i, '').trim();
-                                        }
-                                        if (!artwork) {
-                                            var ytThumb = document.querySelector('.image.ytmusic-player-bar, img.ytp-cued-thumbnail-overlay-image, .thumbnail-image-wrapper img');
-                                            if (ytThumb && ytThumb.src) artwork = ytThumb.src;
-                                        }
-                                        if (!artwork) {
-                                            var poster = activeEl ? (activeEl.poster || '') : '';
-                                            if (poster) artwork = poster;
-                                            else {
-                                                var ogImg = document.querySelector('meta[property="og:image"], link[rel="apple-touch-icon"]');
-                                                if (ogImg) artwork = ogImg.getAttribute('content') || ogImg.getAttribute('href') || '';
-                                            }
-                                        }
-
-                                        if (title !== _lastReportedTitle || isMuted !== _lastReportedMuted) {
-                                            _lastReportedTitle = title;
-                                            _lastReportedMuted = isMuted;
-                                            if (window.Android && window.Android.onMediaDetailsChange) {
-                                                window.Android.onMediaDetailsChange(true, title, artist, artwork, isMuted);
-                                            }
-                                        }
-                                    } else if (_lastReportedTitle !== '') {
-                                        _lastReportedTitle = '';
-                                        if (window.Android && window.Android.onMediaDetailsChange) {
-                                            window.Android.onMediaDetailsChange(false, '', '', '', false);
-                                        }
-                                    }
-                                } catch(e) {}
-                            }
-
-                            function trackElement(el) {
-                                if (!el || el.__hazeTracked) return;
-                                el.__hazeTracked = true;
-                                el.addEventListener('play', function() { scheduleCheckMedia(30); }, { passive: true });
-                                el.addEventListener('playing', function() { scheduleCheckMedia(30); }, { passive: true });
-                                el.addEventListener('pause', function() { scheduleCheckMedia(250); }, { passive: true });
-                                el.addEventListener('ended', function() { scheduleCheckMedia(200); }, { passive: true });
-                                el.addEventListener('timeupdate', function() {
-                                    if (!_lastReportedPlaying && !el.paused && (el.readyState >= 1 || el.currentTime > 0)) {
-                                        scheduleCheckMedia(50);
-                                    }
-                                }, { passive: true });
-                                el.addEventListener('volumechange', function() { scheduleCheckMedia(80); }, { passive: true });
-                            }
-
-                            function scanElements() {
-                                var all = document.querySelectorAll('video, audio');
-                                for (var i = 0; i < all.length; i++) trackElement(all[i]);
-                            }
-                            window.__hazeScanMediaElements = scanElements;
-                            scanElements();
-
-                            try {
-                                var obs = new MutationObserver(function() {
-                                    scanElements();
-                                });
-                                obs.observe(document.documentElement || document.body, { childList: true, subtree: true });
-                            } catch(_) {}
-
-                            if (navigator.mediaSession) {
-                                try {
-                                    var origMetadata = Object.getOwnPropertyDescriptor(navigator.mediaSession, 'metadata');
-                                    if (origMetadata && origMetadata.set) {
-                                        var origSet = origMetadata.set;
-                                        Object.defineProperty(navigator.mediaSession, 'metadata', {
-                                            set: function(val) {
-                                                origSet.call(this, val);
-                                                setTimeout(checkMedia, 50);
-                                            },
-                                            get: origMetadata.get,
-                                            configurable: true
-                                        });
-                                    }
-
-                                    // Intercept setActionHandler to support direct mediaSession triggers
-                                    window.__hazeActionHandlers = window.__hazeActionHandlers || {};
-                                    var origSetAction = navigator.mediaSession.setActionHandler;
-                                    if (origSetAction) {
-                                        navigator.mediaSession.setActionHandler = function(action, handler) {
-                                            window.__hazeActionHandlers[action] = handler;
-                                            return origSetAction.call(this, action, handler);
-                                        };
-                                    }
-                                } catch(_) {}
-                            }
-
-                            // Hook SPA navigation events common in YouTube Music & Spotify
-                            window.addEventListener('yt-navigate-finish', function() { setTimeout(checkMedia, 200); }, { passive: true });
-                            window.addEventListener('popstate', function() { setTimeout(checkMedia, 200); }, { passive: true });
-                            window.addEventListener('hashchange', function() { setTimeout(checkMedia, 200); }, { passive: true });
-                            document.addEventListener('DOMContentLoaded', scanElements, { passive: true });
-                            window.addEventListener('load', scanElements, { passive: true });
-                        })();
-                    """.trimIndent()
-                    view?.evaluateJavascript(mediaScript, null)
+                    view?.evaluateJavascript(HazeStatusBarMediaController.MEDIA_DETECTION_SCRIPT, null)
                     updateNavigationButtons()
                 }
             }
@@ -9611,15 +9306,6 @@ class MainActivity : AppCompatActivity() {
                 val dy = ev.rawY - gestureStartY
                 val absX = Math.abs(dx)
                 val absY = Math.abs(dy)
-
-                val currentTabForScroll = currentTabsList.getOrNull(activeTabIndex)
-                if (currentTabForScroll != null && !isHomeTab(currentTabForScroll) && !isSearchActive && !isAddressBarTouch && !isEdgeTouch) {
-                    if (!isAddressBarHidden && dy < -dpToPx(40) && absY > absX * 1.5f) {
-                        hideAddressBar(animated = true)
-                    } else if (isAddressBarHidden && dy > dpToPx(40) && absY > absX * 1.5f) {
-                        showAddressBar(animated = true)
-                    }
-                }
 
                 // 1. Address bar swipe tracking
                 if (isAddressBarTouch && !isSearchActive) {

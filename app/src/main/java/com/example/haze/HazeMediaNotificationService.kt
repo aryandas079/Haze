@@ -147,7 +147,18 @@ class HazeMediaNotificationService : Service() {
     }
 
     private fun initMediaSession() {
+        val clickIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingClickIntent = PendingIntent.getActivity(
+            this,
+            0,
+            clickIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+        )
+
         mediaSession = MediaSessionCompat(this, "HazeMediaSession").apply {
+            setSessionActivity(pendingClickIntent)
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlay() {
                     listener?.onNotificationPlay()
@@ -243,8 +254,14 @@ class HazeMediaNotificationService : Service() {
         val metadataBuilder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentArtist)
-        if (cachedArtworkBitmap != null) {
-            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, cachedArtworkBitmap)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentArtist)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, currentArtist)
+        val bmp = cachedArtworkBitmap
+        if (bmp != null && !bmp.isRecycled) {
+            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bmp)
+            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bmp)
+            metadataBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, bmp)
         }
         mediaSession?.setMetadata(metadataBuilder.build())
     }
@@ -257,6 +274,7 @@ class HazeMediaNotificationService : Service() {
                 val bmp = BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
                 if (bmp != null) {
                     cachedArtworkBitmap = bmp
+                    updateMediaSessionState(currentIsPlaying)
                     val notification = buildNotification(bmp)
                     startForeground(NOTIFICATION_ID, notification)
                     return
@@ -270,12 +288,14 @@ class HazeMediaNotificationService : Service() {
                 conn.connectTimeout = 3000
                 conn.readTimeout = 4000
                 conn.doInput = true
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 11; Mobile) HazeBrowser/2.2")
                 conn.connect()
                 val inputStream: InputStream = conn.inputStream
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream.close()
                 if (bitmap != null) {
                     cachedArtworkBitmap = bitmap
+                    updateMediaSessionState(currentIsPlaying)
                     val notification = buildNotification(bitmap)
                     val nm = getSystemService(NotificationManager::class.java)
                     nm?.notify(NOTIFICATION_ID, notification)

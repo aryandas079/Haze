@@ -312,8 +312,9 @@ class ChromiumBrowserTab(
 
                 if (!nonNullUrl.startsWith("haze://") && !nonNullUrl.startsWith("about:")) {
                     view?.evaluateJavascript(com.example.haze.HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
-                    if (HazePrivacyShieldEngine.isShieldEnabled(webView.context)) {
-                        val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
+                    val domain = runCatching { Uri.parse(nonNullUrl).host }.getOrNull()
+                    val isYouTube = domain?.contains("youtube.com", ignoreCase = true) == true
+                    if (!isYouTube && HazePrivacyShieldEngine.isShieldEnabled(webView.context)) {
                         val compiledCosmetic = HazeFilterListManager.getCosmeticCss(webView.context, domain)
                         if (compiledCosmetic.isNotEmpty()) {
                             val escapedCss = compiledCosmetic.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
@@ -473,6 +474,19 @@ class ChromiumBrowserTab(
                         obsResult.responseHeaders,
                         obsResult.data
                     )
+                }
+
+                // Ultra-smooth playback bypass: never delay or buffer-check video/audio streaming chunks
+                // Media Source Extensions (MSE) chunks from googlevideo.com and YouTube Music API player endpoints
+                // must be handled directly by the native Chromium network stack with 0ms overhead.
+                if (HazePrivacyShieldEngine.isYouTubeMediaRequest(reqUrl) || 
+                    HazePrivacyShieldEngine.isMediaStreamRequest(
+                        request.url?.host?.lowercase() ?: "",
+                        request.url?.path ?: "",
+                        reqUrl
+                    )
+                ) {
+                    return null
                 }
 
                 val ctx = webView.context
@@ -1024,11 +1038,10 @@ class ChromiumBrowserTab(
                     window.addEventListener('DOMContentLoaded', setYtCfg);
                 } catch(_) {}
 
-                // 7. Instant 0ms Ad Killer (Synchronous, Event-Driven, No Buffering Stalls)
-                function killAdInstantly() {
+                // 3. Fast and Safe YouTube Ad Skipping (Click-only, Never tamper with video element properties or playbackRate)
+                function skipAdSafely() {
                     try {
                         var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-                        var video = document.querySelector('video.html5-main-video') || document.querySelector('video');
                         var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
 
                         if (adShowing || (player && player.classList && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting')))) {
@@ -1047,17 +1060,7 @@ class ChromiumBrowserTab(
                                 try { skipBtn.click(); } catch(_) {}
                             }
 
-                            // 3. Fast-forward ad video smoothly without locking up playback engine
-                            if (video) {
-                                video.__hazeWasAd = true;
-                                video.muted = true;
-                                if (isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration) {
-                                    video.playbackRate = 16.0;
-                                    video.currentTime = video.duration - 0.05;
-                                }
-                            }
-
-                            // 4. Remove enforcement dialogs and error modals
+                            // 3. Remove modal promo and upsell overlays
                             var enforcement = document.querySelectorAll(
                                 'ytd-enforcement-message-view-model, #enforcement-message, yt-playability-error-supported-renderers, ' +
                                 'ytm-mealbar-promo-renderer, ytm-upsell-dialog-renderer, ytd-mealbar-promo-renderer'
@@ -1065,64 +1068,27 @@ class ChromiumBrowserTab(
                             for (var i = 0; i < enforcement.length; i++) enforcement[i].remove();
                             var backdrops = document.querySelectorAll('tp-yt-iron-overlay-backdrop');
                             for (var b = 0; b < backdrops.length; b++) backdrops[b].remove();
-                        } else if (video && video.__hazeWasAd) {
-                            video.__hazeWasAd = false;
-                            if (video.playbackRate > 2.0) {
-                                video.playbackRate = 1.0;
-                            }
-                            if (video.muted && !video.paused) {
-                                video.muted = false;
-                            }
                         }
                     } catch(_) {}
                 }
 
-                // Hook video element events synchronously (NO timeupdate polling)
-                function monitorVideo(v) {
-                    if (!v || v.__hazeMonitored) return;
-                    v.__hazeMonitored = true;
-                    v.addEventListener('loadedmetadata', killAdInstantly, true);
-                    v.addEventListener('play', killAdInstantly, true);
-                    v.addEventListener('playing', killAdInstantly, true);
-                    v.addEventListener('loadstart', killAdInstantly, true);
-                }
-
-                var existingVideo = document.querySelector('video');
-                if (existingVideo) monitorVideo(existingVideo);
-
-                // Watch for new video elements and player class mutations (throttled)
-                var killAdScheduled = false;
-                function scheduleKillAd() {
-                    if (killAdScheduled) return;
-                    killAdScheduled = true;
+                var skipScheduled = false;
+                function scheduleSkipAd() {
+                    if (skipScheduled) return;
+                    skipScheduled = true;
                     requestAnimationFrame(function() {
-                        killAdScheduled = false;
-                        killAdInstantly();
+                        skipScheduled = false;
+                        skipAdSafely();
                     });
                 }
 
                 var observer = new MutationObserver(function(mutations) {
                     for (var i = 0; i < mutations.length; i++) {
                         var m = mutations[i];
-                        for (var j = 0; j < m.addedNodes.length; j++) {
-                            var node = m.addedNodes[j];
-                            if (node.nodeType === 1) {
-                                if (node.tagName === 'VIDEO') {
-                                    monitorVideo(node);
-                                    scheduleKillAd();
-                                } else if (node.querySelector) {
-                                    var nested = node.querySelector('video');
-                                    if (nested) {
-                                        monitorVideo(nested);
-                                        scheduleKillAd();
-                                    }
-                                }
-                            }
-                        }
                         if (m.type === 'attributes' && m.attributeName === 'class') {
                             var targetCls = (m.target && m.target.className) || '';
                             if (typeof targetCls === 'string' && (targetCls.indexOf('ad-showing') !== -1 || targetCls.indexOf('ad-interrupting') !== -1)) {
-                                scheduleKillAd();
+                                scheduleSkipAd();
                             }
                         }
                     }
@@ -1131,7 +1097,7 @@ class ChromiumBrowserTab(
                 var rootToObserve = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.body;
                 if (rootToObserve) {
                     observer.observe(rootToObserve, {
-                        childList: true,
+                        childList: false,
                         subtree: true,
                         attributes: true,
                         attributeFilter: ['class']
@@ -1141,7 +1107,7 @@ class ChromiumBrowserTab(
                         var target = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.body;
                         if (target) {
                             observer.observe(target, {
-                                childList: true,
+                                childList: false,
                                 subtree: true,
                                 attributes: true,
                                 attributeFilter: ['class']
@@ -1150,38 +1116,9 @@ class ChromiumBrowserTab(
                     });
                 }
 
-                document.addEventListener('yt-navigate-finish', killAdInstantly);
-                document.addEventListener('yt-page-data-updated', killAdInstantly);
-                killAdInstantly();
-
-                // 8. YouTube Music Auto-Play & Smooth Playback Guard
-                if (isYtMusic) {
-                    function ensureMusicSmoothPlay() {
-                        try {
-                            var mp = document.getElementById('movie_player');
-                            var v = document.querySelector('video');
-                            if (mp && typeof mp.getPlayerState === 'function') {
-                                var s = mp.getPlayerState();
-                                // State: -1 unstarted, 5 cued, 3 buffering.
-                                // If unstarted or cued, prompt start cleanly. Never interfere while state is 1 (playing) or 2 (user paused).
-                                if ((s === -1 || s === 5) && typeof mp.playVideo === 'function') {
-                                    mp.playVideo();
-                                }
-                            } else if (v && v.paused && v.readyState >= 2 && !v.__hazeUserPaused) {
-                                v.play().catch(function(){});
-                            }
-                        } catch(_) {}
-                    }
-                    document.addEventListener('yt-navigate-finish', function() {
-                        setTimeout(ensureMusicSmoothPlay, 350);
-                    });
-                    document.addEventListener('click', function(e) {
-                        var playBtn = e.target && e.target.closest && e.target.closest('ytmusic-play-button-renderer, [aria-label*="Play" i], .play-button');
-                        if (playBtn) {
-                            setTimeout(ensureMusicSmoothPlay, 250);
-                        }
-                    }, true);
-                }
+                document.addEventListener('yt-navigate-finish', skipAdSafely);
+                document.addEventListener('yt-page-data-updated', skipAdSafely);
+                skipAdSafely();
             })();
         """.trimIndent()
 

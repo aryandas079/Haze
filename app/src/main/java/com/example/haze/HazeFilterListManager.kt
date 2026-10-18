@@ -186,8 +186,7 @@ object HazeFilterListManager {
         "##ytm-mealbar-promo-renderer", "##yt-mealbar-promo-renderer", "##ytd-mealbar-promo-renderer",
         "##ytm-upsell-dialog-renderer", "##ytd-offline-promo-renderer",
         "##ytd-enforcement-message-view-model", "###enforcement-message",
-        "##tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)",
-        "##tp-yt-paper-dialog:has(#feedback)", "##yt-playability-error-supported-renderers",
+        "##yt-playability-error-supported-renderers",
         "##ytm-search ytm-compact-promoted-video-renderer",
         "##div[data-testid='ad-banner']", "##div[data-testid='companion-ad']",
         // Annoying Overlays & Cookie Consent Walls

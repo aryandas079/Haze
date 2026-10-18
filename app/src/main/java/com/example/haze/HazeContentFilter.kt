@@ -81,8 +81,7 @@ object HazeContentFilter {
         "ytm-mealbar-promo-renderer", "yt-mealbar-promo-renderer", "ytd-mealbar-promo-renderer",
         "ytm-upsell-dialog-renderer", "ytd-offline-promo-renderer",
         "ytd-enforcement-message-view-model", "#enforcement-message",
-        "tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)",
-        "tp-yt-paper-dialog:has(#feedback)", "yt-playability-error-supported-renderers",
+        "yt-playability-error-supported-renderers",
         "ytm-search ytm-compact-promoted-video-renderer",
         // Generic Video Player Ad Overlays
         ".ima-ad-container", ".video-ad-overlay", ".vjs-ad-loading", ".jw-flag-ads", ".jw-ad-container",
@@ -179,18 +178,6 @@ object HazeContentFilter {
                     max-height: none !important;
                     max-width: none !important;
                     pointer-events: auto !important;
-                }
-                html, body {
-                    overflow: auto !important;
-                    position: static !important;
-                    max-height: none !important;
-                    filter: none !important;
-                    -webkit-filter: none !important;
-                }
-                article, main, .content, .article-body, .story-body {
-                    filter: none !important;
-                    -webkit-filter: none !important;
-                    user-select: auto !important;
                 }
             """.trimIndent()
             return "$hideRules\n$videoProtectionRule"

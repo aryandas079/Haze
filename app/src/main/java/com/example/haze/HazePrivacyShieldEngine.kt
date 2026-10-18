@@ -920,10 +920,14 @@ object HazePrivacyShieldEngine {
     internal fun isYouTubeMediaRequest(requestUrl: String): Boolean {
         val uri = try { Uri.parse(requestUrl) } catch (_: Exception) { return false }
         val host = uri.host?.lowercase()?.removePrefix("www.") ?: return false
+        if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
+            return true
+        }
         val path = uri.path.orEmpty().lowercase()
-        return (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) &&
-            (path == "/videoplayback" || path.startsWith("/videoplayback/") ||
-                path.contains("/manifest/") || uri.getQueryParameter("mime")?.startsWith("video/") == true)
+        return path == "/videoplayback" || path.startsWith("/videoplayback/") ||
+            path.contains("/manifest/") ||
+            uri.getQueryParameter("mime")?.startsWith("video/") == true ||
+            uri.getQueryParameter("mime")?.startsWith("audio/") == true
     }
 
     private fun isYouTubeAdRequest(host: String, path: String, url: String): Boolean {
