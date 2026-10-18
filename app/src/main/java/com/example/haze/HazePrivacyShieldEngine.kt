@@ -343,7 +343,7 @@ object HazePrivacyShieldEngine {
                 WebResourceResponse("application/javascript", "UTF-8", 200, "OK", headers, ByteArrayInputStream(bytes))
             }
             lower.contains("/api/stats/") || lower.contains("/pagead/") || lower.contains("/ptracking") ||
-            lower.contains("/ad_break") || lower.contains("/get_midroll_info") || lower.contains("googlevideo.com") -> {
+            lower.contains("/ad_break") || lower.contains("/get_midroll_info") -> {
                 WebResourceResponse("text/plain", "UTF-8", 204, "No Content", headers, ByteArrayInputStream(ByteArray(0)))
             }
             lower.contains(".css") -> {
@@ -507,11 +507,14 @@ object HazePrivacyShieldEngine {
         // Anti-Bot & CAPTCHA Services
         "recaptcha.net", "hcaptcha.com", "challenges.cloudflare.com", "turnstile.cloudflare.com",
         "arkoselabs.com", "client-api.arkoselabs.com", "geetest.com",
-        // Standard Web CDNs & Framework Assets
+        // Standard Web CDNs & Framework Assets & Core Search/Wiki Destinations
         "fonts.googleapis.com", "fonts.gstatic.com", "cdnjs.cloudflare.com",
         "cdn.jsdelivr.net", "unpkg.com", "code.jquery.com", "ajax.googleapis.com",
         "cdn.tailwindcss.com", "cdn.esm.sh", "esm.sh", "cdn.skypack.dev",
-        "khronos.org", "threejs.org", "unity3d.com"
+        "khronos.org", "threejs.org", "unity3d.com",
+        "wikipedia.org", "wikimedia.org", "upload.wikimedia.org", "wiktionary.org", "wikidata.org",
+        "google.com", "googlevideo.com", "ytimg.com", "youtube.com", "music.youtube.com",
+        "spotify.com", "spotifycdn.net", "scdn.co"
     )
 
     // Known Popup, Popunder, and Redirect Ad Networks
@@ -646,7 +649,13 @@ object HazePrivacyShieldEngine {
         }
         val isBalancedMode = HazeSiteCompatibilityManager.getSiteMode(context, currentSiteHost) == HazeSiteCompatibilityManager.MODE_BALANCED
 
-        // 2. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs)
+        // 2a. Never block legitimate video and audio media streams!
+        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
+        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+            return BlockDecision.ALLOW
+        }
+
+        // 2b. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs, core web destinations)
         if (matchesDomainOrSuffix(reqHost, essentialDomains)) {
             return BlockDecision.ALLOW
         }
@@ -668,12 +677,6 @@ object HazePrivacyShieldEngine {
                 recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate, pageHost)
                 return decision
             }
-        }
-
-        // 2b. Never block legitimate video and audio media streams!
-        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
-        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
-            return BlockDecision.ALLOW
         }
 
         // Native C++ HazeShieldCore Execution
@@ -925,13 +928,7 @@ object HazePrivacyShieldEngine {
 
     private fun isYouTubeAdRequest(host: String, path: String, url: String): Boolean {
         if (host == "googlevideo.com" || host.endsWith(".googlevideo.com")) {
-            val lowerUrl = url.lowercase()
-            return lowerUrl.contains("adformat=") ||
-                lowerUrl.contains("ctier=a") ||
-                lowerUrl.contains("&oad=") ||
-                lowerUrl.contains("&ad_type=") ||
-                lowerUrl.contains("&ad=") ||
-                (lowerUrl.contains("c=web_embedded_player") && lowerUrl.contains("&ad_"))
+            return false
         }
 
         val adHosts = host == "doubleclick.net" || host.endsWith(".doubleclick.net") ||
