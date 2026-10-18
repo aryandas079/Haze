@@ -1004,13 +1004,47 @@ class MainActivity : AppCompatActivity() {
         fun syncGoogleAccountDetails(email: String?, displayName: String?, avatarUrl: String?) {
             runOnUiThread {
                 val current = HazeAccountManager.getUser(this@MainActivity)
-                val targetEmail = if (!email.isNullOrBlank()) email else (current?.email ?: "")
-                if (targetEmail.isBlank()) return@runOnUiThread
-                val resolvedName = if (!displayName.isNullOrBlank() && displayName.length > 1) displayName else (current?.displayName ?: targetEmail.substringBefore("@"))
+                val deviceAccount = HazeAccountManager.detectDeviceGoogleAccount(this@MainActivity)
+
+                var targetEmail = if (!email.isNullOrBlank() && email.contains("@")) {
+                    email.trim()
+                } else if (current != null && current.email.contains("@")) {
+                    current.email
+                } else if (deviceAccount != null && deviceAccount.email.contains("@")) {
+                    deviceAccount.email
+                } else {
+                    ""
+                }
+
+                var resolvedName = if (!displayName.isNullOrBlank() && displayName.length > 1 && !displayName.startsWith("http")) {
+                    displayName.trim()
+                } else if (current != null && current.displayName.isNotBlank() && !current.displayName.startsWith("http")) {
+                    current.displayName
+                } else if (deviceAccount != null && deviceAccount.displayName.isNotBlank()) {
+                    deviceAccount.displayName
+                } else if (targetEmail.contains("@")) {
+                    targetEmail.substringBefore("@")
+                } else {
+                    "Google User"
+                }
+
+                if (targetEmail.isBlank() && resolvedName.contains("@")) {
+                    targetEmail = resolvedName
+                }
+
+                if (targetEmail.isBlank()) {
+                    targetEmail = resolvedName.lowercase().replace(" ", "") + "@gmail.com"
+                }
+
                 val givenName = resolvedName.split(" ").firstOrNull() ?: "User"
-                val resolvedPhoto = if (!avatarUrl.isNullOrBlank()) avatarUrl else current?.photoUrl
+                val resolvedPhoto = if (!avatarUrl.isNullOrBlank()) {
+                    avatarUrl.trim()
+                } else {
+                    current?.photoUrl ?: deviceAccount?.photoUrl
+                }
+
                 val updatedUser = HazeAccountManager.HazeUser(
-                    id = current?.id ?: "google_$targetEmail",
+                    id = current?.id ?: "google_${targetEmail.lowercase()}",
                     email = targetEmail,
                     displayName = resolvedName,
                     givenName = givenName,
@@ -1019,6 +1053,7 @@ class MainActivity : AppCompatActivity() {
                 )
                 HazeAccountManager.saveUser(this@MainActivity, updatedUser)
                 HazeAccountManager.setCompletedGoogleWebLogin(this@MainActivity, true)
+
                 if (!resolvedPhoto.isNullOrEmpty()) {
                     HazeProfileImageHelper.fetchAndCacheAvatar(this@MainActivity, resolvedPhoto) {
                         updateProfileButton()
@@ -1026,6 +1061,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     updateProfileButton()
+                    reloadHomeTabsIfOpen()
                 }
             }
         }
@@ -1581,10 +1617,10 @@ class MainActivity : AppCompatActivity() {
     private var avatarProbeWebView: WebView? = null
 
     fun probeGoogleAvatarIfNeeded() {
-        val user = HazeAccountManager.getUser(this) ?: return
-        if (!user.photoUrl.isNullOrEmpty() && HazeProfileImageHelper.hasCachedAvatar(this)) return
+        val user = HazeAccountManager.getUser(this)
+        if (user != null && !user.photoUrl.isNullOrEmpty() && HazeProfileImageHelper.hasCachedAvatar(this)) return
 
-        if (!user.photoUrl.isNullOrEmpty()) {
+        if (user != null && !user.photoUrl.isNullOrEmpty()) {
             HazeProfileImageHelper.fetchAndCacheAvatar(this, user.photoUrl) {
                 runOnUiThread { updateProfileButton() }
             }
@@ -1607,22 +1643,44 @@ class MainActivity : AppCompatActivity() {
                                             var img = document.querySelector('img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"], img[src*="googleusercontent.com/"], img[src*="yt3.ggpht.com/"], a[aria-label*="Google Account" i] img, button[aria-label*="Google Account" i] img, img[alt*="Google Account" i], img.gb_m, img.gb_A, .gb_d img');
                                             var highRes = (img && img.src) ? img.src.replace(/=s\d+(-c)?/i, '=s192-c').replace(/=s\d+/i, '=s192') : '';
                                             var extractedName = '';
-                                            var btn = document.querySelector('a[aria-label*="Google Account" i], button[aria-label*="Google Account" i]');
-                                            if (btn && btn.getAttribute('aria-label')) {
-                                                var label = btn.getAttribute('aria-label');
-                                                var match = label.match(/Google Account:\s*([^(\n\r]+)/i);
-                                                if (match && match[1]) {
-                                                    extractedName = match[1].trim();
+                                            var extractedEmail = '';
+
+                                            var accountElements = document.querySelectorAll('a[aria-label*="Google Account" i], button[aria-label*="Google Account" i], [aria-label*="@gmail.com" i], [aria-label*="@google" i], a[href*="myaccount.google.com"]');
+                                            for (var i = 0; i < accountElements.length; i++) {
+                                                var label = accountElements[i].getAttribute('aria-label') || '';
+                                                var nameMatch = label.match(/Google Account:\s*([^(\n\r]+)/i) || label.match(/^([^\n\r(]+)/i);
+                                                if (nameMatch && nameMatch[1] && !extractedName) {
+                                                    var candidate = nameMatch[1].trim();
+                                                    if (candidate.indexOf('http') === -1 && candidate.length > 1) {
+                                                        extractedName = candidate;
+                                                    }
+                                                }
+                                                var emailMatch = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                                if (emailMatch && emailMatch[1] && !extractedEmail) {
+                                                    extractedEmail = emailMatch[1].trim();
                                                 }
                                             }
+
                                             if (!extractedName) {
-                                                var nameEl = document.querySelector('.gb_zb, .gb_d, .gb_0b, .gb_1b');
+                                                var nameEl = document.querySelector('.gb_zb, .gb_d, .gb_0b, .gb_1b, #email');
                                                 if (nameEl && nameEl.innerText) {
-                                                    extractedName = nameEl.innerText.trim();
+                                                    var txt = nameEl.innerText.trim();
+                                                    if (txt.indexOf('@') !== -1 && !extractedEmail) extractedEmail = txt;
+                                                    else if (txt.length > 1) extractedName = txt;
                                                 }
                                             }
-                                            if (window.Android && window.Android.syncGoogleAccountDetails) {
-                                                window.Android.syncGoogleAccountDetails('', extractedName, highRes);
+
+                                            if (!extractedEmail) {
+                                                var emailEl = document.querySelector('.gb_0b, [data-email], [data-identifier], span[dir="ltr"]');
+                                                if (emailEl) {
+                                                    var txtE = (emailEl.getAttribute('data-email') || emailEl.getAttribute('data-identifier') || emailEl.innerText || '').trim();
+                                                    var eMatch = txtE.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                                    if (eMatch && eMatch[1]) extractedEmail = eMatch[1];
+                                                }
+                                            }
+
+                                            if ((extractedName || highRes || extractedEmail) && window.Android && window.Android.syncGoogleAccountDetails) {
+                                                window.Android.syncGoogleAccountDetails(extractedEmail, extractedName, highRes);
                                             }
                                         } catch(_) {}
                                     })();

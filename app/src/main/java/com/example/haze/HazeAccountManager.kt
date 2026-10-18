@@ -91,15 +91,59 @@ object HazeAccountManager {
         notifyAccountChanged(if (enabled) null else getUser(context))
     }
 
+    fun detectDeviceGoogleAccount(context: Context): HazeUser? {
+        try {
+            val accountManager = AccountManager.get(context)
+            val accounts = accountManager.getAccountsByType("com.google")
+            if (accounts.isNotEmpty()) {
+                val primary = accounts[0]
+                val email = primary.name
+                if (email.contains("@")) {
+                    val rawName = email.substringBefore("@")
+                    val name = rawName.replace(".", " ").replace("_", " ")
+                        .split(" ")
+                        .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } }
+                    val givenName = name.split(" ").firstOrNull() ?: "User"
+                    
+                    val prefs = getPrefs(context)
+                    val cachedName = prefs.getString("cached_display_name_" + email.lowercase(), null) ?: name
+                    var cachedPhoto = prefs.getString("cached_photo_url_" + email.lowercase(), null)
+                    
+                    if (cachedPhoto.isNullOrEmpty() && email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
+                        cachedPhoto = "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
+                    }
+
+                    return HazeUser(
+                        id = "google_device_" + email.lowercase(),
+                        email = email,
+                        displayName = cachedName,
+                        givenName = givenName,
+                        photoUrl = cachedPhoto
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
     fun isSignedIn(context: Context): Boolean {
         if (isGuestMode(context)) return false
-        return getPrefs(context).getBoolean(KEY_IS_SIGNED_IN, false) && getUser(context) != null
+        return getUser(context) != null
     }
 
     fun getUser(context: Context): HazeUser? {
         if (isGuestMode(context)) return null
         val prefs = getPrefs(context)
-        if (!prefs.getBoolean(KEY_IS_SIGNED_IN, false)) return null
+        
+        if (!prefs.getBoolean(KEY_IS_SIGNED_IN, false)) {
+            val deviceUser = detectDeviceGoogleAccount(context)
+            if (deviceUser != null) {
+                saveUser(context, deviceUser)
+                return deviceUser
+            }
+            return null
+        }
+
         val id = prefs.getString(KEY_USER_ID, null) ?: return null
         val email = prefs.getString(KEY_USER_EMAIL, "") ?: ""
         var name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
