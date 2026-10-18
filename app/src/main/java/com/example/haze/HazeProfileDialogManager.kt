@@ -118,7 +118,7 @@ object HazeProfileDialogManager {
         }
 
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
 
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)
@@ -379,7 +379,7 @@ object HazeProfileDialogManager {
     // =========================================================================
     private fun showSignedOutProfilePanel(activity: MainActivity) {
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
 
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)
@@ -555,7 +555,7 @@ object HazeProfileDialogManager {
     // =========================================================================
     fun openGoogleAppsSuite(activity: MainActivity, user: HazeAccountManager.HazeUser? = null) {
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
 
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)

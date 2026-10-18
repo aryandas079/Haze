@@ -154,7 +154,7 @@ class ChromiumBrowserTab(
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
 
-        val isDark = isPrivate || webView.context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", false)
+        val isDark = isPrivate || webView.context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE).getBoolean("is_dark", true)
         webView.setBackgroundColor(if (isDark) android.graphics.Color.parseColor("#121212") else android.graphics.Color.WHITE)
         try {
             if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.ALGORITHMIC_DARKENING)) {
@@ -333,17 +333,17 @@ class ChromiumBrowserTab(
                     nonNullUrl.contains("accounts.google.com/ManageAccount")) {
                     com.example.haze.HazeAccountManager.setCompletedGoogleWebLogin(webView.context, true)
                 }
-                if (nonNullUrl.contains("google.com", ignoreCase = true)) {
+                if (nonNullUrl.contains("google.com", ignoreCase = true) || nonNullUrl.contains("youtube.com", ignoreCase = true)) {
                     val extractGoogleAvatarScript = """
                         (function() {
                             function extractGoogleProfile() {
                                 try {
-                                    var img = document.querySelector('a[aria-label*="Google Account" i] img, a[aria-label*="Compte Google" i] img, a[aria-label*="Cuenta de Google" i] img, img[alt*="Google Account" i], img[alt*="Profile photo" i], img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"]');
+                                    var img = document.querySelector('img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"], img[src*="googleusercontent.com/"], img[src*="yt3.ggpht.com/"], a[aria-label*="Google Account" i] img, button[aria-label*="Google Account" i] img, a[aria-label*="Compte Google" i] img, a[aria-label*="Cuenta de Google" i] img, img[alt*="Google Account" i], img[alt*="Profile photo" i], img[alt*="Account" i], img.gb_m, img.gb_A, .gb_d img, ytm-profile-icon img, button.yt-spec-avatar img');
                                     var avatarUrl = img ? (img.src || '') : '';
                                     
                                     // Also check aria-label or title for display name and email
-                                    var accountBtn = document.querySelector('a[aria-label*="Google Account" i], a[aria-label*="@" i]');
-                                    var label = accountBtn ? (accountBtn.getAttribute('aria-label') || '') : '';
+                                    var accountBtn = document.querySelector('a[aria-label*="Google Account" i], button[aria-label*="Google Account" i], a[aria-label*="@" i]');
+                                    var label = accountBtn ? (accountBtn.getAttribute('aria-label') || accountBtn.getAttribute('title') || '') : '';
                                     var email = '';
                                     var name = '';
                                     var emailMatch = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
@@ -359,12 +359,13 @@ class ChromiumBrowserTab(
                                     
                                     if (avatarUrl && window.Android && window.Android.syncGoogleAccountDetails) {
                                         // Request higher resolution (e.g., s192-c instead of s32-c)
-                                        var highRes = avatarUrl.replace(/=s\d+(-c)?/i, '=s192-c');
+                                        var highRes = avatarUrl.replace(/=s\d+(-c)?/i, '=s192-c').replace(/=s\d+/i, '=s192');
                                         window.Android.syncGoogleAccountDetails(email, name, highRes);
                                     }
                                 } catch(_) {}
                             }
-                            setTimeout(extractGoogleProfile, 1000);
+                            setTimeout(extractGoogleProfile, 600);
+                            setTimeout(extractGoogleProfile, 1500);
                             setTimeout(extractGoogleProfile, 3000);
                         })();
                     """.trimIndent()

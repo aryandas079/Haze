@@ -19,8 +19,8 @@
   [![Language](https://img.shields.io/badge/Kotlin-1.9+-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
   [![Native Engine](https://img.shields.io/badge/C%2B%2B-17-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white)](https://isocpp.org/)
   [![Build System](https://img.shields.io/badge/CMake-3.22.1-064F8C?style=for-the-badge&logo=cmake&logoColor=white)](https://cmake.org/)
-  [![License](https://img.shields.io/badge/License-Proprietary%20%7C%20All%20Rights%20Reserved-red?style=for-the-badge)](LICENSE)
-  [![Status](https://img.shields.io/badge/Source-Protected%20%26%20Confidential-critical?style=for-the-badge)](LICENSE)
+  [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
+  [![Open Source](https://img.shields.io/badge/Open%20Source-Yes-brightgreen?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -53,9 +53,9 @@
   - [Running Tests](#running-tests)
 - [Privacy and Security Blueprint](#privacy-and-security-blueprint)
 - [Roadmap](#roadmap)
-- [Intellectual Property and Legal Restrictions](#intellectual-property-and-legal-restrictions)
+- [Contributing and Community](#contributing-and-community)
 - [Author and Contact](#author-and-contact)
-- [Copyright and Licensing](#copyright-and-licensing)
+- [License](#license)
 
 ---
 
@@ -522,20 +522,25 @@ Haze treats user privacy as a fundamental architectural constraint, not an after
 
 ---
 
-## Intellectual Property and Legal Restrictions
+## Contributing and Community
 
-This repository, including all source code, software architecture, native C++ engines, custom Chromium integrations, algorithms, user interfaces, branding, and graphics, is strictly **Proprietary and Confidential**.
+Haze Browser is open source and community-driven. We welcome contributions from developers worldwide, including bug fixes, engine optimizations, documentation improvements, and feature proposals.
 
-- **Strict Prohibition on Copying and Forking**: You are strictly prohibited from copying, cloning, reproducing, duplicating, mirroring, or creating unauthorized forks of this repository or any portion thereof.
-- **Prohibition on Derivative Works**: No individual or entity may create derivative works, rebrand, repackage, decompile, reverse engineer, or extract native binaries (`libcontent_shell_content_view.so`, `libhazeshield.so`) or assets without prior express written permission from Aryan Das.
-- **Prohibition on Copyright Claims**: Any attempt to assert, file, register, or claim copyright, patent, trademark, or ownership rights over this software or its constituent components is strictly illegal and void.
-- **Issues and Inquiries**: Bug reports and vulnerability disclosures may be submitted through GitHub Issues.
+1. **Fork the Repository**: Create your feature branch (`git checkout -b feature/amazing-feature`).
+2. **Adhere to Code Standards**: Follow established Kotlin and modern C++17 conventions.
+3. **Commit Your Changes**: Keep commit messages clear, descriptive, and atomic (`git commit -m 'Add native feature'`).
+4. **Push to Branch**: (`git push origin feature/amazing-feature`).
+5. **Open a Pull Request**: Submit your pull request with a detailed description of changes and test results.
+
+### Code of Conduct and Issue Tracking
+- Bug reports and feature suggestions are tracked via [GitHub Issues](https://github.com/aryandas079/Haze/issues).
+- Please ensure sensitive credentials and personal data are redacted from issue reports and log outputs.
 
 ---
 
 ## Author and Contact
 
-**Haze Browser** is designed, architected, and developed by **Aryan Das**.
+**Haze Browser** is designed, architected, and maintained by **Aryan Das**.
 
 - **GitHub**: [@aryandas079](https://github.com/aryandas079)
 - **LinkedIn**: [Aryan Das](https://linkedin.com/in/iam-aryandas)
@@ -543,49 +548,31 @@ This repository, including all source code, software architecture, native C++ en
 
 ---
 
-## Copyright and Licensing
+## License
 
-### Proprietary Copyright Notice
-
-```text
-Copyright (c) 2026 Aryan Das. All Rights Reserved.
-```
-
-### Proprietary License and Legal Warning
-
-**NOTICE TO ALL USERS, DEVELOPERS, AND ENTITIES:**
-
-This software and its associated source code are **NOT** open source and are **NOT** licensed under Apache, MIT, GPL, or any permissive public license. Viewing this repository does not grant any license, right, title, or interest.
+Haze Browser is released as open source software under the terms of the **Apache License, Version 2.0**.
 
 ```text
-LEGAL PROHIBITION ON COPYING, REPRODUCTION, AND RE-DISTRIBUTION
+Copyright (c) 2026 Aryan Das
 
-1. PROHIBITION OF COPYING:
-   Copying, downloading for reproduction, scraping, duplicating, or replicating any code,
-   scripts, native C++ routines, shaders, or visual components of Haze Browser is strictly
-   illegal without direct, signed written consent from Aryan Das.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-2. PROHIBITION OF CLAIMING COPYRIGHT OR OWNERSHIP:
-   It is strictly illegal to claim copyright, co-authorship, ownership, or intellectual property
-   rights over this code, design, or brand. The code and all derivative concepts are the
-   exclusive property of Aryan Das.
+    http://www.apache.org/licenses/LICENSE-2.0
 
-3. PROHIBITION OF COMMERCIAL AND NON-COMMERCIAL DISTRIBUTION:
-   No portion of this software may be sold, resold, leased, sublicensed, published, embedded,
-   or distributed across any third-party app stores, websites, packages, or code repositories.
-
-4. CIVIL AND CRIMINAL LIABILITY:
-   Any infringement, unauthorized reproduction, distribution, or reverse engineering constitutes
-   an actionable violation of international copyright conventions (including the Berne Convention
-   and WIPO Copyright Treaty) and applicable national intellectual property statutes.
-   All infringements will be prosecuted to the maximum legal limit, including claims for statutory
-   damages, immediate injunctive relief, legal fee recovery, and criminal referral.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 ```
 
-For formal inquiries, enterprise licensing requests, or written permissions, contact **Aryan Das** via [GitHub](https://github.com/aryandas079) or [LinkedIn](https://linkedin.com/in/iam-aryandas).
+For full details, please refer to the [LICENSE](LICENSE) file located in the root of this repository.
 
 ---
 
 <div align="center">
-  <sub>Copyright (c) 2026 Aryan Das. All Rights Reserved. Proprietary & Confidential.</sub>
+  <sub>Copyright (c) 2026 Aryan Das. Licensed under the Apache License, Version 2.0.</sub>
 </div>
+

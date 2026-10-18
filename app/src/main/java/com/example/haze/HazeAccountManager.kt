@@ -268,23 +268,12 @@ object HazeAccountManager {
         notifyAccountChanged(null)
     }
 
-    const val WEB_CLIENT_ID = "1062570508044-gjjqql7b8qshahah65jv459t5aj78kpn.apps.googleusercontent.com"
-
     fun getGoogleSignInClient(activity: Activity): GoogleSignInClient {
-        return try {
-            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestIdToken(WEB_CLIENT_ID)
-                .requestEmail()
-                .requestProfile()
-                .build()
-            GoogleSignIn.getClient(activity, gso)
-        } catch (e: Exception) {
-            val fallbackGso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestProfile()
-                .build()
-            GoogleSignIn.getClient(activity, fallbackGso)
-        }
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestProfile()
+            .build()
+        return GoogleSignIn.getClient(activity, gso)
     }
 
     fun handleSignInIntentResult(
@@ -315,6 +304,9 @@ object HazeAccountManager {
             )
 
             saveUser(context, user)
+            if (!user.photoUrl.isNullOrEmpty()) {
+                HazeProfileImageHelper.fetchAndCacheAvatar(context, user.photoUrl)
+            }
             setOnboardingCompleted(context, true)
             onSuccess(user)
         } catch (e: ApiException) {
@@ -377,17 +369,34 @@ object HazeAccountManager {
                 part.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
             }
             val givenName = capitalized.split(" ").firstOrNull() ?: "User"
+            val lastGoogleAccount = if (context is Activity) GoogleSignIn.getLastSignedInAccount(context) else null
+            val photoUrl = if (lastGoogleAccount != null && lastGoogleAccount.email.equals(accountName, ignoreCase = true)) {
+                lastGoogleAccount.photoUrl?.toString()
+            } else {
+                null
+            }
             val user = HazeUser(
                 id = "google_$accountName",
                 email = accountName,
                 displayName = capitalized,
                 givenName = givenName,
-                photoUrl = null,
+                photoUrl = photoUrl,
                 signedInAt = System.currentTimeMillis()
             )
             saveUser(context, user)
+            if (!photoUrl.isNullOrEmpty()) {
+                HazeProfileImageHelper.fetchAndCacheAvatar(context, photoUrl)
+            }
             setOnboardingCompleted(context, true)
             onSuccess(user)
+
+            if (photoUrl == null && context is Activity) {
+                silentSignIn(context) { updated ->
+                    if (updated?.photoUrl != null && context is MainActivity) {
+                        context.updateProfileButton()
+                    }
+                }
+            }
         } else {
             onError("No Google account selected.")
         }
@@ -399,15 +408,20 @@ object HazeAccountManager {
             val givenName = lastAccount.givenName
                 ?: lastAccount.displayName?.split(" ")?.firstOrNull()
                 ?: "User"
+            val photoUrl = lastAccount.photoUrl?.toString()
+            val existing = getUser(activity)
             val user = HazeUser(
-                id = lastAccount.id ?: lastAccount.email ?: "google_user",
-                email = lastAccount.email ?: "",
-                displayName = lastAccount.displayName ?: givenName,
+                id = lastAccount.id ?: lastAccount.email ?: (existing?.id ?: "google_user"),
+                email = lastAccount.email ?: (existing?.email ?: ""),
+                displayName = lastAccount.displayName ?: (existing?.displayName ?: givenName),
                 givenName = givenName,
-                photoUrl = lastAccount.photoUrl?.toString(),
-                signedInAt = System.currentTimeMillis()
+                photoUrl = photoUrl ?: existing?.photoUrl,
+                signedInAt = existing?.signedInAt ?: System.currentTimeMillis()
             )
             saveUser(activity, user)
+            if (!user.photoUrl.isNullOrEmpty()) {
+                HazeProfileImageHelper.fetchAndCacheAvatar(activity, user.photoUrl)
+            }
             onResult(user)
             return
         }
@@ -419,15 +433,20 @@ object HazeAccountManager {
                 val givenName = account.givenName
                     ?: account.displayName?.split(" ")?.firstOrNull()
                     ?: "User"
+                val photoUrl = account.photoUrl?.toString()
+                val existing = getUser(activity)
                 val user = HazeUser(
-                    id = account.id ?: account.email ?: "google_user",
-                    email = account.email ?: "",
-                    displayName = account.displayName ?: givenName,
+                    id = account.id ?: account.email ?: (existing?.id ?: "google_user"),
+                    email = account.email ?: (existing?.email ?: ""),
+                    displayName = account.displayName ?: (existing?.displayName ?: givenName),
                     givenName = givenName,
-                    photoUrl = account.photoUrl?.toString(),
-                    signedInAt = System.currentTimeMillis()
+                    photoUrl = photoUrl ?: existing?.photoUrl,
+                    signedInAt = existing?.signedInAt ?: System.currentTimeMillis()
                 )
                 saveUser(activity, user)
+                if (!user.photoUrl.isNullOrEmpty()) {
+                    HazeProfileImageHelper.fetchAndCacheAvatar(activity, user.photoUrl)
+                }
                 onResult(user)
             } else {
                 // Return cached user if any, or null

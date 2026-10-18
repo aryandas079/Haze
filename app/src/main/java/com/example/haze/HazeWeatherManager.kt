@@ -122,6 +122,9 @@ class HazeWeatherManager(
             showWeatherOverlay()
         }
         applyThemeToWidget(container, ivIcon, tvTemp)
+        if (prefs.getBoolean(PREF_USE_GPS, true)) {
+            checkAndRequestLocationPermission()
+        }
         refreshWeather(force = false)
     }
 
@@ -133,7 +136,7 @@ class HazeWeatherManager(
         ivIcon: ImageView,
         tvTemp: TextView
     ) {
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
         val cornerRad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 22f, activity.resources.displayMetrics)
 
         val pillBg = GradientDrawable().apply {
@@ -465,7 +468,7 @@ class HazeWeatherManager(
         }
 
         val dialog = BottomSheetDialog(activity)
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
         val bgColor = if (isDark) Color.parseColor("#18191A") else Color.WHITE
         val cardBgColor = if (isDark) Color.parseColor("#242526") else Color.parseColor("#F8F9FA")
@@ -970,7 +973,7 @@ class HazeWeatherManager(
      * Dialog to configure weather location and unit (°C or °F) with Material 3 UI theme
      */
     fun showWeatherSettingsDialog() {
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
         val dialogBgColor = if (isDark) Color.parseColor("#1E1F22") else Color.parseColor("#FFFFFF")
         val cardBgColor = if (isDark) Color.parseColor("#2B2D31") else Color.parseColor("#F2F4F8")

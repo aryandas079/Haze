@@ -75,7 +75,7 @@ object HazeTabSystemManager {
     ) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
         val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
@@ -248,7 +248,7 @@ object HazeTabSystemManager {
     fun showTabHistoryDialog(activity: MainActivity, tab: MainActivity.Tab, onNavigated: () -> Unit) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
         val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
@@ -385,7 +385,7 @@ object HazeTabSystemManager {
     fun showSendToDeviceDialog(activity: MainActivity, tabs: List<MainActivity.Tab>) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
         val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
@@ -495,7 +495,7 @@ object HazeTabSystemManager {
     fun showQrCodeDialog(activity: MainActivity, title: String, url: String) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
@@ -786,7 +786,7 @@ object HazeTabSystemManager {
     fun showGesturesSettingsDialog(activity: MainActivity) {
         activity.triggerStrongHaptic()
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0A56D0"))
         val bgColor = if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF")
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")

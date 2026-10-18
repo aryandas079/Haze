@@ -432,7 +432,7 @@ class MainActivity : AppCompatActivity() {
     fun updateProfileButton() {
         runOnUiThread {
             if (!::btnProfile.isInitialized || !::ivProfileAvatar.isInitialized) return@runOnUiThread
-            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
             val isGuest = HazeAccountManager.isGuestMode(this)
             val user = HazeAccountManager.getUser(this)
 
@@ -453,7 +453,9 @@ class MainActivity : AppCompatActivity() {
                     user.givenName,
                     ivProfileAvatar,
                     dpToPx(38)
-                )
+                ) { bmp ->
+                    ivProfileAvatar.setImageBitmap(bmp)
+                }
             } else {
                 ivProfileAvatar.clearColorFilter()
                 ivProfileAvatar.scaleType = ImageView.ScaleType.CENTER_INSIDE
@@ -472,7 +474,7 @@ class MainActivity : AppCompatActivity() {
         val btnSearchEngineDropdown = findViewById<LinearLayout>(R.id.btnSearchEngineDropdown)
         val currentTab = getActiveTab()
         val isHome = currentTab == null || isHomeTab(currentTab) || currentTab.url == HAZE_HOME_URL || currentTab.url.isEmpty()
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)
@@ -501,7 +503,7 @@ class MainActivity : AppCompatActivity() {
         val ivActiveEngineChevron = findViewById<ImageView>(R.id.ivActiveEngineChevron) ?: return
         if (!::omniboxManager.isInitialized) return
 
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val hintColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
         val searchEngineName = prefs.getString("search_engine", "Google") ?: "Google"
@@ -1001,14 +1003,15 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun syncGoogleAccountDetails(email: String?, displayName: String?, avatarUrl: String?) {
             runOnUiThread {
-                if (email.isNullOrBlank()) return@runOnUiThread
                 val current = HazeAccountManager.getUser(this@MainActivity)
-                val resolvedName = if (!displayName.isNullOrBlank() && displayName.length > 1) displayName else (current?.displayName ?: email.substringBefore("@"))
+                val targetEmail = if (!email.isNullOrBlank()) email else (current?.email ?: "")
+                if (targetEmail.isBlank()) return@runOnUiThread
+                val resolvedName = if (!displayName.isNullOrBlank() && displayName.length > 1) displayName else (current?.displayName ?: targetEmail.substringBefore("@"))
                 val givenName = resolvedName.split(" ").firstOrNull() ?: "User"
                 val resolvedPhoto = if (!avatarUrl.isNullOrBlank()) avatarUrl else current?.photoUrl
                 val updatedUser = HazeAccountManager.HazeUser(
-                    id = current?.id ?: "google_$email",
-                    email = email,
+                    id = current?.id ?: "google_$targetEmail",
+                    email = targetEmail,
                     displayName = resolvedName,
                     givenName = givenName,
                     photoUrl = resolvedPhoto,
@@ -1016,7 +1019,14 @@ class MainActivity : AppCompatActivity() {
                 )
                 HazeAccountManager.saveUser(this@MainActivity, updatedUser)
                 HazeAccountManager.setCompletedGoogleWebLogin(this@MainActivity, true)
-                updateProfileButton()
+                if (!resolvedPhoto.isNullOrEmpty()) {
+                    HazeProfileImageHelper.fetchAndCacheAvatar(this@MainActivity, resolvedPhoto) {
+                        updateProfileButton()
+                        reloadHomeTabsIfOpen()
+                    }
+                } else {
+                    updateProfileButton()
+                }
             }
         }
         @JavascriptInterface
@@ -1068,7 +1078,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("HazePrefs", MODE_PRIVATE)
-        val isInitialDark = prefs.getBoolean("is_dark", false)
+        if (!prefs.getBoolean("dark_storm_theme_v1", false)) {
+            prefs.edit()
+                .putBoolean("dark_storm_theme_v1", true)
+                .putBoolean("is_dark", true)
+                .putString("bg_theme", "default")
+                .putString("shortcuts_mode", "2")
+                .putBoolean(HazeWeatherManager.PREF_USE_GPS, true)
+                .apply()
+        }
+        val isInitialDark = prefs.getBoolean("is_dark", true)
         val targetNight = if (isInitialDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
         if (AppCompatDelegate.getDefaultNightMode() != targetNight) {
             AppCompatDelegate.setDefaultNightMode(targetNight)
@@ -1525,10 +1544,12 @@ class MainActivity : AppCompatActivity() {
         updatePrivacyShieldButton()
 
         // Silent sign-in in background
-        HazeAccountManager.silentSignIn(this) {
+        HazeAccountManager.silentSignIn(this) { user ->
             updateProfileButton()
+            reloadHomeTabsIfOpen()
             checkAndPromptGoogleWebLogin()
         }
+        probeGoogleAvatarIfNeeded()
 
         // First-launch onboarding check
         val mainContainer = findViewById<ViewGroup>(R.id.main)
@@ -1541,6 +1562,43 @@ class MainActivity : AppCompatActivity() {
         if (intent != null && (intent.hasExtra("open_dns_protection") || intent.hasExtra("open_settings") || intent.hasExtra("open_menu") || intent.hasExtra("toggle_orientation") || intent.hasExtra("toggle_desktop"))) {
             onNewIntent(intent)
         }
+    }
+
+    private var avatarProbeWebView: WebView? = null
+
+    fun probeGoogleAvatarIfNeeded() {
+        val user = HazeAccountManager.getUser(this) ?: return
+        if (!user.photoUrl.isNullOrEmpty() && HazeProfileImageHelper.hasCachedAvatar(this)) return
+
+        mainHandler.postDelayed({
+            try {
+                if (avatarProbeWebView == null) {
+                    avatarProbeWebView = WebView(applicationContext).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        addJavascriptInterface(WebAppInterface(this), "Android")
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                view?.evaluateJavascript(
+                                    """
+                                    (function() {
+                                        try {
+                                            var img = document.querySelector('img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"], img[src*="googleusercontent.com/"], img[src*="yt3.ggpht.com/"], a[aria-label*="Google Account" i] img, button[aria-label*="Google Account" i] img, img[alt*="Google Account" i], img.gb_m, img.gb_A, .gb_d img');
+                                            if (img && img.src && window.Android && window.Android.syncGoogleAccountDetails) {
+                                                var highRes = img.src.replace(/=s\d+(-c)?/i, '=s192-c').replace(/=s\d+/i, '=s192');
+                                                window.Android.syncGoogleAccountDetails('', '', highRes);
+                                            }
+                                        } catch(_) {}
+                                    })();
+                                    """.trimIndent(), null
+                                )
+                            }
+                        }
+                    }
+                }
+                avatarProbeWebView?.loadUrl("https://www.google.com")
+            } catch (_: Exception) {}
+        }, 1200L)
     }
 
     fun checkAndPromptGoogleWebLogin() {
@@ -1655,7 +1713,7 @@ class MainActivity : AppCompatActivity() {
         updatePrivacyShieldButton()
 
         // 1. Show solid search surface overlay covering the screen behind search
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val surfaceColor = if (isDark) Color.parseColor("#121212") else Color.WHITE
         dimOverlay.setBackgroundColor(surfaceColor)
         dimOverlay.alpha = 1f
@@ -2323,7 +2381,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderRecentSearchesAndShortcuts() {
         suggestionChipContainer.removeAllViews()
 
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         applySuggestionTheme(isDark)
 
         var hasClipboard = false
@@ -2547,7 +2605,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderImmediateSmartItem(smartRow: SuggestionRowItem) {
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         applySuggestionTheme(isDark)
         if (suggestionChipContainer.childCount > 0) {
             val firstView = suggestionChipContainer.getChildAt(0)
@@ -2564,7 +2622,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateTopSmartSuggestion(smartRow: SuggestionRowItem) {
         if (!isSearchActive) return
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         if (suggestionChipContainer.childCount > 0) {
             val firstView = suggestionChipContainer.getChildAt(0)
             val badge = firstView.findViewById<TextView>(R.id.tvSuggestionBadge)
@@ -2580,7 +2638,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSearchSuggestions(query: String, suggestions: List<SearchSuggestionItem>) {
         suggestionChipContainer.removeAllViews()
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         applySuggestionTheme(isDark)
         if (::clipboardContainer.isInitialized) {
             clipboardContainer.removeAllViews()
@@ -3651,18 +3709,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getHazeHomeHtml(): String {
-        val isDarkSetting = prefs.getBoolean("is_dark", false)
+        val isDarkSetting = prefs.getBoolean("is_dark", true)
         val isIncognito = isPrivateMode
         val isDark = isDarkSetting || isIncognito
 
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2" // "off", "1", "2"
-        val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0")
+        val accentColor = if (isIncognito) "#A8C7FA" else (prefs.getString("accent_color", "#A8C7FA") ?: "#A8C7FA")
         
-        val bgColor = if (isIncognito) "#121212" else (if (isDarkSetting) "#121212" else "#FAFAFA")
-        val cardColor = if (isIncognito) "#1E1E1E" else (if (isDarkSetting) "#1E1E1E" else "#FFFFFF")
-        val textColor = if (isIncognito || isDark) "#FFFFFF" else "#202124"
+        val bgColor = if (isIncognito) "#121212" else (if (isDarkSetting) "#1F2228" else "#FAFAFA")
+        val cardColor = if (isIncognito) "#1E1E1E" else (if (isDarkSetting) "#2A2E36" else "#FFFFFF")
+        val textColor = if (isIncognito || isDark) "#F1F3F4" else "#202124"
         val labelColor = if (isIncognito || isDark) "#E0E0E0" else "#202124"
-        val cardBorder = "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
+        val cardBorder = if (isDark) "box-shadow: 0 2px 8px rgba(0,0,0,0.25); border: 1px solid #383C46;" else "box-shadow: 0 2px 8px rgba(0,0,0,0.05);"
         
         val maxCapacity = if (shortcutsMode == "1") 4 else 9
         val customShortcuts = getCustomShortcuts()
@@ -3699,7 +3757,7 @@ class MainActivity : AppCompatActivity() {
                 <div class="shortcut" 
                      onclick="$addClickAction" 
                      oncontextmenu="event.preventDefault(); return false;">
-                    <div class="shortcut-box" style="border: $addBorder; background: ${if (isDark) "#26282D" else "#EEF1F6"};">
+                    <div class="shortcut-box" style="border: $addBorder; background: ${if (isDark) "#2A2E36" else "#EEF1F6"};">
                         <svg viewBox="0 0 24 24" style="fill: $addIconColor; width:26px; height:26px;"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                     </div>
                     <div class="shortcut-label" style="color: $addIconColor;">Add</div>
@@ -4014,17 +4072,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyTheme() {
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val targetNight = if (isDark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
         if (AppCompatDelegate.getDefaultNightMode() != targetNight) {
             AppCompatDelegate.setDefaultNightMode(targetNight)
         }
         
-        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
-        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#1E1E1E") else Color.parseColor("#FFFFFF"))
-        val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
+        val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#1F2228") else Color.parseColor("#FAFAFA"))
+        val barBgColor = if (isPrivateMode) Color.parseColor("#1E1E1E") else (if (isDark) Color.parseColor("#282B33") else Color.parseColor("#FFFFFF"))
+        val textColor = if (isPrivateMode || isDark) Color.parseColor("#F1F3F4") else Color.parseColor("#202124")
         val hintColor = if (isPrivateMode || isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
-        val strokeColor = if (isPrivateMode || isDark) Color.parseColor("#333333") else Color.parseColor("#E0E0E0")
+        val strokeColor = if (isPrivateMode || isDark) Color.parseColor("#383C46") else Color.parseColor("#E0E0E0")
         
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val containerBg = if (bgTheme != "default" && !isPrivateMode) Color.TRANSPARENT else bgColor
@@ -4548,7 +4606,7 @@ class MainActivity : AppCompatActivity() {
 
         val bgTheme = if (isPrivateMode) "default" else (prefs.getString("bg_theme", "default") ?: "default")
         val hasBgPhoto = bgTheme != "default" && !isPrivateMode
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val bgColor = if (isPrivateMode) Color.parseColor("#121212") else (if (isDark) Color.parseColor("#121212") else Color.parseColor("#FAFAFA"))
 
         if (isHome) {
@@ -4673,7 +4731,7 @@ class MainActivity : AppCompatActivity() {
                             isPrivate = isPriv
                         )
                         if (decision.shouldBlock && decision.isHarmfulPageNavigation) {
-                            val isDark = prefs.getBoolean("is_dark", false) || isPriv
+                            val isDark = prefs.getBoolean("is_dark", true) || isPriv
                             val warningHtml = HazeSecurityWarningManager.getSecurityWarningHtml(url, decision.category, isDark)
                             tab.navigationController.loadDataWithBaseURL(url, warningHtml, "text/html", "UTF-8", null)
                             return@runOnUiThread
@@ -4949,7 +5007,7 @@ class MainActivity : AppCompatActivity() {
                     if (failingUrl.isNotEmpty() && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:") && !failingUrl.startsWith("https://haze.local") && !failingUrl.startsWith("data:")) {
                         val ownerTab = getTabForInterface(tab, null)
                         val isPriv = ownerTab?.isPrivate ?: isPrivateMode
-                        val isDark = prefs.getBoolean("is_dark", false) || isPriv
+                        val isDark = prefs.getBoolean("is_dark", true) || isPriv
                         val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
                         tab.navigationController.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
                     }
@@ -5136,7 +5194,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val isDarkWeb = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDarkWeb = prefs.getBoolean("is_dark", true) || isPrivateMode
         applyDarkModeToWebView(webView, isDarkWeb)
 
         try {
@@ -5277,7 +5335,7 @@ class MainActivity : AppCompatActivity() {
                     isPrivate = tabIsPrivate()
                 )
                 if (decision.shouldBlock && decision.isHarmfulPageNavigation) {
-                    val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+                    val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
                     val warningHtml = HazeSecurityWarningManager.getSecurityWarningHtml(url, decision.category, isDark)
                     view?.post {
                         view.loadDataWithBaseURL(url, warningHtml, "text/html", "UTF-8", null)
@@ -5392,7 +5450,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (decision.shouldBlock) {
                     if (isMainFrame && decision.isHarmfulPageNavigation) {
-                        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+                        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
                         val html = HazeSecurityWarningManager.getSecurityWarningHtml(reqUrl, decision.category, isDark)
                         val bytes = html.toByteArray(Charsets.UTF_8)
                         val headers = mapOf("Content-Type" to "text/html; charset=utf-8")
@@ -5429,7 +5487,7 @@ class MainActivity : AppCompatActivity() {
                 super.onPageStarted(view, url, favicon)
                 updatePrivacyShieldButton()
                 
-                val isDarkForTab = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                val isDarkForTab = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                 applyDarkModeToWebView(view ?: webView, isDarkForTab)
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
                 
@@ -5481,7 +5539,7 @@ class MainActivity : AppCompatActivity() {
             override fun onSafeBrowsingHit(view: WebView?, request: WebResourceRequest?, threatType: Int, callback: SafeBrowsingResponse?) {
                 val url = request?.url?.toString() ?: return callback?.backToSafety(false) ?: Unit
                 HazePrivacyShieldEngine.recordSafeBrowsingThreat(this@MainActivity, url, tabIsPrivate(), threatType)
-                val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                val isDark = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                 view?.post { view.loadDataWithBaseURL(url, HazeSecurityWarningManager.getSecurityWarningHtml(url, HazePrivacyShieldEngine.CATEGORY_PHISHING, isDark), "text/html", "UTF-8", null) }
                 callback?.backToSafety(false)
             }
@@ -5546,7 +5604,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     val failingUrl = request.url?.toString() ?: ""
                     if (failingUrl.startsWith("haze://") || failingUrl.startsWith("about:")) return
-                    val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                    val isDark = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                     val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
                     view?.post {
                         view.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
@@ -5561,7 +5619,7 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
                 if (failingUrl != null && !failingUrl.startsWith("haze://") && !failingUrl.startsWith("about:")) {
-                    val isDark = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                    val isDark = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                     val offlineHtml = getOfflineErrorHtml(failingUrl, isDark)
                     view?.post {
                         view.loadDataWithBaseURL(failingUrl, offlineHtml, "text/html", "UTF-8", null)
@@ -5574,7 +5632,7 @@ class MainActivity : AppCompatActivity() {
                 finishPageLoading()
                 HazeSecurityManager.persistCookieStore()
 
-                val isDarkForTab = prefs.getBoolean("is_dark", false) || tabIsPrivate()
+                val isDarkForTab = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                 applyDarkModeToWebView(view ?: webView, isDarkForTab)
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
 
@@ -6833,7 +6891,7 @@ class MainActivity : AppCompatActivity() {
         currentTouchHelper.attachToRecyclerView(rvActiveTabs)
 
         fun updateUI(animate: Boolean = false) {
-            val isDarkTheme = prefs.getBoolean("is_dark", false) || viewingPrivate
+            val isDarkTheme = prefs.getBoolean("is_dark", true) || viewingPrivate
             val count = if (viewingPrivate) privateTabs.size else normalTabs.size
             tvTabCountPill?.text = count.toString()
 
@@ -7402,7 +7460,7 @@ class MainActivity : AppCompatActivity() {
             if (position >= items.size) return
             val currentItem = items[position]
             val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
-            val isDark = prefs.getBoolean("is_dark", false) || isPrivateList
+            val isDark = prefs.getBoolean("is_dark", true) || isPrivateList
 
             if (holder.viewType == 2) {
                 // Tab Group Card in Cards/Tiles view (Image 1)
@@ -7825,7 +7883,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         private fun showTabOptionsMenu(tab: Tab) {
-            val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+            val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
             val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
             val bgColor = if (isDark) Color.parseColor("#202124") else Color.WHITE
             val textColor = if (isDark) Color.WHITE else Color.parseColor("#1F1F1F")
@@ -7965,7 +8023,7 @@ class MainActivity : AppCompatActivity() {
 
 
     fun showPersonalizeDialog() {
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         val shortcutsMode = prefs.getString("shortcuts_mode", "2") ?: "2"
         val accentColor = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val currentBg = prefs.getString("bg_theme", "default") ?: "default"
@@ -8370,7 +8428,7 @@ class MainActivity : AppCompatActivity() {
         popupWindow.elevation = 24f
         popupWindow.animationStyle = R.style.HazePopupAnimation
         
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val menuRoot = popupView.findViewById<LinearLayout>(R.id.menuRoot)
         val menuLogo = popupView.findViewById<ImageView>(R.id.menuLogo)
         val menuDivider = popupView.findViewById<View>(R.id.menuDivider)
@@ -8658,7 +8716,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val textColor = if (isPrivateMode || isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
         val cardColor = if (isDark) Color.parseColor("#2A2A2A") else Color.parseColor("#F8F9FA")
@@ -8778,7 +8836,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showExtraToolsDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex)
-        val isDark = prefs.getBoolean("is_dark", false)
+        val isDark = prefs.getBoolean("is_dark", true)
         
         val dialog = BottomSheetDialog(this)
         val root = LinearLayout(this).apply {
@@ -8872,7 +8930,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showAccessibilityDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex)
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
 
         val dialog = BottomSheetDialog(this)
         val root = LinearLayout(this).apply {
@@ -9776,7 +9834,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showPageZoomDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
 
         var currentZoom = (tab.browserTab.renderView as? WebView)?.settings?.textZoom ?: 100
@@ -9901,7 +9959,7 @@ class MainActivity : AppCompatActivity() {
 
     fun showTextScalingDialog() {
         val tab = currentTabsList.getOrNull(activeTabIndex) ?: return
-        val isDark = prefs.getBoolean("is_dark", false) || isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || isPrivateMode
         val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
 
         var currentScale = (tab.browserTab.renderView as? WebView)?.settings?.textZoom ?: 100

@@ -124,6 +124,44 @@ object HazeProfileImageHelper {
         }
     }
 
+    fun hasCachedAvatar(context: Context): Boolean {
+        if (memoryCache.get("current_avatar") != null) return true
+        val file = getAvatarFile(context)
+        return file.exists() && file.length() > 0
+    }
+
+    fun fetchAndCacheAvatar(context: Context, photoUrl: String, onLoaded: ((Bitmap) -> Unit)? = null) {
+        if (photoUrl.isBlank()) return
+        executor.execute {
+            var stream: InputStream? = null
+            var conn: HttpURLConnection? = null
+            try {
+                val url = URL(photoUrl)
+                conn = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    instanceFollowRedirects = true
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                }
+                conn.connect()
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    stream = conn.inputStream
+                    val downloaded = BitmapFactory.decodeStream(stream)
+                    if (downloaded != null) {
+                        val circular = saveAvatarBitmap(context, downloaded)
+                        mainHandler.post {
+                            onLoaded?.invoke(circular)
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                try { stream?.close() } catch (_: Exception) {}
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
+        }
+    }
+
     fun loadAvatar(
         context: Context,
         photoUrl: String?,

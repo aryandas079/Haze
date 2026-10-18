@@ -39,7 +39,7 @@ object HazeSettingsManager {
 
     fun showSettingsDialog(activity: MainActivity) {
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+        val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
         val accentColorHex = prefs.getString("accent_color", "#0A56D0") ?: "#0A56D0"
         val accentColor = Color.parseColor(accentColorHex)
 
@@ -283,7 +283,7 @@ object HazeSettingsManager {
             }
         })
         cardGeneral.addView(createRow(activity, "About Haze Browser", "Haze Browser v2.2 - Ultra-fast minimalist browser", textColor, subTextColor) {
-            val isDarkAbout = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
+            val isDarkAbout = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
             val dialogBg = if (isDarkAbout) Color.parseColor("#1E1E1E") else Color.WHITE
             val cText = if (isDarkAbout) Color.WHITE else Color.parseColor("#202124")
             val cSub = if (isDarkAbout) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
@@ -447,7 +447,7 @@ object HazeSettingsManager {
 
             val sw = Switch(context).apply {
                 isChecked = prefs.getBoolean(prefKey, defaultValue)
-                val isDark = prefs.getBoolean("is_dark", false)
+                val isDark = prefs.getBoolean("is_dark", true)
                 val switchActiveColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
                 val thumbColor = ColorStateList(
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
