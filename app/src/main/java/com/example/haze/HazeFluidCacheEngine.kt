@@ -445,8 +445,15 @@ object HazeFluidCacheEngine {
                         style.id = styleId;
                         style.type = 'text/css';
                         style.textContent = `
+                            html, body {
+                                -webkit-overflow-scrolling: touch;
+                                scroll-behavior: smooth;
+                            }
                             a, button, [role="button"], input, select, textarea {
                                 -webkit-tap-highlight-color: transparent !important;
+                            }
+                            * {
+                                -webkit-font-smoothing: antialiased;
                             }
                         `;
                         var target = document.head || document.documentElement;

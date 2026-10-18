@@ -140,11 +140,14 @@ class ChromiumBrowserTab(
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                offscreenPreRaster = false
+                // Fluid rasterization for buttery smooth 90Hz/120Hz scrolling
+                offscreenPreRaster = true
             }
+            @Suppress("DEPRECATION")
+            setRenderPriority(WebSettings.RenderPriority.HIGH)
         }
 
-        // Native Direct RenderThread Acceleration (avoid offscreen layer allocation)
+        // Native Direct RenderThread Acceleration (Hardware-accelerated scrolling)
         webView.setLayerType(View.LAYER_TYPE_NONE, null)
         webView.overScrollMode = View.OVER_SCROLL_ALWAYS
         webView.isNestedScrollingEnabled = true
@@ -493,6 +496,16 @@ class ChromiumBrowserTab(
                     } else {
                         return HazePrivacyShieldEngine.createBlockedResponse(reqUrl)
                     }
+                }
+
+                // Check 1.5 - 2.0 GB Ultra-High-Speed Fluid Cache Engine (0-1ms cache serving for scripts, stylesheets, fonts, icons)
+                val cachedResponse = com.example.haze.HazeFluidCacheEngine.interceptRequest(
+                    context = ctx,
+                    request = request,
+                    isPrivate = isPrivate
+                )
+                if (cachedResponse != null) {
+                    return cachedResponse
                 }
 
                 // Native Chromium C++ Cache & Network Stack handles all other assets with HTTP/2 & HTTP/3 QUIC
@@ -956,7 +969,7 @@ class ChromiumBrowserTab(
                     '.ad-div'
                 ];
                 var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }' +
-                    '\nvideo, video.video-stream, video.html5-main-video, .html5-main-video { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; }' +
+                    '\nvideo, video.video-stream, video.html5-main-video, .html5-main-video { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; transform: translateZ(0) !important; backface-visibility: hidden !important; will-change: transform !important; }' +
                     (isYtMusic ? '\nhtml, body { overflow: hidden !important; height: 100% !important; min-height: 100% !important; width: 100% !important; position: fixed !important; } ytmusic-app { height: 100% !important; min-height: 100% !important; display: block !important; }' : '');
 
                 function injectYtStyle() {
@@ -1191,12 +1204,13 @@ class ChromiumBrowserTab(
                                 try { skipBtn.click(); } catch(_) {}
                             }
 
-                            // 3. Fast-forward ad video smoothly
+                            // 3. Fast-forward ad video smoothly without locking up playback engine
                             if (video) {
+                                video.__hazeWasAd = true;
                                 video.muted = true;
-                                if (isFinite(video.duration) && video.duration > 0) {
+                                if (isFinite(video.duration) && video.duration > 0 && video.currentTime < video.duration) {
                                     video.playbackRate = 16.0;
-                                    video.currentTime = video.duration;
+                                    video.currentTime = video.duration - 0.05;
                                 }
                             }
 
@@ -1208,9 +1222,14 @@ class ChromiumBrowserTab(
                             for (var i = 0; i < enforcement.length; i++) enforcement[i].remove();
                             var backdrops = document.querySelectorAll('tp-yt-iron-overlay-backdrop');
                             for (var b = 0; b < backdrops.length; b++) backdrops[b].remove();
-                        } else if (video && video.muted && !video.paused) {
-                            // Ensure video is not left muted when ad finishes
-                            video.muted = false;
+                        } else if (video && video.__hazeWasAd) {
+                            video.__hazeWasAd = false;
+                            if (video.playbackRate > 2.0) {
+                                video.playbackRate = 1.0;
+                            }
+                            if (video.muted && !video.paused) {
+                                video.muted = false;
+                            }
                         }
                     } catch(_) {}
                 }
