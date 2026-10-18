@@ -1559,7 +1559,7 @@ class MainActivity : AppCompatActivity() {
         HazeSecurityManager.checkAndPromptGooglePasswordManager(this)
 
         checkAndPromptGoogleWebLogin()
-        if (intent != null && (intent.hasExtra("open_dns_protection") || intent.hasExtra("open_settings") || intent.hasExtra("open_menu") || intent.hasExtra("toggle_orientation") || intent.hasExtra("toggle_desktop"))) {
+        if (intent != null && (intent.hasExtra("open_dns_protection") || intent.hasExtra("open_settings") || intent.hasExtra("open_profile") || intent.hasExtra("open_menu") || intent.hasExtra("toggle_orientation") || intent.hasExtra("toggle_desktop"))) {
             onNewIntent(intent)
         }
     }
@@ -1569,6 +1569,13 @@ class MainActivity : AppCompatActivity() {
     fun probeGoogleAvatarIfNeeded() {
         val user = HazeAccountManager.getUser(this) ?: return
         if (!user.photoUrl.isNullOrEmpty() && HazeProfileImageHelper.hasCachedAvatar(this)) return
+
+        if (!user.photoUrl.isNullOrEmpty()) {
+            HazeProfileImageHelper.fetchAndCacheAvatar(this, user.photoUrl) {
+                runOnUiThread { updateProfileButton() }
+            }
+            return
+        }
 
         mainHandler.postDelayed({
             try {
@@ -3246,6 +3253,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (intent.getBooleanExtra("open_settings", false)) {
             webContainer.postDelayed({ HazeSettingsManager.showSettingsDialog(this) }, 200)
+        }
+        if (intent.getBooleanExtra("open_profile", false)) {
+            webContainer.postDelayed({ HazeProfileDialogManager.showProfilePanel(this) }, 200)
         }
         if (intent.getBooleanExtra("open_reader", false)) {
             webContainer.postDelayed({ toggleReadingMode() }, 200)

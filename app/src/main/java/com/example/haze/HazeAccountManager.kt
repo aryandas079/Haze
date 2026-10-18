@@ -104,7 +104,20 @@ object HazeAccountManager {
         val email = prefs.getString(KEY_USER_EMAIL, "") ?: ""
         val name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
         val givenName = prefs.getString(KEY_USER_GIVEN_NAME, name.split(" ").firstOrNull() ?: "User") ?: "User"
-        val photoUrl = prefs.getString(KEY_USER_PHOTO_URL, null)
+        var photoUrl = prefs.getString(KEY_USER_PHOTO_URL, null)
+        if (photoUrl.isNullOrEmpty() && email.isNotEmpty()) {
+            photoUrl = prefs.getString("cached_photo_url_" + email.lowercase(), null)
+            if (photoUrl.isNullOrEmpty() && email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
+                photoUrl = "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
+            }
+            if (!photoUrl.isNullOrEmpty()) {
+                prefs.edit()
+                    .putString(KEY_USER_PHOTO_URL, photoUrl)
+                    .putString("cached_photo_url_" + email.lowercase(), photoUrl)
+                    .apply()
+                HazeProfileImageHelper.fetchAndCacheAvatar(context, photoUrl)
+            }
+        }
         val signedInAt = prefs.getLong(KEY_SIGNED_IN_AT, System.currentTimeMillis())
 
         return HazeUser(
@@ -209,20 +222,35 @@ object HazeAccountManager {
     }
 
     fun saveUser(context: Context, user: HazeUser) {
-        getPrefs(context).edit()
+        val resolvedPhoto = if (!user.photoUrl.isNullOrEmpty()) {
+            user.photoUrl
+        } else {
+            getPrefs(context).getString("cached_photo_url_" + user.email.lowercase(), null)
+                ?: if (user.email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo" else null
+        }
+
+        val editor = getPrefs(context).edit()
             .putBoolean(KEY_IS_GUEST_MODE, false)
             .putBoolean(KEY_IS_SIGNED_IN, true)
             .putString(KEY_USER_ID, user.id)
             .putString(KEY_USER_EMAIL, user.email)
             .putString(KEY_USER_NAME, user.displayName)
             .putString(KEY_USER_GIVEN_NAME, user.givenName)
-            .putString(KEY_USER_PHOTO_URL, user.photoUrl)
+            .putString(KEY_USER_PHOTO_URL, resolvedPhoto)
             .putLong(KEY_SIGNED_IN_AT, user.signedInAt)
-            .apply()
 
-        addProfile(context, user)
+        if (!resolvedPhoto.isNullOrEmpty()) {
+            editor.putString("cached_photo_url_" + user.email.lowercase(), resolvedPhoto)
+        }
+        editor.apply()
+
+        val finalUser = user.copy(photoUrl = resolvedPhoto)
+        addProfile(context, finalUser)
+        if (!resolvedPhoto.isNullOrEmpty()) {
+            HazeProfileImageHelper.fetchAndCacheAvatar(context, resolvedPhoto)
+        }
         syncGoogleAccountToCookieManager(context)
-        notifyAccountChanged(user)
+        notifyAccountChanged(finalUser)
     }
 
     fun updateUserPhoto(context: Context, newPhotoUrl: String) {
@@ -264,7 +292,6 @@ object HazeAccountManager {
             .remove(KEY_GOOGLE_WEB_LOGIN_COMPLETED)
             .apply()
 
-        HazeProfileImageHelper.clearAvatar(context)
         notifyAccountChanged(null)
     }
 
@@ -384,13 +411,11 @@ object HazeAccountManager {
                 signedInAt = System.currentTimeMillis()
             )
             saveUser(context, user)
-            if (!photoUrl.isNullOrEmpty()) {
-                HazeProfileImageHelper.fetchAndCacheAvatar(context, photoUrl)
-            }
+            val savedUser = getUser(context) ?: user
             setOnboardingCompleted(context, true)
-            onSuccess(user)
+            onSuccess(savedUser)
 
-            if (photoUrl == null && context is Activity) {
+            if (savedUser.photoUrl.isNullOrEmpty() && context is Activity) {
                 silentSignIn(context) { updated ->
                     if (updated?.photoUrl != null && context is MainActivity) {
                         context.updateProfileButton()

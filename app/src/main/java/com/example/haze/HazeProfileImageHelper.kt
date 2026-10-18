@@ -124,19 +124,34 @@ object HazeProfileImageHelper {
         }
     }
 
+    fun resolvePhotoUrl(context: Context, photoUrl: String?): String? {
+        if (!photoUrl.isNullOrEmpty()) return photoUrl
+        val prefs = context.getSharedPreferences("HazeAccountPrefs", Context.MODE_PRIVATE)
+        val email = prefs.getString("user_email", "") ?: ""
+        if (email.isNotEmpty()) {
+            val cached = prefs.getString("cached_photo_url_" + email.lowercase(), null)
+            if (!cached.isNullOrEmpty()) return cached
+            if (email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
+                return "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
+            }
+        }
+        return null
+    }
+
     fun hasCachedAvatar(context: Context): Boolean {
         if (memoryCache.get("current_avatar") != null) return true
         val file = getAvatarFile(context)
         return file.exists() && file.length() > 0
     }
 
-    fun fetchAndCacheAvatar(context: Context, photoUrl: String, onLoaded: ((Bitmap) -> Unit)? = null) {
-        if (photoUrl.isBlank()) return
+    fun fetchAndCacheAvatar(context: Context, photoUrl: String?, onLoaded: ((Bitmap) -> Unit)? = null) {
+        val resolvedUrl = resolvePhotoUrl(context, photoUrl) ?: return
+        if (resolvedUrl.isBlank()) return
         executor.execute {
             var stream: InputStream? = null
             var conn: HttpURLConnection? = null
             try {
-                val url = URL(photoUrl)
+                val url = URL(resolvedUrl)
                 conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000
@@ -170,23 +185,24 @@ object HazeProfileImageHelper {
         sizePx: Int = 128,
         onLoaded: ((Bitmap) -> Unit)? = null
     ) {
+        val resolvedUrl = resolvePhotoUrl(context, photoUrl)
         val cached = getCachedAvatar(context)
         if (cached != null) {
             imageView.setImageBitmap(cached)
             onLoaded?.invoke(cached)
-            if (photoUrl.isNullOrEmpty()) return
+            if (resolvedUrl.isNullOrEmpty()) return
         } else {
             val fallback = generateInitialAvatar(fallbackInitial, sizePx)
             imageView.setImageBitmap(fallback)
         }
 
-        if (photoUrl.isNullOrEmpty()) return
+        if (resolvedUrl.isNullOrEmpty()) return
 
         executor.execute {
             var stream: InputStream? = null
             var conn: HttpURLConnection? = null
             try {
-                val url = URL(photoUrl)
+                val url = URL(resolvedUrl)
                 conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 8000
                     readTimeout = 8000

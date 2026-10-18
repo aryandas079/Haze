@@ -213,7 +213,9 @@ object HazeProfileDialogManager {
             user.givenName,
             ivAvatar,
             dpToPx(activity, 68)
-        )
+        ) { bmp ->
+            ivAvatar.setImageBitmap(bmp)
+        }
 
         val tvName = TextView(activity).apply {
             text = user.displayName
@@ -534,8 +536,12 @@ object HazeProfileDialogManager {
                 onSuccess = { user ->
                     dialog.dismiss()
                     activity.triggerStrongHaptic(isHeavy = true)
+                    activity.updateProfileButton()
+                    activity.reloadHomeTabsIfOpen()
                     HazeSyncManager.performSync(activity)
                     Toast.makeText(activity, "Signed in as ${user.displayName}", Toast.LENGTH_SHORT).show()
+                    val loginUrl = "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=https://www.google.com/"
+                    activity.addNewTab(loginUrl)
                 },
                 onError = { errorMsg ->
                     btnGoogle.isEnabled = true
