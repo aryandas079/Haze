@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Message
 import android.view.View
 import android.webkit.*
+import com.example.haze.MainActivity
 import com.example.haze.HazeSecurityManager
 import com.example.haze.HazePrivacyShieldEngine
 import com.example.haze.HazeAntiTrackingEngine
@@ -36,8 +37,14 @@ class ChromiumBrowserTab(
     val webView: WebView = object : WebView(context) {
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(visibility)
-            if (visibility == View.VISIBLE) onResume()
-            else onPause()
+            if (visibility == View.VISIBLE) {
+                onResume()
+            } else {
+                val isMediaActive = (context as? MainActivity)?.isMediaPlaying == true
+                if (!isMediaActive) {
+                    onPause()
+                }
+            }
         }
 
         override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {

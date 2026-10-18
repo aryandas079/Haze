@@ -171,10 +171,22 @@ class HazeStatusBarMediaController(
         val script = """
             (function() {
                 try {
+                    if (window.__hazeActionHandlers) {
+                        var h = isPlaying ? (window.__hazeActionHandlers['pause'] || window.__hazeActionHandlers['playpause']) : (window.__hazeActionHandlers['play'] || window.__hazeActionHandlers['playpause']);
+                        if (typeof h === 'function') {
+                            h();
+                            return;
+                        }
+                    }
+                    var ytpBtn = document.querySelector('.ytp-play-button, button.play-pause-button');
+                    if (ytpBtn) {
+                        ytpBtn.click();
+                        return;
+                    }
                     var media = document.querySelectorAll('video, audio');
                     for (var i = 0; i < media.length; i++) {
                         var m = media[i];
-                        if (m.readyState > 0) {
+                        if (m.readyState > 0 || m.currentTime > 0) {
                             if (m.paused) {
                                 m.play();
                             } else {
@@ -183,8 +195,6 @@ class HazeStatusBarMediaController(
                             return;
                         }
                     }
-                    var ytpBtn = document.querySelector('.ytp-play-button');
-                    if (ytpBtn) ytpBtn.click();
                 } catch(e) {}
             })();
         """.trimIndent()
@@ -196,7 +206,11 @@ class HazeStatusBarMediaController(
         val script = """
             (function() {
                 try {
-                    var prevBtn = document.querySelector('button[aria-label="Previous"], button[title*="Previous"], .ytp-prev-button, [data-testid="control-button-skip-back"]');
+                    if (window.__hazeActionHandlers && typeof window.__hazeActionHandlers['previoustrack'] === 'function') {
+                        window.__hazeActionHandlers['previoustrack']();
+                        return;
+                    }
+                    var prevBtn = document.querySelector('button[aria-label="Previous"], button[title*="Previous"], .ytp-prev-button, [data-testid="control-button-skip-back"], .previous-button');
                     if (prevBtn) {
                         prevBtn.click();
                         return;
@@ -219,7 +233,11 @@ class HazeStatusBarMediaController(
         val script = """
             (function() {
                 try {
-                    var nextBtn = document.querySelector('button[aria-label="Next"], button[title*="Next"], .ytp-next-button, [data-testid="control-button-skip-forward"]');
+                    if (window.__hazeActionHandlers && typeof window.__hazeActionHandlers['nexttrack'] === 'function') {
+                        window.__hazeActionHandlers['nexttrack']();
+                        return;
+                    }
+                    var nextBtn = document.querySelector('button[aria-label="Next"], button[title*="Next"], .ytp-next-button, [data-testid="control-button-skip-forward"], .next-button');
                     if (nextBtn) {
                         nextBtn.click();
                         return;

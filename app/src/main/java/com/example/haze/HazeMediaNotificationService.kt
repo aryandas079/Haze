@@ -28,7 +28,8 @@ import java.util.concurrent.Executors
 class HazeMediaNotificationService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "haze_media_playback_channel"
+        const val CHANNEL_ID = "haze_media_playback_channel_v2"
+        const val OLD_CHANNEL_ID = "haze_media_playback_channel"
         const val NOTIFICATION_ID = 4099
 
         const val ACTION_PLAY = "com.aryandas.haze.ACTION_MEDIA_PLAY"
@@ -125,16 +126,22 @@ class HazeMediaNotificationService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NotificationManager::class.java)
+            try {
+                nm?.deleteNotificationChannel(OLD_CHANNEL_ID)
+            } catch (_: Exception) {}
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Media Playback Controls",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Shows live media controls in notification center during playback"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
-            val nm = getSystemService(NotificationManager::class.java)
             nm?.createNotificationChannel(channel)
         }
     }
@@ -339,6 +346,8 @@ class HazeMediaNotificationService : Service() {
             .setContentIntent(pendingClickIntent)
             .setDeleteIntent(stopPendingIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setOngoing(currentIsPlaying)
             .setStyle(mediaStyle)
             .addAction(R.drawable.ic_skip_previous, "Previous", prevPendingIntent)

@@ -5956,7 +5956,10 @@ class MainActivity : AppCompatActivity() {
                     // Media Playback detection script injection
                     val mediaScript = """
                         (function() {
-                            if (window.__hazeMediaTrackInstalled) return;
+                            if (window.__hazeMediaTrackInstalled) {
+                                if (window.__hazeScanMediaElements) window.__hazeScanMediaElements();
+                                return;
+                            }
                             window.__hazeMediaTrackInstalled = true;
                             var _lastReportedPlaying = null;
                             var _lastReportedTitle = '';
@@ -5965,7 +5968,7 @@ class MainActivity : AppCompatActivity() {
 
                             function scheduleCheckMedia(delay) {
                                 if (_checkTimer) clearTimeout(_checkTimer);
-                                _checkTimer = setTimeout(checkMedia, delay || 150);
+                                _checkTimer = setTimeout(checkMedia, delay || 100);
                             }
 
                             function checkMedia() {
@@ -5978,7 +5981,7 @@ class MainActivity : AppCompatActivity() {
                                     var activeEl = null;
                                     for (var i = 0; i < media.length; i++) {
                                         var m = media[i];
-                                        if (!m.paused && !m.ended && m.readyState > 1) {
+                                        if (!m.paused && !m.ended && (m.readyState >= 1 || m.currentTime > 0)) {
                                             isPlaying = true;
                                             activeEl = m;
                                             isMuted = m.muted || m.volume === 0;
@@ -6010,11 +6013,19 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         }
                                         if (!title) {
-                                            var ytTitle = document.querySelector('ytm-media-item .media-item-headline, .ytp-title-link, h1.title, h2.title');
+                                            var ytTitle = document.querySelector('yt-formatted-string.title, ytm-media-item .media-item-headline, .ytp-title-link, .song-title, .title.ytmusic-player-bar, h1.title, h2.title');
                                             if (ytTitle) title = (ytTitle.textContent || '').trim();
+                                        }
+                                        if (!artist) {
+                                            var ytArtist = document.querySelector('.byline.ytmusic-player-bar, .yt-simple-endpoint.yt-formatted-string, .subtitle.ytmusic-player-bar');
+                                            if (ytArtist) artist = (ytArtist.textContent || '').trim();
                                         }
                                         if (!title) {
                                             title = (document.title || '').replace(/\s*-\s*YouTube.*$/i, '').trim();
+                                        }
+                                        if (!artwork) {
+                                            var ytThumb = document.querySelector('.image.ytmusic-player-bar, img.ytp-cued-thumbnail-overlay-image, .thumbnail-image-wrapper img');
+                                            if (ytThumb && ytThumb.src) artwork = ytThumb.src;
                                         }
                                         if (!artwork) {
                                             var poster = activeEl ? (activeEl.poster || '') : '';
@@ -6044,18 +6055,31 @@ class MainActivity : AppCompatActivity() {
                             function trackElement(el) {
                                 if (!el || el.__hazeTracked) return;
                                 el.__hazeTracked = true;
-                                el.addEventListener('play', function() { scheduleCheckMedia(50); }, { passive: true });
-                                el.addEventListener('playing', function() { scheduleCheckMedia(50); }, { passive: true });
-                                el.addEventListener('pause', function() { scheduleCheckMedia(300); }, { passive: true });
+                                el.addEventListener('play', function() { scheduleCheckMedia(30); }, { passive: true });
+                                el.addEventListener('playing', function() { scheduleCheckMedia(30); }, { passive: true });
+                                el.addEventListener('pause', function() { scheduleCheckMedia(250); }, { passive: true });
                                 el.addEventListener('ended', function() { scheduleCheckMedia(200); }, { passive: true });
-                                el.addEventListener('volumechange', function() { scheduleCheckMedia(100); }, { passive: true });
+                                el.addEventListener('timeupdate', function() {
+                                    if (!_lastReportedPlaying && !el.paused && (el.readyState >= 1 || el.currentTime > 0)) {
+                                        scheduleCheckMedia(50);
+                                    }
+                                }, { passive: true });
+                                el.addEventListener('volumechange', function() { scheduleCheckMedia(80); }, { passive: true });
                             }
 
                             function scanElements() {
                                 var all = document.querySelectorAll('video, audio');
                                 for (var i = 0; i < all.length; i++) trackElement(all[i]);
                             }
+                            window.__hazeScanMediaElements = scanElements;
                             scanElements();
+
+                            try {
+                                var obs = new MutationObserver(function() {
+                                    scanElements();
+                                });
+                                obs.observe(document.documentElement || document.body, { childList: true, subtree: true });
+                            } catch(_) {}
 
                             if (navigator.mediaSession) {
                                 try {
@@ -6065,15 +6089,29 @@ class MainActivity : AppCompatActivity() {
                                         Object.defineProperty(navigator.mediaSession, 'metadata', {
                                             set: function(val) {
                                                 origSet.call(this, val);
-                                                setTimeout(checkMedia, 100);
+                                                setTimeout(checkMedia, 50);
                                             },
                                             get: origMetadata.get,
                                             configurable: true
                                         });
                                     }
+
+                                    // Intercept setActionHandler to support direct mediaSession triggers
+                                    window.__hazeActionHandlers = window.__hazeActionHandlers || {};
+                                    var origSetAction = navigator.mediaSession.setActionHandler;
+                                    if (origSetAction) {
+                                        navigator.mediaSession.setActionHandler = function(action, handler) {
+                                            window.__hazeActionHandlers[action] = handler;
+                                            return origSetAction.call(this, action, handler);
+                                        };
+                                    }
                                 } catch(_) {}
                             }
 
+                            // Hook SPA navigation events common in YouTube Music & Spotify
+                            window.addEventListener('yt-navigate-finish', function() { setTimeout(checkMedia, 200); }, { passive: true });
+                            window.addEventListener('popstate', function() { setTimeout(checkMedia, 200); }, { passive: true });
+                            window.addEventListener('hashchange', function() { setTimeout(checkMedia, 200); }, { passive: true });
                             document.addEventListener('DOMContentLoaded', scanElements, { passive: true });
                             window.addEventListener('load', scanElements, { passive: true });
                         })();
