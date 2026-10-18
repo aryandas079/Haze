@@ -182,7 +182,8 @@ object HazeOnboardingManager {
                     dismissOnboarding(container, root)
                     activity.triggerStrongHaptic(isHeavy = true)
                     Toast.makeText(activity, "Welcome to Haze, ${user.givenName}!", Toast.LENGTH_SHORT).show()
-                    activity.checkAndPromptGoogleWebLogin()
+                    val loginUrl = "https://accounts.google.com/ServiceLogin?Email=${Uri.encode(user.email)}&login_hint=${Uri.encode(user.email)}&continue=https://myaccount.google.com/"
+                    activity.loadUrlFromInput(loginUrl)
                 },
                 onError = { errorMsg ->
                     btnContinue.isEnabled = true

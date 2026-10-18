@@ -136,6 +136,7 @@ object HazeProfileImageHelper {
         if (cached != null) {
             imageView.setImageBitmap(cached)
             onLoaded?.invoke(cached)
+            if (photoUrl.isNullOrEmpty()) return
         } else {
             val fallback = generateInitialAvatar(fallbackInitial, sizePx)
             imageView.setImageBitmap(fallback)
@@ -152,7 +153,7 @@ object HazeProfileImageHelper {
                     connectTimeout = 8000
                     readTimeout = 8000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "HazeBrowser/1.0")
+                    setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
                 }
                 conn.connect()
                 if (conn.responseCode == HttpURLConnection.HTTP_OK) {

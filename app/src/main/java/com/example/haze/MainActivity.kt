@@ -999,6 +999,27 @@ class MainActivity : AppCompatActivity() {
             }
         }
         @JavascriptInterface
+        fun syncGoogleAccountDetails(email: String?, displayName: String?, avatarUrl: String?) {
+            runOnUiThread {
+                if (email.isNullOrBlank()) return@runOnUiThread
+                val current = HazeAccountManager.getUser(this@MainActivity)
+                val resolvedName = if (!displayName.isNullOrBlank() && displayName.length > 1) displayName else (current?.displayName ?: email.substringBefore("@"))
+                val givenName = resolvedName.split(" ").firstOrNull() ?: "User"
+                val resolvedPhoto = if (!avatarUrl.isNullOrBlank()) avatarUrl else current?.photoUrl
+                val updatedUser = HazeAccountManager.HazeUser(
+                    id = current?.id ?: "google_$email",
+                    email = email,
+                    displayName = resolvedName,
+                    givenName = givenName,
+                    photoUrl = resolvedPhoto,
+                    signedInAt = current?.signedInAt ?: System.currentTimeMillis()
+                )
+                HazeAccountManager.saveUser(this@MainActivity, updatedUser)
+                HazeAccountManager.setCompletedGoogleWebLogin(this@MainActivity, true)
+                updateProfileButton()
+            }
+        }
+        @JavascriptInterface
         fun checkAutofill(url: String) {
             runOnUiThread {
                 if (isPrivateMode) return@runOnUiThread

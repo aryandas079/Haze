@@ -225,6 +225,14 @@ object HazeAccountManager {
         notifyAccountChanged(user)
     }
 
+    fun updateUserPhoto(context: Context, newPhotoUrl: String) {
+        if (newPhotoUrl.isBlank()) return
+        val current = getUser(context) ?: return
+        if (current.photoUrl == newPhotoUrl) return
+        val updated = current.copy(photoUrl = newPhotoUrl)
+        saveUser(context, updated)
+    }
+
     fun syncGoogleAccountToCookieManager(context: Context) {
         val user = getUser(context) ?: return
         try {

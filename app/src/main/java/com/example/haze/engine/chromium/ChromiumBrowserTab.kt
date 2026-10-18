@@ -330,6 +330,43 @@ class ChromiumBrowserTab(
                     nonNullUrl.contains("accounts.google.com/ManageAccount")) {
                     com.example.haze.HazeAccountManager.setCompletedGoogleWebLogin(webView.context, true)
                 }
+                if (nonNullUrl.contains("google.com", ignoreCase = true)) {
+                    val extractGoogleAvatarScript = """
+                        (function() {
+                            function extractGoogleProfile() {
+                                try {
+                                    var img = document.querySelector('a[aria-label*="Google Account" i] img, a[aria-label*="Compte Google" i] img, a[aria-label*="Cuenta de Google" i] img, img[alt*="Google Account" i], img[alt*="Profile photo" i], img[src*="googleusercontent.com/a/"], img[src*="googleusercontent.com/ogw/"]');
+                                    var avatarUrl = img ? (img.src || '') : '';
+                                    
+                                    // Also check aria-label or title for display name and email
+                                    var accountBtn = document.querySelector('a[aria-label*="Google Account" i], a[aria-label*="@" i]');
+                                    var label = accountBtn ? (accountBtn.getAttribute('aria-label') || '') : '';
+                                    var email = '';
+                                    var name = '';
+                                    var emailMatch = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                    if (emailMatch) {
+                                        email = emailMatch[1];
+                                    }
+                                    if (label && email) {
+                                        var parts = label.split('\n');
+                                        if (parts.length > 1 && parts[0].trim()) {
+                                            name = parts[0].replace(/Google Account:\s*/i, '').trim();
+                                        }
+                                    }
+                                    
+                                    if (avatarUrl && window.Android && window.Android.syncGoogleAccountDetails) {
+                                        // Request higher resolution (e.g., s192-c instead of s32-c)
+                                        var highRes = avatarUrl.replace(/=s\d+(-c)?/i, '=s192-c');
+                                        window.Android.syncGoogleAccountDetails(email, name, highRes);
+                                    }
+                                } catch(_) {}
+                            }
+                            setTimeout(extractGoogleProfile, 1000);
+                            setTimeout(extractGoogleProfile, 3000);
+                        })();
+                    """.trimIndent()
+                    view?.evaluateJavascript(extractGoogleAvatarScript, null)
+                }
                 HazeSecurityManager.persistCookieStore()
                 observer?.onPageFinished(this@ChromiumBrowserTab, nonNullUrl)
             }
