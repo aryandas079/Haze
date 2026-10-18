@@ -5552,50 +5552,6 @@ class MainActivity : AppCompatActivity() {
                 val isDarkForTab = prefs.getBoolean("is_dark", true) || tabIsPrivate()
                 applyDarkModeToWebView(view ?: webView, isDarkForTab)
                 injectThemeColorScheme(view ?: webView, isDarkForTab)
-                
-                if (url != null && !url.startsWith("haze://") && !url.startsWith("about:")) {
-                    // Inject AdGuard universal cosmetic & paywall removal shield immediately before any element paints
-                    view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT, null)
-                    injectCosmeticAdBlockers(view, url)
-
-                    // Inject Safari-grade fluid engine script immediately
-                    view?.evaluateJavascript(HazeFluidCacheEngine.SAFARI_FLUID_ENGINE_SCRIPT, null)
-
-                    val currentTab = getTabFromWebView(view ?: webView)
-                    val isDesk = currentTab?.isDesktop == true || currentTab?.browserTab?.isDesktop == true
-                    val isSpotify = url.contains("spotify.com", ignoreCase = true)
-                    val isYouTube = url.contains("youtube.com", ignoreCase = true)
-                    if (isYouTube) {
-                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT, null)
-                    }
-                    val targetUa = if (isSpotify) {
-                        try {
-                            android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(view ?: webView, true)
-                        } catch (_: Throwable) {}
-                        if (isDesk) com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_DESKTOP_UA else com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
-                    } else if (isDesk) {
-                        com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_USER_AGENT
-                    } else {
-                        com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_USER_AGENT
-                    }
-                    view?.settings?.let { s ->
-                        if (s.userAgentString != targetUa) s.userAgentString = targetUa
-                        if (s.useWideViewPort != isDesk) s.useWideViewPort = isDesk
-                        if (s.loadWithOverviewMode != isDesk) s.loadWithOverviewMode = isDesk
-                    }
-                    if (isSpotify) {
-                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SPOTIFY_ENGINE_SCRIPT, null)
-                    } else if (isDesk) {
-                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_VIEWPORT_SCRIPT, null)
-                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.DESKTOP_CLIENT_HINTS_SCRIPT, null)
-                    } else {
-                        view?.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.MOBILE_VIEWPORT_SCRIPT, null)
-                    }
-                    val antiTrackingScript = HazeAntiTrackingEngine.generateAntiFingerprintScript(this@MainActivity)
-                    view?.evaluateJavascript(antiTrackingScript, null)
-
-                    injectCosmeticAdBlockers(view, url)
-                }
             }
 
             override fun onSafeBrowsingHit(view: WebView?, request: WebResourceRequest?, threatType: Int, callback: SafeBrowsingResponse?) {

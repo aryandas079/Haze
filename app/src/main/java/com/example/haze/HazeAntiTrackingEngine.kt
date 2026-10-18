@@ -402,14 +402,15 @@ object HazeAntiTrackingEngine {
 
                 var __reportedProbes = {};
                 function __reportProbe(type) {
-                    try {
-                        if (!__reportedProbes[type]) {
-                            __reportedProbes[type] = true;
+                    if (__reportedProbes[type]) return;
+                    __reportedProbes[type] = true;
+                    setTimeout(function() {
+                        try {
                             if (window.Android && window.Android.recordFingerprintAttempt) {
                                 window.Android.recordFingerprintAttempt(type);
                             }
-                        }
-                    } catch(e) {}
+                        } catch(e) {}
+                    }, 1000);
                 }
 
                 ${if (blockCanvas) """
@@ -463,23 +464,11 @@ object HazeAntiTrackingEngine {
                 ${if (blockAudio) """
                 // 3. AUDIO FINGERPRINT DEFENSE
                 try {
-                    if (window.AudioBuffer) {
-                        var origGetChannel = AudioBuffer.prototype.getChannelData;
-                        AudioBuffer.prototype.getChannelData = function() {
+                    if (window.OfflineAudioContext) {
+                        var origStart = OfflineAudioContext.prototype.startRendering;
+                        OfflineAudioContext.prototype.startRendering = function() {
                             __reportProbe('Audio');
-                            return origGetChannel.apply(this, arguments);
-                        };
-                    }
-                    if (window.AnalyserNode) {
-                        var origGetFloat = AnalyserNode.prototype.getFloatFrequencyData;
-                        AnalyserNode.prototype.getFloatFrequencyData = function(arr) {
-                            __reportProbe('Audio');
-                            return origGetFloat.apply(this, arguments);
-                        };
-                        var origGetByte = AnalyserNode.prototype.getByteFrequencyData;
-                        AnalyserNode.prototype.getByteFrequencyData = function(arr) {
-                            __reportProbe('Audio');
-                            return origGetByte.apply(this, arguments);
+                            return origStart.apply(this, arguments);
                         };
                     }
                 } catch(e) {}

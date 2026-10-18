@@ -408,34 +408,6 @@ object HazeFluidCacheEngine {
             if (window.__hazeSafariFluidEngineInjected) return;
             window.__hazeSafariFluidEngineInjected = true;
 
-            // 1. Speculative Touch-Down Preload on genuine link taps (debounced to avoid scroll interference)
-            var prefetchTimer = null;
-            document.addEventListener('touchstart', function(e) {
-                try {
-                    var target = e.target;
-                    while (target && target.tagName !== 'A') {
-                        target = target.parentElement;
-                    }
-                    if (target && target.href && (target.href.startsWith('http://') || target.href.startsWith('https://'))) {
-                        clearTimeout(prefetchTimer);
-                        var targetHref = target.href;
-                        prefetchTimer = setTimeout(function() {
-                            if (window.Android && window.Android.prefetchUrl) {
-                                window.Android.prefetchUrl(targetHref);
-                            }
-                        }, 80);
-                    }
-                } catch(_) {}
-            }, { passive: true });
-
-            document.addEventListener('touchmove', function() {
-                if (prefetchTimer) {
-                    clearTimeout(prefetchTimer);
-                    prefetchTimer = null;
-                }
-            }, { passive: true });
-
-            // 2. Eliminate tap lag and provide instant responsive feedback without breaking native scrolling
             function injectFluidStyles() {
                 try {
                     var styleId = '__haze_safari_fluid_style';
@@ -445,10 +417,6 @@ object HazeFluidCacheEngine {
                         style.id = styleId;
                         style.type = 'text/css';
                         style.textContent = `
-                            html, body {
-                                -webkit-overflow-scrolling: touch;
-                                scroll-behavior: smooth;
-                            }
                             a, button, [role="button"], input, select, textarea {
                                 -webkit-tap-highlight-color: transparent !important;
                             }
@@ -461,10 +429,9 @@ object HazeFluidCacheEngine {
                     }
                 } catch(_) {}
             }
-
             injectFluidStyles();
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', injectFluidStyles, { passive: true });
+                document.addEventListener('DOMContentLoaded', injectFluidStyles);
             }
         })();
     """.trimIndent()

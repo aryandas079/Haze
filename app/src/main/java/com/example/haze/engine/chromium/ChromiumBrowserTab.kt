@@ -917,7 +917,7 @@ class ChromiumBrowserTab(
                 if (window.__hazeYouTubeEngineInjected) return;
                 window.__hazeYouTubeEngineInjected = true;
 
-                // 1. Comprehensive AdGuard/uBlock Cosmetic CSS Injection
+                // 1. Zero-overhead Cosmetic CSS Injection
                 var ytCosmeticSelectors = isYtMusic ? [
                     'ytmusic-ad-slot-renderer',
                     'ytmusic-in-feed-ad-layout-renderer',
@@ -937,8 +937,6 @@ class ChromiumBrowserTab(
                     'ytd-companion-ad-renderer',
                     'ytd-merch-shelf-renderer',
                     'ytd-action-companion-ad-renderer',
-                    'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"]',
-                    'ytd-player-legacy-desktop-watch-ads-renderer',
                     '#masthead-ad',
                     '#player-ads',
                     '.ytp-ad-overlay-container',
@@ -967,18 +965,10 @@ class ChromiumBrowserTab(
                     'ytd-mealbar-promo-renderer',
                     'ytm-upsell-dialog-renderer',
                     'ytd-offline-promo-renderer',
-                    'ytd-enforcement-message-view-model',
-                    '#enforcement-message',
-                    'tp-yt-paper-dialog:has(ytd-enforcement-message-view-model)',
-                    'tp-yt-paper-dialog:has(#feedback)',
-                    'yt-playability-error-supported-renderers',
-                    'ytm-search ytm-compact-promoted-video-renderer',
                     '.ad-container',
                     '.ad-div'
                 ];
-                var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }' +
-                    '\nvideo, video.video-stream, video.html5-main-video, .html5-main-video { opacity: 1 !important; visibility: visible !important; pointer-events: auto !important; transform: translateZ(0) !important; backface-visibility: hidden !important; will-change: transform !important; }' +
-                    (isYtMusic ? '\nhtml, body { overflow: hidden !important; height: 100% !important; min-height: 100% !important; width: 100% !important; position: fixed !important; } ytmusic-app { height: 100% !important; min-height: 100% !important; display: block !important; }' : '');
+                var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }';
 
                 function injectYtStyle() {
                     try {
@@ -998,60 +988,7 @@ class ChromiumBrowserTab(
                     document.addEventListener('DOMContentLoaded', injectYtStyle);
                 }
 
-                // 2. Deep Cleaning of Player Payloads
-                function cleanPlayerPayload(obj, isReelEndpoint) {
-                    if (!obj || typeof obj !== 'object') return;
-                    try {
-                        delete obj.adPlacements;
-                        delete obj.adSlots;
-                        delete obj.playerAds;
-                        delete obj.adBreakHeartbeatParams;
-                        delete obj.interstitials;
-                        delete obj.reelPlayerParams;
-                        delete obj.midrollInfo;
-
-                        // Only filter entries/items when specifically on reel (Shorts) endpoints
-                        if (isReelEndpoint) {
-                            if (Array.isArray(obj.entries)) {
-                                obj.entries = obj.entries.filter(function(entry) {
-                                    if (!entry) return false;
-                                    if (entry.adSlot || entry.adSlotRenderer || entry.promotedSparklesWebRenderer || entry.promotedVideoRenderer) {
-                                        return false;
-                                    }
-                                    return true;
-                                });
-                            }
-                            if (Array.isArray(obj.items)) {
-                                obj.items = obj.items.filter(function(item) {
-                                    if (!item) return false;
-                                    return !item.adSlot && !item.adSlotRenderer;
-                                });
-                            }
-                        }
-
-                        if (obj.playerResponse && typeof obj.playerResponse === 'object') {
-                            cleanPlayerPayload(obj.playerResponse, isReelEndpoint);
-                        }
-                    } catch(_) {}
-                }
-
-                // 3. Intercept ytInitialPlayerResponse
-                var _ytInitialPlayerResp = window.ytInitialPlayerResponse;
-                if (_ytInitialPlayerResp && typeof _ytInitialPlayerResp === 'object') {
-                    cleanPlayerPayload(_ytInitialPlayerResp, false);
-                }
-                try {
-                    Object.defineProperty(window, 'ytInitialPlayerResponse', {
-                        get: function() { return _ytInitialPlayerResp; },
-                        set: function(val) {
-                            cleanPlayerPayload(val, false);
-                            _ytInitialPlayerResp = val;
-                        },
-                        configurable: true
-                    });
-                } catch(_) {}
-
-                // 4. Intercept Fetch & Response.prototype
+                // 2. Ultra-lightweight Network Request Interception (No JSON stringifying/parsing)
                 try {
                     var origFetch = window.fetch;
                     window.fetch = function(input, init) {
@@ -1060,116 +997,14 @@ class ChromiumBrowserTab(
                             url.indexOf('/api/stats/ads') !== -1 ||
                             url.indexOf('/pagead/') !== -1 ||
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            url.indexOf('/ptracking') !== -1 ||
-                            url.indexOf('/get_midroll_info') !== -1
+                            url.indexOf('/ptracking') !== -1
                         )) {
                             return Promise.resolve(new Response('', { status: 204, statusText: 'No Content' }));
                         }
                         return origFetch.apply(this, arguments);
                     };
-
-                    var origJson = Response.prototype.json;
-                    Response.prototype.json = function() {
-                        var selfUrl = this.url || '';
-                        var isReel = selfUrl.indexOf('/youtubei/v1/reel/') !== -1;
-                        var isYtPlayerReq = selfUrl.indexOf('/youtubei/v1/player') !== -1 ||
-                                            isReel ||
-                                            selfUrl.indexOf('v1/player') !== -1;
-                        return origJson.apply(this, arguments).then(function(data) {
-                            if (isYtPlayerReq && data && typeof data === 'object') {
-                                cleanPlayerPayload(data, isReel);
-                            }
-                            return data;
-                        });
-                    };
-
-                    var origText = Response.prototype.text;
-                    Response.prototype.text = function() {
-                        var selfUrl = this.url || '';
-                        var isReel = selfUrl.indexOf('/youtubei/v1/reel/') !== -1;
-                        var isYtPlayerReq = selfUrl.indexOf('/youtubei/v1/player') !== -1 ||
-                                            isReel ||
-                                            selfUrl.indexOf('v1/player') !== -1;
-                        return origText.apply(this, arguments).then(function(text) {
-                            if (isYtPlayerReq && text && (text.indexOf('adPlacements') !== -1 || text.indexOf('playerAds') !== -1 || text.indexOf('adSlots') !== -1)) {
-                                try {
-                                    var parsed = JSON.parse(text);
-                                    cleanPlayerPayload(parsed, isReel);
-                                    return JSON.stringify(parsed);
-                                } catch(_) {}
-                            }
-                            return text;
-                        });
-                    };
                 } catch(_) {}
 
-                // 5. Intercept XMLHttpRequest safely (Guarded responseType)
-                try {
-                    var origXhrOpen = XMLHttpRequest.prototype.open;
-                    var origXhrSend = XMLHttpRequest.prototype.send;
-                    XMLHttpRequest.prototype.open = function(method, url) {
-                        this.__hazeYtUrl = url || '';
-                        this.__hazeIsPlayer = (typeof url === 'string') && (
-                            url.indexOf('/youtubei/v1/player') !== -1 ||
-                            url.indexOf('/youtubei/v1/reel/') !== -1 ||
-                            url.indexOf('v1/player') !== -1
-                        );
-                        this.__hazeIsReel = (typeof url === 'string') && (url.indexOf('/youtubei/v1/reel/') !== -1);
-                        return origXhrOpen.apply(this, arguments);
-                    };
-                    XMLHttpRequest.prototype.send = function() {
-                        var url = this.__hazeYtUrl;
-                        if (url && (
-                            url.indexOf('/api/stats/ads') !== -1 ||
-                            url.indexOf('/pagead/') !== -1 ||
-                            url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            url.indexOf('/ptracking') !== -1 ||
-                            url.indexOf('/get_midroll_info') !== -1
-                        )) {
-                            var self = this;
-                            setTimeout(function() {
-                                try {
-                                    Object.defineProperty(self, 'status', { get: function() { return 204; } });
-                                    Object.defineProperty(self, 'responseText', { get: function() { return ''; } });
-                                    if (typeof self.onreadystatechange === 'function') self.onreadystatechange();
-                                    if (typeof self.onload === 'function') self.onload();
-                                } catch(_) {}
-                            }, 0);
-                            return;
-                        }
-                        return origXhrSend.apply(this, arguments);
-                    };
-
-                    var origResponseTextGetter = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'responseText');
-                    if (origResponseTextGetter && origResponseTextGetter.get) {
-                        var origGet = origResponseTextGetter.get;
-                        Object.defineProperty(XMLHttpRequest.prototype, 'responseText', {
-                            get: function() {
-                                try {
-                                    if (this.responseType && this.responseType !== '' && this.responseType !== 'text') {
-                                        return origGet.apply(this);
-                                    }
-                                } catch(_) {
-                                    return origGet.apply(this);
-                                }
-                                var val = origGet.apply(this);
-                                if (this.__hazeIsPlayer && typeof val === 'string') {
-                                    if (this.__hazeCleanedText) return this.__hazeCleanedText;
-                                    try {
-                                        var data = JSON.parse(val);
-                                        cleanPlayerPayload(data, this.__hazeIsReel);
-                                        this.__hazeCleanedText = JSON.stringify(data);
-                                        return this.__hazeCleanedText;
-                                    } catch(_) {}
-                                }
-                                return val;
-                            },
-                            configurable: true
-                        });
-                    }
-                } catch(_) {}
-
-                // 6. ytcfg experiment flags
                 try {
                     var setYtCfg = function() {
                         if (window.ytcfg && typeof window.ytcfg.set === 'function') {
