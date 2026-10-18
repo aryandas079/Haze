@@ -833,7 +833,7 @@ object HazeDownloadsManager {
             return
         }
         try {
-            val uri = FileProvider.getUriForFile(activity, "com.example.haze.fileprovider", file)
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, item.mimeType.ifEmpty { "*/*" })
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -863,7 +863,7 @@ object HazeDownloadsManager {
                     1 -> { // Share
                         val file = File(item.filePath)
                         if (file.exists()) {
-                            val uri = FileProvider.getUriForFile(activity, "com.example.haze.fileprovider", file)
+                            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = item.mimeType.ifEmpty { "*/*" }
                                 putExtra(Intent.EXTRA_STREAM, uri)

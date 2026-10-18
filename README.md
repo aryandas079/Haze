@@ -7,10 +7,11 @@
   ### The Ultra-Fast, Minimalist and Privacy-Hardened Chromium Web Browser for Android
 
   <p align="center">
-    <b>Powered by a custom-compiled dual-ABI Native Chromium Engine (Blink + V8), C++17 native threat filtering, hybrid local search indexing, and hardware-grade credential encryption.</b>
+    <b>Powered by a custom-compiled dual-ABI Native Chromium Engine (Blink + V8), C++17 native threat filtering, system Notification Media Controller, hybrid local search indexing, and hardware-grade credential encryption.</b>
   </p>
 
   [![Platform](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://www.android.com/)
+  [![Package](https://img.shields.io/badge/Package-com.aryandas.haze-blue?style=for-the-badge)](https://github.com/aryandas079/Haze)
   [![Chromium Core](https://img.shields.io/badge/Engine-Native%20Chromium%20(Blink%20%2B%20V8)-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://www.chromium.org/)
   [![ABI Support](https://img.shields.io/badge/ABI-arm64--v8a%20%7C%20armeabi--v7a-00897B?style=for-the-badge)](https://developer.android.com/ndk/guides/abis)
   [![Min SDK](https://img.shields.io/badge/Min%20SDK-24%20(Android%207.0)-blue?style=for-the-badge)](https://developer.android.com/)
@@ -30,7 +31,10 @@
 - [Overview](#overview)
 - [Key Features](#key-features)
   - [Custom-Compiled Dual-ABI Native Chromium Engine](#custom-compiled-dual-abi-native-chromium-engine)
+  - [Notification Center & Lockscreen Media Controller](#notification-center--lockscreen-media-controller)
+  - [Universal Website Compatibility & Streaming Acceleration](#universal-website-compatibility--streaming-acceleration)
   - [Haze Privacy Shield (Native C++17 Core)](#haze-privacy-shield-native-c17-core)
+  - [Anti-Tracking, Anti-Fingerprinting & Link Sanitization](#anti-tracking-anti-fingerprinting--link-sanitization)
   - [Hybrid Local Indexing & Live Autocomplete Omnibox](#hybrid-local-indexing--live-autocomplete-omnibox)
   - [Redesigned First-Run Onboarding & Bottom-Anchored UI](#redesigned-first-run-onboarding--bottom-anchored-ui)
   - [Floating Mini-Player and Picture-in-Picture](#floating-mini-player-and-picture-in-picture)
@@ -57,11 +61,13 @@
 
 ## Overview
 
-**Haze** is a standalone, high-performance Android web browser engineered from the ground up with its own embedded **Native Chromium Engine (`libcontent_shell_content_view.so`)** alongside a dedicated C++17 network and content-filtering core (`libhazeshield.so`).
+**Haze** (`com.aryandas.haze`) is a standalone, high-performance Android web browser engineered from the ground up with its own embedded **Native Chromium Engine (`libcontent_shell_content_view.so`)** alongside a dedicated C++17 network and content-filtering core (`libhazeshield.so`).
 
 Unlike lightweight wrapper browsers that rely strictly on the host device's system WebView, Haze ships with a self-contained, custom-compiled Chromium Content runtime supporting both **64-bit (`arm64-v8a`)** and **32-bit (`armeabi-v7a`)** ARM architectures:
 - **True Standalone Chromium Runtime**: Ships with compiled Blink rendering, V8 JavaScript snapshots (`snapshot_blob_64.bin` / `snapshot_blob_32.bin`), ICU internationalization data (`icudtl.dat`), Chromium resource packs (`content_shell.pak`), and complete `JNI_Zero` Java-to-C++ runtime bindings (`chromium_engine.jar`).
 - **Radical Privacy**: Zero first-party tracking telemetry, zero analytics harvesting, C++17 native ad/tracker interception, and hardware-grade credential protection.
+- **System Notification Media Center**: Full foreground Android MediaSession controller integrated directly into the notification shade and lockscreen, providing native playback controls, scrubber tracking, and album artwork across YouTube Music, Spotify, Apple Music, and web streams.
+- **Universal Compatibility & 60 FPS Fluidity**: Direct RenderThread hardware composition, native HTTP/2 & HTTP/3 multiplexing, and zero-polling event-driven script architectures delivering stutter-free browsing across complex modern single-page applications.
 - **One-Handed Ergonomics**: Chrome-inspired First-Run Experience (FRE), a clean top-toolbar-free viewport with only a contextual profile badge on the Home screen, and all search, tab, voice, and menu actions anchored in a flat bottom bar.
 
 ---
@@ -83,17 +89,50 @@ Haze integrates a full Chromium Content runtime behind a clean, modular engine a
 
 ---
 
+### Notification Center & Lockscreen Media Controller
+Haze brings desktop- and dedicated-app-grade media playback controls right to Android's Notification Shade and Lockscreen via `HazeMediaNotificationService`:
+
+- **Native MediaSession Integration**:
+  - Full Android `MediaSessionCompat` lifecycle synchronization matching native music apps (Spotify, YouTube Music, Apple Music).
+  - Automatically captures and broadcasts live track metadata: Track Title, Artist / Channel, Album, and high-resolution Album Artwork.
+- **Notification Shade Playback Controls**:
+  - Compact and expanded notification styles (`NotificationCompat.MediaStyle`) featuring Previous Track, Play/Pause toggle, Next Track, and Dismiss controls.
+  - Interactive scrub bar and playback position reporting.
+- **State Deduplication & Audio Focus Guard**:
+  - Automatic state-change deduplication prevents AVRCP churn and audio focus storms, eliminating audio stuttering and main thread hitching.
+  - Foreground service lifecycle management compliant with Android 8.0+ through Android 14+ requirements.
+
+---
+
+### Universal Website Compatibility & Streaming Acceleration
+Engineered and verified against the top 50 global web destinations (including search engines, streaming giants, social media networks, AI assistants, and enterprise SaaS):
+
+- **Zero-Lag Audio & Video Streaming**:
+  - Native RFC 7234 HTTP caching and byte-range streaming (`Range: bytes=...`) delegated directly to Chromium's native C++ network stack, bypassing slow synchronous Java disk layers.
+  - Uncompromised support for HLS (`.m3u8`, `.ts`), DASH (`.mpd`, `.m4s`), MP4, WebM, and protected media playback.
+- **Event-Driven Media Supervisor**:
+  - Replaced high-frequency interval polling (`setInterval`) and repetitive DOM scans with purely event-driven HTML5 media observers (`play`, `playing`, `loadedmetadata`, `loadstart`, `yt-navigate-finish`).
+  - RequestAnimationFrame-throttled ad killer and video lifecycle handlers eliminate CPU micro-stutters during 60 FPS video and audio playback.
+- **Dynamic Viewport & Client Hints Adaptation**:
+  - Automatically supplies correct client hints (`navigator.userAgentData`, `navigator.platform = 'Win32'`) and viewport definitions to ensure proper responsive or desktop layouts on complex modern SPAs (YouTube, Spotify, Discord, Instagram, Canva, Microsoft 365).
+- **Direct RenderThread Compositing**:
+  - Layer type set to `View.LAYER_TYPE_NONE` with disabled `offscreenPreRaster` prevents redundant intermediate offscreen texture allocations, guaranteeing buttery smooth touch response and scrolling.
+
+---
+
 ### Haze Privacy Shield (Native C++17 Core)
 The Haze Privacy Shield is a multi-tier defense system designed to block web pollution before network packets consume memory or cellular data.
 
 - **Native C++ Interception**: Utilizes `HazeShieldCore`, `DomainMatcher`, and `RuleMatcher` written in modern C++17 (`libhazeshield.so`) compiled with `-O3 -DNDEBUG -fvisibility=hidden` and `std::shared_mutex` for lock-free read concurrency.
-- **Sub-Millisecond Evaluation**: An in-memory bounded LRU decision cache (1,024 entries) delivers $O(1)$ decision times on repeated resource lookups.
+- **Sub-Millisecond Evaluation**: An in-memory bounded LRU decision cache (1,024 entries) delivers O(1) decision times on repeated resource lookups.
+- **Declarative CSS Cosmetic Filtering**:
+  - Banners, sponsored sections, and ad wrappers are instantly collapsed using declarative CSS rules (`display: none !important`) processed directly inside Blink's C++ styling engine with zero JavaScript overhead.
 - **Comprehensive Threat Filtering**:
-  - Block intrusive advertising networks, banners, and popups, reinforced by early DOM CSS cosmetic injection.
-  - Neutralize third-party behavioral trackers and fingerprinting scripts (Google Analytics, Facebook Pixel, Hotjar, Clarity).
-  - Intercept phishing URLs and malicious domains with custom security warning pages.
+  - Blocks intrusive advertising networks, tracking beacons, and deceptive notification prompts.
+  - Neutralizes third-party behavioral trackers and telemetry scripts (Google Analytics, Facebook Pixel, Hotjar, Clarity).
+  - Intercepts phishing URLs and malicious domains with custom security warning pages.
 - **Smarter YouTube Shielding**: Intelligently suppresses YouTube ad injections and telemetry pings without degrading legitimate media stream segments (`googlevideo.com`).
-- **Live Shield Dashboard**: Transparent, real-time metrics showing total blocked threats, cumulative bandwidth saved (KB/MB/GB), time saved in page render delay, and per-domain whitelisting controls.
+- **Debounced Live Shield Dashboard**: Transparent metrics showing total blocked threats, cumulative bandwidth saved, and per-domain whitelisting controls with debounced UI updates that never stall page loading.
 
 ```text
                       ┌────────────────────────────────┐
@@ -125,15 +164,31 @@ The Haze Privacy Shield is a multi-tier defense system designed to block web pol
 
 ---
 
+### Anti-Tracking, Anti-Fingerprinting & Link Sanitization
+Advanced privacy engine (`HazeAntiTrackingEngine`) actively neutralizing silent identity profiling:
+
+- **Fingerprint Defense**:
+  - Canvas & WebGL probe detection and masking without corrupting standard image processing, CAPTCHAs, or QR decoders.
+  - Audio and font metric measurement probe normalization.
+  - Device metric spoofing (`hardwareConcurrency`, `deviceMemory`, `maxTouchPoints`).
+- **Bounce Tracking Protection**:
+  - Detects and unravels redirect trampoline URLs, bypassing tracking redirectors directly to destination pages.
+- **Link Tracking Sanitization**:
+  - Strips attribution query parameters (`utm_*`, `fbclid`, `gclid`, `msclkid`, `twclid`, `ttclid`, `mc_eid`, etc.) on navigation and hyperlink taps.
+- **WebRTC IP Leak Defense**:
+  - Sanitizes local LAN IPv4 candidates from SDP offers while preserving STUN and TURN connectivity for seamless Google Meet, Zoom, and Discord calls.
+
+---
+
 ### Hybrid Local Indexing & Live Autocomplete Omnibox
 Haze features an instant, low-latency search and indexing pipeline built directly into the bottom omnibox:
 
 - **On-Device Local Index (`buildLocalIndexedSuggestions`)**:
   - Queries and ranks matches across **Recent Searches**, **Custom Homepage Shortcuts**, **Saved Bookmarks** (titles and URLs), and **Browsing History** (`HazeDatabase` SQLite index) as you type.
 - **Live Autocomplete Fusion**:
-  - Merges deduplicated local index hits with live Google autocomplete suggestions over a debounced asynchronous pipeline (`150ms` typing debounce with request sequence cancellation).
+  - Merges deduplicated local index hits with live Google autocomplete suggestions over a debounced asynchronous pipeline (150ms typing debounce with request sequence cancellation).
 - **Smart URL vs. Query Resolution**:
-  - Automatically distinguishes between direct domain/URL navigation (`https://`, `http://`, TLD detection) and search queries across user-selectable search engines (Google, DuckDuckGo, Bing, Yahoo, Ecosia).
+  - Automatically distinguishes between direct domain/URL navigation (`https://`, `http://`, TLD detection) and search queries across user-selectable search engines (Google, DuckDuckGo, Bing, Yahoo, Ecosia, Wikipedia).
 
 ---
 
@@ -195,12 +250,12 @@ Keep your browser data synchronized across your Android ecosystem:
 Make your browsing canvas uniquely yours:
 
 - **Ambient Wallpapers**: Built-in curated background themes including:
-  - *Serene Canyon Arch at Sunset*
-  - *Twilight Forest River Valley*
-  - *Sunlit Ocean Canyon Reef*
-  - *Pastel Ringed Planet Over Dreamy Alien Sea*
-  - *Twilight Coastal Road Overlook*
-- **Offline Astronaut Experience**: Custom-illustrated interactive offline screen (*Offline Astronaut and Cat on the Moon*) featuring real-time connection diagnostics and a quick retry engine.
+  - Serene Canyon Arch at Sunset
+  - Twilight Forest River Valley
+  - Sunlit Ocean Canyon Reef
+  - Pastel Ringed Planet Over Dreamy Alien Sea
+  - Twilight Coastal Road Overlook
+- **Offline Astronaut Experience**: Custom-illustrated interactive offline screen (Offline Astronaut and Cat on the Moon) featuring real-time connection diagnostics and a quick retry engine.
 - **Dynamic Theming**: Full support for true OLED Dark Mode, crisp Light Mode, and Material Design accent tinting.
 
 ---
@@ -225,6 +280,7 @@ graph TD
         MiniPlayer[HazeMiniPlayer]
         ShieldUI[Privacy Shield Dashboard]
         VaultUI[Password Vault Dialog]
+        MediaNotif[HazeMediaNotificationService]
     end
 
     subgraph Core ["Feature & Indexing Managers"]
@@ -234,6 +290,7 @@ graph TD
         DownloadEng[HazeDownloadEngine]
         PassVault[HazePasswordManager]
         FilterMgr[HazeFilterListManager]
+        AntiTrack[HazeAntiTrackingEngine]
     end
 
     subgraph Abstraction ["Decoupled Browser Engine Layer"]
@@ -243,6 +300,7 @@ graph TD
         NativeEngine[NativeChromiumBrowserEngine]
         NativeTab[NativeChromiumTab]
         NativeNav[NativeNavigationController]
+        ChromiumTab[ChromiumBrowserTab]
     end
 
     subgraph ChromiumNative ["Embedded Chromium Runtime (arm64-v8a & armeabi-v7a)"]
@@ -258,10 +316,11 @@ graph TD
         RuleMatch[rule_matcher.cc]
     end
 
-    subgraph Storage ["Hardware & Storage Layer"]
-        DB[(HazeDatabase SQLite)]
+    subgraph SystemServices ["Android System Integration"]
+        MediaSession[Android MediaSessionCompat]
+        NotifManager[NotificationManager & Shade]
         KeyStore[AndroidKeyStore AES-GCM]
-        SharedPrefs[HazePrefs Storage]
+        DB[(HazeDatabase SQLite)]
     end
 
     MA --> Onboard
@@ -275,6 +334,11 @@ graph TD
     JniZero --> ContentShell
     ContentShell --> BlinkV8
 
+    MA --> ChromiumTab
+    ChromiumTab --> MediaNotif
+    MediaNotif --> MediaSession
+    MediaNotif --> NotifManager
+
     MA --> MiniPlayer
     MA --> ShieldUI
     MA --> VaultUI
@@ -284,6 +348,7 @@ graph TD
     JNI --> ShieldCore
     ShieldCore --> DomainMatch
     ShieldCore --> RuleMatch
+    ChromiumTab --> AntiTrack
 
     VaultUI --> PassVault
     PassVault --> KeyStore
@@ -304,7 +369,8 @@ Haze/
 │   ├── background/                       # Curated ambient themes & offline artwork
 │   └── logo.png                          # High-resolution Haze emblem
 ├── app/
-│   ├── build.gradle.kts                  # Build config, ABI splits, R8 & native blob unpacker
+│   ├── build.gradle.kts                  # Build config (com.aryandas.haze), ABI splits, R8 & native unpacker
+│   ├── google-services.json              # Firebase & Google Services client credentials
 │   ├── proguard-rules.pro                # R8 keep rules for JNI_Zero, Chromium & AndroidX bridges
 │   ├── libs/                             # Compiled Chromium Java runtime archives
 │   │   ├── chromium_engine.jar           # Merged 394 Chromium Content/Blink/Base Java libraries
@@ -315,7 +381,7 @@ Haze/
 │   │   └── armeabi-v7a/                  # 32-bit libcontent_shell_content_view.so.gz.part00..01
 │   ├── src/
 │   │   ├── main/
-│   │   │   ├── AndroidManifest.xml       # Sandboxed/privileged process services & permissions
+│   │   │   ├── AndroidManifest.xml       # Permissions, FileProvider authority & MediaPlayback service
 │   │   │   ├── assets/                   # Chromium & Haze runtime assets
 │   │   │   │   ├── content_shell.pak     # Chromium UI & Blink packed resources
 │   │   │   │   ├── icudtl.dat            # ICU internationalization data table
@@ -338,15 +404,18 @@ Haze/
 │   │   │   │       │   ├── IBrowserEngine.kt
 │   │   │   │       │   ├── IBrowserTab.kt
 │   │   │   │       │   ├── INavigationController.kt
-│   │   │   │       │   ├── chromium/       # Fallback WebView wrapper
-│   │   │   │       │   └── nativechromium/ # Embedded Native Chromium Engine
+│   │   │   │       │   ├── chromium/       # Optimized Chromium tab with MediaSession & AdGuard rules
+│   │   │   │       │   └── nativechromium/ # Embedded Native Chromium Content runtime
 │   │   │   │       │       ├── NativeChromiumBrowserEngine.kt
 │   │   │   │       │       ├── NativeChromiumTab.kt
 │   │   │   │       │       └── NativeNavigationController.kt
 │   │   │   │       ├── native_engine/    # C++17 Privacy Shield JNI Bridge
+│   │   │   │       ├── HazeMediaNotificationService.kt # Foreground Notification Center Media Controller
+│   │   │   │       ├── HazeAntiTrackingEngine.kt       # Anti-Fingerprinting & Link Sanitizer
 │   │   │   │       └── MainActivity.kt   # Primary browser orchestrator & hybrid indexer
-│   │   │   └── res/                      # Android layouts (shell_view.xml, activity_main.xml)
+│   │   │   └── res/                      # Android layouts, icons, and themes
 │   │   └── test/                         # Unit & engine test suites
+│   └── src/androidTest/                  # Instrumentation test suite (com.aryandas.haze)
 ├── gradle/
 │   └── libs.versions.toml                # Version catalog
 └── build.gradle.kts                      # Root build script
@@ -358,9 +427,11 @@ Haze/
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
+| **Application ID** | `com.aryandas.haze` | Official package identity across Android OS and distribution channels |
 | **Language** | Kotlin 1.9+ / Java 11 | Application logic, UI controllers, engine orchestration |
 | **Web Engine** | Custom Native Chromium (`arm64-v8a` & `armeabi-v7a`) | Standalone Blink rendering, V8 JS engine, `WebContents` & `JNI_Zero` |
 | **Native Shield** | C++17 & CMake 3.22.1 (`libhazeshield.so`) | Ultra-fast rule parsing, sub-millisecond ad/tracker pattern matching |
+| **Media Controller** | `MediaSessionCompat` & Foreground Service | Notification shade and lockscreen playback controls with scrubber tracking |
 | **Build Optimization** | R8 Minification, Resource Shrinking & C++ `-O3` Strip | Bytecode tree-shaking, symbol stripping, per-ABI & Universal APK packaging |
 | **UI Components** | Material 3 & AndroidX | Edge-to-edge screens, bottom-anchored omnibox, fluid transitions |
 | **Cryptography** | AndroidKeyStore (AES-256-GCM) | Hardware-isolated credential encryption |
@@ -404,7 +475,7 @@ The release build generates three APKs under `app/build/outputs/apk/release/`:
 - `app-armeabi-v7a-release.apk`: Dedicated 32-bit ARM release APK.
 
 > [!NOTE]
-> To enable Google Sign-In with cloud sync during personal development, make sure your `google-services.json` file inside the `app/` directory is configured with your signing key's SHA-1 fingerprint.
+> To enable Google Sign-In with cloud sync during personal development, make sure your `google-services.json` file inside the `app/` directory is configured with your signing key's SHA-1 fingerprint for package `com.aryandas.haze`.
 
 ### Running Tests
 
@@ -424,16 +495,22 @@ Haze treats user privacy as a fundamental architectural constraint, not an after
 2. **Local-First Processing**: URL matching, search indexing, and shield classifications happen 100% on-device in native and local SQLite memory.
 3. **Hardware Key Isolation**: Master keys never leave the secure enclave/TEE of your mobile hardware.
 4. **Isolated Private Sessions**: Incognito tabs operate in isolated contexts that permanently discard cookies, web caches, and storage blobs upon closure.
+5. **Surrogate Scripting**: Blocks invasive analytics and advertising trackers while safely supplying lightweight local surrogate stubs (`gtag`, `fbq`, `clarity`, `adsbygoogle`) to ensure host websites never break.
 
 ---
 
 ## Roadmap
 
+- [x] Production application identity migration to `com.aryandas.haze`
 - [x] Custom-compiled Dual-ABI (`arm64-v8a` & `armeabi-v7a`) Native Chromium Engine integration
 - [x] Full `JNI_Zero` runtime bridge & `chromium_engine.jar` packaging
+- [x] Android Notification Center & Lockscreen Media Controller with scrubber controls
+- [x] Zero-polling streaming media acceleration for YouTube Music, Spotify, and web video
+- [x] Event-driven ad mitigation and declarative CSS cosmetic filtering
 - [x] Chrome-inspired First-Run Experience & bottom-anchored UI redesign
 - [x] Hybrid local database indexing + live Google autocomplete search omnibox
 - [x] Native C++17 Shield Engine (`libhazeshield.so`) with JNI integration
+- [x] Anti-Fingerprinting, Bounce Tracking protection, and link parameter sanitizer
 - [x] Hardware-backed Password Vault with biometric unlock
 - [x] In-app Draggable Mini-Player
 - [x] Multi-threaded resumable download engine

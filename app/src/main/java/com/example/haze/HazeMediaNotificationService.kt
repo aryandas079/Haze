@@ -31,11 +31,11 @@ class HazeMediaNotificationService : Service() {
         const val CHANNEL_ID = "haze_media_playback_channel"
         const val NOTIFICATION_ID = 4099
 
-        const val ACTION_PLAY = "com.example.haze.ACTION_MEDIA_PLAY"
-        const val ACTION_PAUSE = "com.example.haze.ACTION_MEDIA_PAUSE"
-        const val ACTION_PREV = "com.example.haze.ACTION_MEDIA_PREV"
-        const val ACTION_NEXT = "com.example.haze.ACTION_MEDIA_NEXT"
-        const val ACTION_STOP = "com.example.haze.ACTION_MEDIA_STOP"
+        const val ACTION_PLAY = "com.aryandas.haze.ACTION_MEDIA_PLAY"
+        const val ACTION_PAUSE = "com.aryandas.haze.ACTION_MEDIA_PAUSE"
+        const val ACTION_PREV = "com.aryandas.haze.ACTION_MEDIA_PREV"
+        const val ACTION_NEXT = "com.aryandas.haze.ACTION_MEDIA_NEXT"
+        const val ACTION_STOP = "com.aryandas.haze.ACTION_MEDIA_STOP"
 
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_ARTIST = "extra_artist"

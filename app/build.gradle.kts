@@ -12,7 +12,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.haze"
+        applicationId = "com.aryandas.haze"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
