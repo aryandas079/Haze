@@ -4212,8 +4212,8 @@ class MainActivity : AppCompatActivity() {
         val isTint = HazeTintManager.isTintEnabled(this)
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
         val shape = if (isTint) {
-            val glassBg = if (isPrivateMode || isDark) Color.argb(195, 34, 37, 44) else Color.argb(215, 255, 255, 255)
-            val glassStroke = if (isPrivateMode || isDark) Color.argb(75, 255, 255, 255) else Color.argb(130, 255, 255, 255)
+            val glassBg = if (isPrivateMode || isDark) Color.argb(238, 22, 24, 28) else Color.argb(242, 248, 250, 252)
+            val glassStroke = if (isPrivateMode || isDark) Color.argb(90, 255, 255, 255) else Color.argb(150, 255, 255, 255)
             GradientDrawable().apply {
                 this.shape = GradientDrawable.RECTANGLE
                 val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)

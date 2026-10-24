@@ -163,12 +163,13 @@
         </FrameLayout>
     </LinearLayout>
 
-    <!-- Touch Dismiss Overlay for Search Active State (Transparent, no dimming) -->
-    <View
+    <!-- Touch Dismiss Overlay for Search Active State & Real Backdrop Blur -->
+    <ImageView
         android:id="@+id/dimOverlay"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:background="@android:color/transparent"
+        android:scaleType="fitXY"
         android:visibility="gone"
         android:elevation="10dp"
         android:clickable="true"

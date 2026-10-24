@@ -46,7 +46,7 @@ object HazeSettingsManager {
         val sectionHeaderColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
         val isTint = HazeTintManager.isTintEnabled(activity)
         val bgColor = if (isTint) {
-            if (isDark) Color.argb(225, 18, 18, 22) else Color.argb(225, 245, 247, 250)
+            if (isDark) Color.argb(240, 18, 19, 22) else Color.argb(244, 246, 248, 252)
         } else {
             if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
         }

@@ -52,7 +52,7 @@ android {
     }
     splits {
         abi {
-            isEnable = false
+            isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a")
             isUniversalApk = true
@@ -61,7 +61,7 @@ android {
     packaging {
         jniLibs {
             // Tells Android not to compress .so files twice, saving disk space after install
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"

@@ -1164,9 +1164,93 @@ class ChromiumBrowserTab(
                     if (window.__hazeShortsScrollerActive) return;
                     window.__hazeShortsScrollerActive = true;
 
-                    // Unhide Shorts player API and carousel container if concealed
+                    // Unhide Shorts player API and carousel container if concealed & preserve controls overlay
+                    var cachedOverlayTemplate = null;
+
+                    function preserveShortsOverlay() {
+                        try {
+                            var allOverlays = Array.from(document.querySelectorAll('ytm-reel-player-overlay-renderer'));
+                            var nativeOverlay = allOverlays.find(function(o) { return !o.__hazeInjected; });
+                            var injectedOverlay = allOverlays.find(function(o) { return o.__hazeInjected; });
+
+                            if (nativeOverlay && nativeOverlay.innerHTML.length > 500) {
+                                cachedOverlayTemplate = nativeOverlay.cloneNode(true);
+                                // If native overlay is present and valid, remove any redundant injected clone
+                                if (injectedOverlay) {
+                                    injectedOverlay.remove();
+                                }
+                                return;
+                            }
+
+                            var tc = document.querySelector('.layer.touch-controls');
+                            // Only inject if there is NO native overlay attached in touch-controls
+                            if (tc && !tc.querySelector('ytm-reel-player-overlay-renderer:not([data-haze-injected])') && cachedOverlayTemplate) {
+                                if (injectedOverlay) return; // Already injected and active
+                                var clone = cachedOverlayTemplate.cloneNode(true);
+                                clone.__hazeInjected = true;
+                                clone.setAttribute('data-haze-injected', 'true');
+                                tc.appendChild(clone);
+
+                                // Synchronize active video metadata (title, author, subscribe)
+                                var player = document.getElementById('movie_player');
+                                if (player && player.getVideoData) {
+                                    var vData = player.getVideoData();
+                                    if (vData) {
+                                        var titleEl = clone.querySelector('.ytReelMetapanelViewModelMetapanelItemTitle') || clone.querySelector('yt-reel-metapanel-view-model');
+                                        if (titleEl && vData.title) {
+                                            titleEl.innerText = vData.title;
+                                        }
+
+                                        // Ensure channel bar and subscribe button are present
+                                        var metaContainer = clone.querySelector('.ytReelPlayerOverlayViewModelHorizontalContainer');
+                                        var existingChannelBar = clone.querySelector('.__haze_channel_bar, yt-reel-channel-bar-view-model');
+                                        if (!existingChannelBar && metaContainer) {
+                                            var channelBar = document.createElement('div');
+                                            channelBar.className = '__haze_channel_bar';
+                                            channelBar.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:8px; pointer-events:auto;';
+
+                                            var avatar = document.createElement('div');
+                                            avatar.style.cssText = 'width:32px; height:32px; border-radius:50%; background:#ff0033; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px;';
+                                            avatar.innerText = (vData.author || 'Y').charAt(0).toUpperCase();
+
+                                            var authorName = document.createElement('span');
+                                            authorName.style.cssText = 'color:#fff; font-weight:bold; font-size:14px; text-shadow:0 1px 2px rgba(0,0,0,0.8);';
+                                            authorName.innerText = '@' + (vData.author || 'creator');
+
+                                            var subBtn = document.createElement('button');
+                                            subBtn.style.cssText = 'background:#fff; color:#0f0f0f; border:none; border-radius:18px; padding:6px 14px; font-weight:bold; font-size:12px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.3);';
+                                            subBtn.innerText = 'Subscribe';
+                                            subBtn.onclick = function(e) {
+                                                e.stopPropagation();
+                                                if (subBtn.innerText === 'Subscribe') {
+                                                    subBtn.innerText = 'Subscribed';
+                                                    subBtn.style.background = 'rgba(255,255,255,0.2)';
+                                                    subBtn.style.color = '#fff';
+                                                } else {
+                                                    subBtn.innerText = 'Subscribe';
+                                                    subBtn.style.background = '#fff';
+                                                    subBtn.style.color = '#0f0f0f';
+                                                }
+                                            };
+
+                                            channelBar.appendChild(avatar);
+                                            channelBar.appendChild(authorName);
+                                            channelBar.appendChild(subBtn);
+
+                                            var metapanel = clone.querySelector('.ytReelPlayerOverlayViewModelMetadataContainerMetapanel');
+                                            if (metapanel) {
+                                                metapanel.insertBefore(channelBar, metapanel.firstChild);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(_) {}
+                    }
+
                     function ensurePlayerVisible() {
                         try {
+                            preserveShortsOverlay();
                             var wrapper = document.getElementById('carousel-scrollable-wrapper');
                             if (wrapper) {
                                 wrapper.classList.remove('ytShortsCarouselHidePlayer');
