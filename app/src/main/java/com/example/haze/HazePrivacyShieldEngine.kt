@@ -379,11 +379,19 @@ object HazePrivacyShieldEngine {
                     db.resetPrivacyStats()
                     prefs.edit().putBoolean("zero_baseline_initialized_v3", true).apply()
                 }
-                val isDefaultOffInitialized = prefs.getBoolean("shield_default_off_v2", false)
-                if (!isDefaultOffInitialized) {
+                val isShieldEnabledInitialized = prefs.getBoolean("shield_default_on_v1", false)
+                if (!isShieldEnabledInitialized) {
                     prefs.edit()
-                        .putBoolean(PREF_SHIELD_GLOBAL_ENABLED, false)
-                        .putBoolean("shield_default_off_v2", true)
+                        .putBoolean(PREF_SHIELD_GLOBAL_ENABLED, true)
+                        .putBoolean(PREF_BLOCK_ADS, true)
+                        .putBoolean(PREF_BLOCK_TRACKERS, true)
+                        .putBoolean(PREF_BLOCK_POPUPS, true)
+                        .putBoolean(PREF_BLOCK_MALWARE, true)
+                        .putBoolean(PREF_BLOCK_OVERLAYS, true)
+                        .putBoolean(PREF_BLOCK_VIDEO_ADS, true)
+                        .putBoolean(PREF_BLOCK_SPONSORED_WIDGETS, true)
+                        .putBoolean(PREF_BLOCK_UNWANTED_SCRIPTS, true)
+                        .putBoolean("shield_default_on_v1", true)
                         .apply()
                 }
                 val domains = db.getWhitelistedDomains()
@@ -579,7 +587,7 @@ object HazePrivacyShieldEngine {
 
     fun isShieldEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean(PREF_SHIELD_GLOBAL_ENABLED, false)
+        return prefs.getBoolean(PREF_SHIELD_GLOBAL_ENABLED, true)
     }
 
     fun setShieldEnabled(context: Context, enabled: Boolean) {

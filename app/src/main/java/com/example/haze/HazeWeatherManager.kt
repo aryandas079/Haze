@@ -468,6 +468,8 @@ class HazeWeatherManager(
         }
 
         val dialog = BottomSheetDialog(activity)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
         val isDark = prefs.getBoolean("is_dark", true) || activity.isPrivateMode
         val accentColor = Color.parseColor(prefs.getString("accent_color", "#0B57D0") ?: "#0B57D0")
         val bgColor = if (isDark) Color.parseColor("#18191A") else Color.WHITE
@@ -482,10 +484,7 @@ class HazeWeatherManager(
             orientation = LinearLayout.VERTICAL
             val pad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, activity.resources.displayMetrics).toInt()
             setPadding(pad, pad / 2, pad, pad)
-            background = GradientDrawable().apply {
-                setColor(bgColor)
-                cornerRadii = floatArrayOf(48f, 48f, 48f, 48f, 0f, 0f, 0f, 0f)
-            }
+            background = HazeTintManager.createSheetGlassDrawable(activity, isDark, 28f)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 maxSheetHeight

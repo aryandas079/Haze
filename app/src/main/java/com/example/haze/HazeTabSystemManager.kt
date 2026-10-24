@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
@@ -82,9 +83,11 @@ object HazeTabSystemManager {
         val subTextColor = if (isDark) Color.parseColor("#9AA0A6") else Color.parseColor("#5F6368")
 
         val dialog = BottomSheetDialog(activity)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(bgColor)
+            background = HazeTintManager.createSheetGlassDrawable(activity, isDark, 28f)
             setPadding(dpToPx(activity, 16), dpToPx(activity, 12), dpToPx(activity, 16), dpToPx(activity, 20))
         }
 
@@ -819,10 +822,15 @@ object HazeTabSystemManager {
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                isClickable = true
+                isFocusable = true
+                val outVal = TypedValue()
+                activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, outVal, true)
+                setBackgroundResource(outVal.resourceId)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dpToPx(activity, 12)
+                    bottomMargin = dpToPx(activity, 8)
                 }
-                setPadding(dpToPx(activity, 8), dpToPx(activity, 6), dpToPx(activity, 8), dpToPx(activity, 6))
+                setPadding(dpToPx(activity, 12), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
             }
             val textLayout = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -844,10 +852,13 @@ object HazeTabSystemManager {
 
             val switch = Switch(activity).apply {
                 isChecked = prefs.getBoolean(prefKey, defaultValue)
-                setOnCheckedChangeListener { _, isChecked ->
-                    activity.triggerStrongHaptic()
-                    prefs.edit().putBoolean(prefKey, isChecked).apply()
-                }
+                isFocusable = false
+                isClickable = false
+            }
+            row.setOnClickListener {
+                activity.triggerStrongHaptic()
+                switch.toggle()
+                prefs.edit().putBoolean(prefKey, switch.isChecked).apply()
             }
             row.addView(textLayout)
             row.addView(switch)

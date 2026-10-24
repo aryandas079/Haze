@@ -167,6 +167,7 @@ object HazePrivacyShieldDashboard {
 
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         dialog.setOnShowListener {
             val bottomSheet = dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
@@ -188,14 +189,7 @@ object HazePrivacyShieldDashboard {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             isVerticalScrollBarEnabled = false
             isFillViewport = true
-            background = GradientDrawable().apply {
-                cornerRadii = floatArrayOf(
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
-                setColor(bgColor)
-            }
+            background = HazeTintManager.createSheetGlassDrawable(activity, isDark, 28f)
         }
 
         val content = LinearLayout(activity).apply {
@@ -677,7 +671,12 @@ object HazePrivacyShieldDashboard {
             val row = LinearLayout(activity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dpToPx(activity, 10), 0, dpToPx(activity, 10))
+                isClickable = true
+                isFocusable = true
+                val outVal = TypedValue()
+                activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, outVal, true)
+                setBackgroundResource(outVal.resourceId)
+                setPadding(dpToPx(activity, 4), dpToPx(activity, 12), dpToPx(activity, 4), dpToPx(activity, 12))
             }
             val textCol = LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
@@ -700,17 +699,21 @@ object HazePrivacyShieldDashboard {
 
             val sw = Switch(activity).apply {
                 isChecked = prefs.getBoolean(prefKey, defaultVal)
+                isFocusable = false
+                isClickable = false
                 val thumbColor = ColorStateList(
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
                     intArrayOf(accentColor, if (isDark) Color.GRAY else Color.LTGRAY)
                 )
                 thumbTintList = thumbColor
-                setOnCheckedChangeListener { _, checked ->
-                    activity.triggerStrongHaptic()
-                    prefs.edit().putBoolean(prefKey, checked).apply()
-                    HazePrivacyShieldEngine.notifyListeners("CONFIG_CHANGE", HazePrivacyShieldEngine.getTotalBlocked(activity))
-                    onChanged?.invoke(checked)
-                }
+            }
+            row.setOnClickListener {
+                activity.triggerStrongHaptic()
+                sw.toggle()
+                val checked = sw.isChecked
+                prefs.edit().putBoolean(prefKey, checked).apply()
+                HazePrivacyShieldEngine.notifyListeners("CONFIG_CHANGE", HazePrivacyShieldEngine.getTotalBlocked(activity))
+                onChanged?.invoke(checked)
             }
             row.addView(sw)
             return row
@@ -1235,6 +1238,7 @@ object HazePrivacyShieldDashboard {
     ) {
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -1337,6 +1341,7 @@ object HazePrivacyShieldDashboard {
     ) {
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -2324,6 +2329,7 @@ object HazePrivacyShieldDashboard {
     ) {
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -2493,6 +2499,7 @@ object HazePrivacyShieldDashboard {
     ) {
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL

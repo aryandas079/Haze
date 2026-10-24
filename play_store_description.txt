@@ -1,0 +1,49 @@
+Haze Browser is an ultra-fast, minimalist, and privacy-hardened Android web browser built on a standalone, custom-compiled Native Chromium Engine (libcontent_shell_content_view.so) and a high-performance C++17 native security shield (libhazeshield.so).
+
+Unlike generic mobile browsers that wrap the system WebView, Haze ships its own Blink rendering pipeline, V8 JavaScript engine, ICU data, and Chromium resource packages. It delivers desktop-grade web compatibility, fluid 60 FPS scrolling, and stutter-free audio/video playback, completely free of tracking telemetry or third-party analytics.
+
+
+KEY FEATURES
+
+1. Standalone Dual-ABI Native Chromium Core
+- Direct Native Engine: Direct JNI Zero bindings link modern Kotlin UI components to native Chromium C++ internals without WebView layers.
+- Dual-ABI Support: Compiled binaries for 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM architectures.
+- Hardware Acceleration: RenderThread GPU composition, HTTP/2 and HTTP/3 multiplexing, and optimized memory pooling for fast page assembly.
+
+2. Notification Center & Lockscreen Media Controller
+- System MediaSession Integration: Full background playback and lockscreen controller integrated into the Android notification shade.
+- Interactive Controls: Play, pause, track skip, seek scrubbers, and live high-resolution album art extraction.
+- Zero-Polling Streaming: Smooth playback on YouTube Music, Spotify Web, and podcasts using asynchronous event listeners instead of battery-draining polling timers.
+
+3. Native C++17 Haze Shield Privacy Engine
+- Socket-Level Interception: High-speed trie matching intercepts and blocks ad servers, trackers, and miners before network requests dispatch.
+- Cosmetic Filtering: Injects declarative CSS rules to remove empty ad placeholders without triggering DOM reflows.
+- Anti-Fingerprinting: Normalizes Canvas, WebGL, AudioContext, and User-Agent fingerprints across web sessions.
+- Link Sanitizer: Automatically cleans URL tracking parameters (gclid, fbclid, utm_*) before navigation.
+
+4. Ergonomic Bottom-Anchored UI & Onboarding
+- One-Handed Navigation: Bottom-aligned search omnibox, quick navigation, tab drawer, and menu controls.
+- Fast First-Run Setup: Clean onboarding flow to configure default search engines, privacy levels, and theme modes.
+- Modern Tab Manager: Lightweight tab grid with instant switching, tab duplication, and incognito mode.
+
+5. Hybrid Local Search Omnibox
+- Local Indexing: Sub-millisecond prefix searches through local browsing history and bookmarks.
+- Live Search Suggestions: Fast, debounced query auto-completion with direct Google suggestions.
+
+6. Resumable Multi-Threaded Download Manager
+- Chunked Parallel Downloads: Multi-connection HTTP range requests accelerate large downloads.
+- State Persistence: Background downloads survive network handoffs and device reboots with SQLite persistence.
+
+7. Hardware-Backed Credential Vault
+- Encrypted Password Storage: AES-256-GCM encryption backed by Android Keystore and MasterKeys.
+- Biometric Security: Protects stored credentials and incognito browsing with biometric authentication.
+
+8. Floating Mini-Player & Background Audio
+- Picture-in-Picture (PiP): Keep web videos floating above other apps with native Android PiP support.
+- Background Media: Uninterrupted playback when navigating away from the browser or locking the screen.
+
+
+SYSTEM REQUIREMENTS & OPEN SOURCE COMMITMENT
+- Compatibility: Android 7.0 (API 24) to Android 15 (Target SDK 37)
+- Zero Telemetry: Completely free of user tracking, profiling, or telemetry SDKs.
+- Open Source: 100% open source under the Apache 2.0 License.

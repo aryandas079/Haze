@@ -1034,6 +1034,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 val givenName = resolvedName.split(" ").firstOrNull() ?: "User"
+                val familyName = resolvedName.split(" ").drop(1).joinToString(" ").takeIf { it.isNotBlank() } ?: current?.familyName
                 val resolvedPhoto = if (!avatarUrl.isNullOrBlank()) {
                     avatarUrl.trim()
                 } else {
@@ -1046,7 +1047,8 @@ class MainActivity : AppCompatActivity() {
                     displayName = resolvedName,
                     givenName = givenName,
                     photoUrl = resolvedPhoto,
-                    signedInAt = current?.signedInAt ?: System.currentTimeMillis()
+                    signedInAt = current?.signedInAt ?: System.currentTimeMillis(),
+                    familyName = familyName
                 )
                 HazeAccountManager.saveUser(this@MainActivity, updatedUser)
                 HazeAccountManager.setCompletedGoogleWebLogin(this@MainActivity, true)
@@ -1123,15 +1125,20 @@ class MainActivity : AppCompatActivity() {
         val acctPrefs = getSharedPreferences("HazeAccountPrefs", MODE_PRIVATE)
         val curEmail = acctPrefs.getString("user_email", "") ?: ""
         val curName = acctPrefs.getString("user_name", "") ?: ""
-        if (curEmail.equals("manojdasexplorer@gmail.com", ignoreCase = true) && (curName.equals("Manojdasexplorer", ignoreCase = true) || curName.isBlank())) {
+        if (curEmail.isNotEmpty() && (curName.isBlank() || curName.equals(curEmail.substringBefore("@"), ignoreCase = true))) {
+            val friendlyName = curEmail.substringBefore("@")
+                .replace(".", " ").replace("_", " ")
+                .split(" ")
+                .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() } }
+            val friendlyGiven = friendlyName.split(" ").firstOrNull() ?: friendlyName
             acctPrefs.edit()
-                .putString("user_name", "Manoj Das")
-                .putString("user_given_name", "Manoj")
-                .putString("cached_display_name_manojdasexplorer@gmail.com", "Manoj Das")
+                .putString("user_name", friendlyName)
+                .putString("user_given_name", friendlyGiven)
+                .putString("cached_display_name_${curEmail.lowercase()}", friendlyName)
                 .apply()
             val existingUser = HazeAccountManager.getUser(this)
             if (existingUser != null) {
-                HazeAccountManager.saveUser(this, existingUser.copy(displayName = "Manoj Das", givenName = "Manoj"))
+                HazeAccountManager.saveUser(this, existingUser.copy(displayName = friendlyName, givenName = friendlyGiven))
             }
         }
         val isInitialDark = prefs.getBoolean("is_dark", true)
@@ -4202,13 +4209,26 @@ class MainActivity : AppCompatActivity() {
             appBgOverlay?.visibility = View.GONE
         }
         
+        val isTint = HazeTintManager.isTintEnabled(this)
         val addressBarInner = findViewById<LinearLayout>(R.id.addressBarInner)
-        val shape = GradientDrawable().apply {
-            this.shape = GradientDrawable.RECTANGLE
-            val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
-            cornerRadius = radiusPx
-            setColor(barBgColor)
-            setStroke(1, strokeColor)
+        val shape = if (isTint) {
+            val glassBg = if (isPrivateMode || isDark) Color.argb(195, 34, 37, 44) else Color.argb(215, 255, 255, 255)
+            val glassStroke = if (isPrivateMode || isDark) Color.argb(75, 255, 255, 255) else Color.argb(130, 255, 255, 255)
+            GradientDrawable().apply {
+                this.shape = GradientDrawable.RECTANGLE
+                val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
+                cornerRadius = radiusPx
+                setColor(glassBg)
+                setStroke(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 1.2f, resources.displayMetrics).toInt().coerceAtLeast(1), glassStroke)
+            }
+        } else {
+            GradientDrawable().apply {
+                this.shape = GradientDrawable.RECTANGLE
+                val radiusPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 28f, resources.displayMetrics)
+                cornerRadius = radiusPx
+                setColor(barBgColor)
+                setStroke(1, strokeColor)
+            }
         }
         addressBarInner.background = shape
         val padStart = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 12f, resources.displayMetrics).toInt()
@@ -4235,7 +4255,8 @@ class MainActivity : AppCompatActivity() {
             this.shape = GradientDrawable.OVAL
             setColor(if (isPrivateMode || isDark) Color.parseColor("#2D3033") else Color.parseColor("#E8EAED"))
         }
-        btnTabsCircular.background = tabShape
+        tabCountBtn.background = tabShape
+        btnTabsCircular.background = null
         tabCountBtn.setTextColor(textColor)
 
         if (::btnProfile.isInitialized) {
@@ -4295,8 +4316,13 @@ class MainActivity : AppCompatActivity() {
             setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
-                val currentUrl = web?.url ?: ""
-                if (currentUrl.contains("spotify.com", ignoreCase = true) || currentUrl.contains("youtube.com", ignoreCase = true)) {
+                val currentUrl = (web?.url ?: url).lowercase()
+                if (currentUrl.contains("spotify.com") ||
+                    currentUrl.contains("youtube.com") ||
+                    currentUrl.contains("instagram.com") ||
+                    currentUrl.contains("tiktok.com") ||
+                    currentUrl.contains("/shorts") ||
+                    currentUrl.contains("/reel")) {
                     true
                 } else {
                     web?.canScrollVertically(-1) == true
@@ -4395,7 +4421,17 @@ class MainActivity : AppCompatActivity() {
             setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
-                web?.canScrollVertically(-1) == true
+                val currentUrl = (web?.url ?: "").lowercase()
+                if (currentUrl.contains("spotify.com") ||
+                    currentUrl.contains("youtube.com") ||
+                    currentUrl.contains("instagram.com") ||
+                    currentUrl.contains("tiktok.com") ||
+                    currentUrl.contains("/shorts") ||
+                    currentUrl.contains("/reel")) {
+                    true
+                } else {
+                    web?.canScrollVertically(-1) == true
+                }
             }
             setOnRefreshListener {
                 triggerStrongHaptic()
@@ -4504,8 +4540,7 @@ class MainActivity : AppCompatActivity() {
             if (isHomeTab(nextTab)) {
                 showAddressBar(animated = false)
             } else {
-                showAddressBar(animated = false)
-                scheduleAutoHideAddressBar(delayMillis = 2000L)
+                hideAddressBar(animated = false)
             }
         }
         if (::addressBar.isInitialized) {
@@ -4904,6 +4939,7 @@ class MainActivity : AppCompatActivity() {
                             addressBar.setText("")
                         } else if (!isSearchActive) {
                             addressBar.setText(HazeTranslationManager.getDisplayUrl(url))
+                            hideAddressBar(animated = true)
                         }
                     }
 
@@ -5177,11 +5213,16 @@ class MainActivity : AppCompatActivity() {
             val tab = getTabFromWebView(webView)
             if (tab == currentTabsList.getOrNull(activeTabIndex) && !isHomeTab(tab) && !isSearchActive) {
                 val dy = scrollY - oldScrollY
-                if (dy > 14) {
+                // Scrolled content up (finger moving up, dy > 8): hide address bar
+                // Scrolled content down (finger moving down, dy < -8): reveal address bar
+                if (dy > 8) {
                     hideAddressBar(animated = true)
-                } else if (dy < -20) {
+                } else if (dy < -8) {
                     showAddressBar(animated = true)
                 }
+
+                // Immediately trigger video auto-play check on scroll change
+                webView.evaluateJavascript("try { if (window.__hazeCheckShortsAutoplay) window.__hazeCheckShortsAutoplay(); if (window.__hazeCheckUniversalAutoplay) window.__hazeCheckUniversalAutoplay(); } catch(_) {}", null)
             }
         }
 
@@ -5775,7 +5816,7 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             addressBar.setText(HazeTranslationManager.getDisplayUrl(url))
                             if (!isSearchActive) {
-                                scheduleAutoHideAddressBar(delayMillis = 1800L)
+                                hideAddressBar(animated = true)
                             }
                         }
                     }
@@ -6379,7 +6420,7 @@ class MainActivity : AppCompatActivity() {
 
             if (!isHomeTab(tabToRemove) && !tabToRemove.isPrivate) {
                 recentlyClosedTabs.add(0, ClosedTabInfo(tabToRemove.title, tabToRemove.url, isPrivate = tabToRemove.isPrivate))
-                if (recentlyClosedTabs.size > 25) recentlyClosedTabs.removeLast()
+                if (recentlyClosedTabs.size > 25) recentlyClosedTabs.removeAt(recentlyClosedTabs.lastIndex)
                 val restoredUrl = tabToRemove.url
                 com.google.android.material.snackbar.Snackbar.make(
                     findViewById(R.id.main),
@@ -7944,6 +7985,67 @@ class MainActivity : AppCompatActivity() {
         themeGroup.addView(rbDark)
         if (isDark) rbDark.isChecked = true else rbLight.isChecked = true
         addSectionCard(themeGroup)
+
+        // Tint / Liquid Glass Blur Toggle
+        val isTintActive = HazeTintManager.isTintEnabled(this)
+        var selectedTint = isTintActive
+
+        val tintLabel = TextView(this).apply {
+            text = "Tint (Liquid Glass Blur)"
+            setTextColor(secondaryTextColor)
+            textSize = 13f
+            setPadding(0, 0, 0, dpToPx(8))
+        }
+        content.addView(tintLabel)
+
+        val tintCardLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4))
+        }
+
+        val tintTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvTintTitle = TextView(this).apply {
+            text = "Liquid Glass Tint"
+            textSize = 15f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textColor)
+        }
+        val tvTintDesc = TextView(this).apply {
+            text = "Blurs menus, dialogs, settings and interfaces just like Apple liquid glass"
+            textSize = 12f
+            setTextColor(secondaryTextColor)
+            setPadding(0, dpToPx(2), dpToPx(12), 0)
+        }
+        tintTextCol.addView(tvTintTitle)
+        tintTextCol.addView(tvTintDesc)
+        tintCardLayout.addView(tintTextCol)
+
+        val switchTint = androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = selectedTint
+            val trackColor = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(Color.parseColor(selectedColor), if (isDark) Color.parseColor("#444444") else Color.parseColor("#CCCCCC"))
+            )
+            val thumbColor = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(Color.WHITE, if (isDark) Color.parseColor("#888888") else Color.parseColor("#F5F5F5"))
+            )
+            trackTintList = trackColor
+            thumbTintList = thumbColor
+            setOnCheckedChangeListener { _, isChecked ->
+                triggerStrongHaptic(this)
+                selectedTint = isChecked
+            }
+        }
+        tintCardLayout.addView(switchTint)
+        tintCardLayout.setOnClickListener {
+            switchTint.toggle()
+        }
+        addSectionCard(tintCardLayout)
         
         // Shortcuts Mode Selector
         val shortcutsLabel = TextView(this).apply {
@@ -8212,6 +8314,8 @@ class MainActivity : AppCompatActivity() {
                     .putString("bg_theme", selectedBg)
                     .apply()
 
+                HazeTintManager.setTintEnabled(this@MainActivity, selectedTint)
+
                 applyTheme()
                 reloadHomeTabs()
                 dialog.dismiss()
@@ -8228,6 +8332,7 @@ class MainActivity : AppCompatActivity() {
             
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.setupGlassDialog(dialog, cardLayout, isDark, 28f)
         dialog.show()
         dialog.window?.setLayout(
             (resources.displayMetrics.widthPixels * 0.92f).toInt(),
@@ -8331,9 +8436,14 @@ class MainActivity : AppCompatActivity() {
         val menuStroke = if (isDark) Color.parseColor("#454638") else Color.parseColor("#DADCE0")
         menuLogo.setImageResource(if (isDark) R.drawable.haze_logo_dark else R.drawable.haze_logo)
         menuDivider.setBackgroundColor(if (isDark) Color.parseColor("#454638") else Color.parseColor("#E5E7EB"))
-        menuRoot.background = GradientDrawable().apply {
-            cornerRadius = dpToPx(24).toFloat()
-            setColor(menuSurface)
+
+        if (HazeTintManager.isTintEnabled(this)) {
+            HazeTintManager.setupGlassPopup(popupWindow, menuRoot, webContainer, isDark)
+        } else {
+            menuRoot.background = GradientDrawable().apply {
+                cornerRadius = dpToPx(24).toFloat()
+                setColor(menuSurface)
+            }
         }
 
         val grid = popupView.findViewById<GridLayout>(R.id.menuGrid)
@@ -10126,8 +10236,13 @@ class MainActivity : AppCompatActivity() {
             setSlingshotDistance(dpToPx(180))
             setOnChildScrollUpCallback { _, _ ->
                 val web = (browserTab as? ChromiumBrowserTab)?.webView
-                val currentUrl = web?.url ?: ""
-                if (currentUrl.contains("spotify.com", ignoreCase = true) || currentUrl.contains("youtube.com", ignoreCase = true)) {
+                val currentUrl = (web?.url ?: url).lowercase()
+                if (currentUrl.contains("spotify.com") ||
+                    currentUrl.contains("youtube.com") ||
+                    currentUrl.contains("instagram.com") ||
+                    currentUrl.contains("tiktok.com") ||
+                    currentUrl.contains("/shorts") ||
+                    currentUrl.contains("/reel")) {
                     true
                 } else {
                     web?.canScrollVertically(-1) == true

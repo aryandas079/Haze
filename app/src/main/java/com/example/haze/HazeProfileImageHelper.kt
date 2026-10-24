@@ -131,9 +131,6 @@ object HazeProfileImageHelper {
         if (email.isNotEmpty()) {
             val cached = prefs.getString("cached_photo_url_" + email.lowercase(), null)
             if (!cached.isNullOrEmpty()) return cached
-            if (email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
-                return "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
-            }
         }
         return null
     }

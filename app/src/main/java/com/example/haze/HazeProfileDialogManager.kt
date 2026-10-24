@@ -15,6 +15,7 @@ import android.widget.*
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import java.util.Locale
 
 object HazeProfileDialogManager {
 
@@ -131,6 +132,7 @@ object HazeProfileDialogManager {
 
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         dialog.setOnShowListener {
             val sheetResId = dialog.context.resources.getIdentifier("design_bottom_sheet", "id", dialog.context.packageName)
@@ -144,14 +146,7 @@ object HazeProfileDialogManager {
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadii = floatArrayOf(
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
-                setColor(bgColor)
-            }
+            background = HazeTintManager.createSheetGlassDrawable(activity, isDark, 28f)
             setPadding(dpToPx(activity, 16), dpToPx(activity, 8), dpToPx(activity, 16), dpToPx(activity, 24))
         }
 
@@ -217,8 +212,21 @@ object HazeProfileDialogManager {
             ivAvatar.setImageBitmap(bmp)
         }
 
+        val fullName = when {
+            !user.familyName.isNullOrBlank() && !user.givenName.isNullOrBlank() -> "${user.givenName} ${user.familyName}"
+            user.displayName.isNotBlank() && !user.displayName.contains("@") -> user.displayName
+            else -> {
+                val cleanEmailName = user.email.substringBefore("@")
+                    .replace(".", " ")
+                    .replace("_", " ")
+                    .split(" ")
+                    .joinToString(" ") { it.replaceFirstChar { c -> if (c.isLowerCase()) c.titlecase(Locale.getDefault()) else c.toString() } }
+                cleanEmailName
+            }
+        }
+
         val tvName = TextView(activity).apply {
-            text = user.displayName
+            text = fullName
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
             setTextColor(textColor)
@@ -574,6 +582,7 @@ object HazeProfileDialogManager {
 
         val dialog = BottomSheetDialog(activity)
         dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        HazeTintManager.applyBlurBehindToWindow(dialog.window, 50)
 
         dialog.setOnShowListener {
             val sheetResId = dialog.context.resources.getIdentifier("design_bottom_sheet", "id", dialog.context.packageName)
@@ -587,14 +596,7 @@ object HazeProfileDialogManager {
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadii = floatArrayOf(
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    dpToPx(activity, 28).toFloat(), dpToPx(activity, 28).toFloat(),
-                    0f, 0f, 0f, 0f
-                )
-                setColor(bgColor)
-            }
+            background = HazeTintManager.createSheetGlassDrawable(activity, isDark, 28f)
             setPadding(dpToPx(activity, 16), dpToPx(activity, 8), dpToPx(activity, 16), dpToPx(activity, 20))
         }
 

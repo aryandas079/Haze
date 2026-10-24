@@ -938,6 +938,8 @@ class ChromiumBrowserTab(
                     'ytmusic-display-ad-renderer',
                     'ytmusic-banner-promo-renderer',
                     'ytmusic-upsell-dialog-renderer',
+                    'ytmusic-mealbar-promo-renderer',
+                    'ytmusic-player-bar-promo-renderer',
                     '#player-ads'
                 ] : [
                     'ytd-ad-slot-renderer',
@@ -979,10 +981,15 @@ class ChromiumBrowserTab(
                     'ytd-mealbar-promo-renderer',
                     'ytm-upsell-dialog-renderer',
                     'ytd-offline-promo-renderer',
+                    '.badge-style-type-ad',
+                    '.ad-badge',
+                    '[aria-label*="Sponsored" i]',
                     '.ad-container',
                     '.ad-div'
                 ];
-                var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }';
+                // Prevent Shorts hide-player offscreen displacement and poster overlay lock
+                var shortsCarouselFixCss = ' .ytShortsCarouselHidePlayer .player-api, .ytShortsCarouselHidePlayerInViewport .player-api { transform: none !important; opacity: 1 !important; pointer-events: auto !important; } #player { transform: none !important; opacity: 1 !important; } ';
+                var ytCosmeticCss = ytCosmeticSelectors.join(', ') + ' { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; height: 0 !important; max-height: 0 !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border: 0 !important; }' + shortsCarouselFixCss;
 
                 function injectYtStyle() {
                     try {
@@ -1002,13 +1009,14 @@ class ChromiumBrowserTab(
                     document.addEventListener('DOMContentLoaded', injectYtStyle);
                 }
 
-                // 2. Ultra-lightweight Network Request Interception (No JSON stringifying/parsing)
+                // 2. Ultra-lightweight Network Request Interception & In-Feed Sponsored Neutralizer
                 try {
                     var origFetch = window.fetch;
                     window.fetch = function(input, init) {
                         var url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
                         if (url && (
                             url.indexOf('/api/stats/ads') !== -1 ||
+                            url.indexOf('/api/stats/atr') !== -1 ||
                             url.indexOf('/pagead/') !== -1 ||
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
                             url.indexOf('/ptracking') !== -1
@@ -1017,7 +1025,38 @@ class ChromiumBrowserTab(
                         }
                         return origFetch.apply(this, arguments);
                     };
+
+                    var origXhrOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url) {
+                        var u = (url || '').toString();
+                        if (u && (
+                            u.indexOf('/api/stats/ads') !== -1 ||
+                            u.indexOf('/api/stats/atr') !== -1 ||
+                            u.indexOf('/pagead/') !== -1 ||
+                            u.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
+                            u.indexOf('/ptracking') !== -1
+                        )) {
+                            this.send = function() {};
+                            return;
+                        }
+                        return origXhrOpen.apply(this, arguments);
+                    };
                 } catch(_) {}
+
+                // Remove in-feed sponsored search cards and shelf items
+                function removeInFeedSponsoredItems() {
+                    try {
+                        var sponsoredBadges = document.querySelectorAll('.badge-style-type-ad, .ad-badge, [aria-label*="Sponsored" i], ytd-ad-slot-renderer, ytm-ad-slot-renderer, ytm-promoted-sparkles-web-renderer');
+                        for (var s = 0; s < sponsoredBadges.length; s++) {
+                            var parentItem = sponsoredBadges[s].closest('ytm-video-with-context-renderer, ytm-compact-video-renderer, ytd-video-renderer, ytd-rich-item-renderer, ytm-item-section-renderer, ytd-item-section-renderer') || sponsoredBadges[s];
+                            if (parentItem) {
+                                parentItem.style.setProperty('display', 'none', 'important');
+                            }
+                        }
+                    } catch(_) {}
+                }
+                removeInFeedSponsoredItems();
+                document.addEventListener('yt-page-data-updated', removeInFeedSponsoredItems);
 
                 try {
                     var setYtCfg = function() {
@@ -1119,6 +1158,183 @@ class ChromiumBrowserTab(
                 document.addEventListener('yt-navigate-finish', skipAdSafely);
                 document.addEventListener('yt-page-data-updated', skipAdSafely);
                 skipAdSafely();
+
+                // 4. YouTube Shorts Smooth Auto-Play on Scroll & Snapping Fix
+                (function initShortsAutoPlay() {
+                    if (window.__hazeShortsScrollerActive) return;
+                    window.__hazeShortsScrollerActive = true;
+
+                    // Unhide Shorts player API and carousel container if concealed
+                    function ensurePlayerVisible() {
+                        try {
+                            var wrapper = document.getElementById('carousel-scrollable-wrapper');
+                            if (wrapper) {
+                                wrapper.classList.remove('ytShortsCarouselHidePlayer');
+                                wrapper.classList.remove('ytShortsCarouselHidePlayerInViewport');
+                            }
+                            var player = document.getElementById('player');
+                            if (player) {
+                                if (player.style.transform && player.style.transform.indexOf('-9999') !== -1) {
+                                    player.style.setProperty('transform', 'none', 'important');
+                                }
+                                if (player.style.opacity === '0') {
+                                    player.style.setProperty('opacity', '1', 'important');
+                                }
+                            }
+                        } catch(_) {}
+                    }
+
+                    // Swipe-to-Next-Video Bridge for Shorts Feed
+                    var startY = 0;
+                    var startX = 0;
+                    var startTime = 0;
+                    window.addEventListener('touchstart', function(e) {
+                        if (e.touches && e.touches.length === 1) {
+                            startY = e.touches[0].clientY;
+                            startX = e.touches[0].clientX;
+                            startTime = Date.now();
+                        }
+                    }, { capture: true, passive: true });
+
+                    window.addEventListener('touchend', function(e) {
+                        if (!e.changedTouches || e.changedTouches.length === 0) return;
+                        var endY = e.changedTouches[0].clientY;
+                        var endX = e.changedTouches[0].clientX;
+                        var dy = endY - startY;
+                        var dx = endX - startX;
+                        var dt = Date.now() - startTime;
+                        // Vertical swipe detection
+                        if (Math.abs(dy) > 40 && Math.abs(dy) > Math.abs(dx) * 1.2 && dt < 800) {
+                            var isNext = dy < 0; // Swipe up = next video; Swipe down = previous video
+                            var a11yButtons = Array.from(document.querySelectorAll('.hidden-a11y-nav button'));
+                            var targetBtn = a11yButtons.find(function(b) {
+                                var label = (b.getAttribute('aria-label') || '').toLowerCase();
+                                return isNext ? (label.indexOf('next') !== -1) : (label.indexOf('prev') !== -1);
+                            });
+
+                            if (targetBtn && !targetBtn.disabled) {
+                                targetBtn.click();
+                            } else {
+                                var keyCode = isNext ? 40 : 38;
+                                var keyName = isNext ? 'ArrowDown' : 'ArrowUp';
+                                var ev = new KeyboardEvent('keydown', {
+                                    key: keyName,
+                                    code: keyName,
+                                    keyCode: keyCode,
+                                    which: keyCode,
+                                    bubbles: true,
+                                    cancelable: true
+                                });
+                                window.dispatchEvent(ev);
+                            }
+                            setTimeout(ensurePlayerVisible, 100);
+                            setTimeout(ensurePlayerVisible, 400);
+                        }
+                    }, { capture: true, passive: true });
+
+                    function autoPlayActiveShort() {
+                        try {
+                            ensurePlayerVisible();
+                            var videos = document.querySelectorAll('video');
+                            if (!videos || videos.length === 0) return;
+                            var midY = window.innerHeight / 2;
+                            var bestVideo = null;
+                            var minDistance = 999999;
+
+                            for (var i = 0; i < videos.length; i++) {
+                                var v = videos[i];
+                                var rect = v.getBoundingClientRect();
+                                if (rect.height > 60 && rect.width > 60) {
+                                    var vMid = rect.top + (rect.height / 2);
+                                    var dist = Math.abs(vMid - midY);
+                                    if (dist < minDistance) {
+                                        minDistance = dist;
+                                        bestVideo = v;
+                                    }
+                                }
+                            }
+
+                            // Only pause video if it is definitively scrolled far out of the viewport
+                            for (var j = 0; j < videos.length; j++) {
+                                var vid = videos[j];
+                                if (vid !== bestVideo) {
+                                    var r = vid.getBoundingClientRect();
+                                    if (r.bottom < -150 || r.top > (window.innerHeight + 150)) {
+                                        if (!vid.paused) {
+                                            try { vid.pause(); } catch(_) {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (bestVideo && minDistance < (window.innerHeight * 0.48)) {
+                                if (bestVideo.paused) {
+                                    var playPromise = bestVideo.play();
+                                    if (playPromise !== undefined) {
+                                        playPromise.catch(function() {
+                                            // Fallback attempt without forcefully breaking audio pipeline
+                                            bestVideo.play().catch(function() {});
+                                        });
+                                    }
+                                }
+
+                                // Trigger YouTube Shorts play buttons if visible
+                                try {
+                                    var container = bestVideo.closest('ytm-reel-item-renderer, ytd-reel-video-renderer, .reel-video-in-sequence, ytm-shorts-element') || bestVideo.parentElement;
+                                    if (container) {
+                                        var playBtn = container.querySelector(
+                                            'button.player-control-play-pause-icon, button[aria-label*="Play" i], .ytp-large-play-button, .ytp-play-button, div[aria-label="Play" i]'
+                                        );
+                                        if (playBtn && playBtn.offsetParent !== null) {
+                                            playBtn.click();
+                                        }
+                                    }
+                                } catch(_) {}
+                            }
+                        } catch (_) {}
+                    }
+
+                    // IntersectionObserver for instantaneous detection as containers scroll
+                    try {
+                        if (window.IntersectionObserver) {
+                            var shortsObserver = new IntersectionObserver(function(entries) {
+                                autoPlayActiveShort();
+                            }, {
+                                threshold: [0.3, 0.5, 0.75]
+                            });
+
+                            function observeAllVideos() {
+                                var vids = document.querySelectorAll('video, ytm-reel-item-renderer, ytd-reel-video-renderer');
+                                for (var k = 0; k < vids.length; k++) {
+                                    if (!vids[k].__hazeObserved) {
+                                        vids[k].__hazeObserved = true;
+                                        shortsObserver.observe(vids[k]);
+                                    }
+                                }
+                            }
+                            observeAllVideos();
+
+                            var mutObserver = new MutationObserver(function() {
+                                observeAllVideos();
+                            });
+                            mutObserver.observe(document.body || document.documentElement, {
+                                childList: true,
+                                subtree: true
+                            });
+                        }
+                    } catch(_) {}
+
+                    window.addEventListener('scroll', autoPlayActiveShort, { capture: true, passive: true });
+                    document.addEventListener('scroll', autoPlayActiveShort, { capture: true, passive: true });
+                    document.addEventListener('touchmove', autoPlayActiveShort, { passive: true });
+                    document.addEventListener('touchend', function() {
+                        setTimeout(autoPlayActiveShort, 50);
+                        setTimeout(autoPlayActiveShort, 200);
+                        setTimeout(autoPlayActiveShort, 500);
+                    }, { passive: true });
+                    setInterval(autoPlayActiveShort, 800);
+                    window.__hazeCheckShortsAutoplay = autoPlayActiveShort;
+                })();
             })();
         """.trimIndent()
 
@@ -1197,10 +1413,135 @@ class ChromiumBrowserTab(
                             if (s.filter && s.filter.indexOf('blur') !== -1) s.setProperty('filter', 'none', 'important');
                             if (s.webkitFilter && s.webkitFilter.indexOf('blur') !== -1) s.setProperty('-webkit-filter', 'none', 'important');
                         }
+
+                        // Clean leftover empty ad containers and lonely "Advertisement" / "Sponsored" notices
+                        var adNotices = document.querySelectorAll('p, span, div, center');
+                        for (var n = 0; n < adNotices.length; n++) {
+                            var el = adNotices[n];
+                            if (el.children.length === 0) {
+                                var txt = (el.innerText || '').trim().toLowerCase();
+                                if (txt === 'advertisement' || txt === 'sponsored' || txt === 'promoted' || txt === 'anuncio' || txt === 'advertentie' || txt === 'anzeige') {
+                                    var parentBox = el.closest('.code-block, [class*="ad-"], [class*="banner"], .elementor-widget-container, .elementor-shortcode, center, div, section');
+                                    if (parentBox && (parentBox.innerText.trim().toLowerCase() === txt || parentBox.offsetHeight < 60)) {
+                                        parentBox.style.setProperty('display', 'none', 'important');
+                                    }
+                                }
+                            }
+                        }
                     } catch(_) {}
                 }
                 if (document.body) cleanOverlays();
                 else window.addEventListener('DOMContentLoaded', cleanOverlays);
+                setInterval(cleanOverlays, 1500);
+
+                // Universal In-Feed & Short-form Video Autoplay Engine (Reels, TikTok, Shorts, Twitter, Reddit, Web feeds)
+                (function initUniversalVideoAutoPlay() {
+                    if (window.__hazeUniversalAutoplayActive) return;
+                    window.__hazeUniversalAutoplayActive = true;
+
+                    function autoPlayVisibleVideo() {
+                        try {
+                            var vids = document.querySelectorAll('video');
+                            if (!vids || vids.length === 0) return;
+                            var mid = window.innerHeight / 2;
+                            var activeVid = null;
+                            var closest = 999999;
+
+                            for (var i = 0; i < vids.length; i++) {
+                                var vid = vids[i];
+                                var r = vid.getBoundingClientRect();
+                                if (r.height > 60 && r.width > 60) {
+                                    var vCenter = r.top + (r.height / 2);
+                                    var d = Math.abs(vCenter - mid);
+                                    if (d < closest) {
+                                        closest = d;
+                                        activeVid = vid;
+                                    }
+                                }
+                            }
+
+                            // Pause videos that are scrolled completely out of view (grace buffer 150px)
+                            for (var j = 0; j < vids.length; j++) {
+                                var v = vids[j];
+                                if (v !== activeVid) {
+                                    var vr = v.getBoundingClientRect();
+                                    if (vr.bottom < -150 || vr.top > (window.innerHeight + 150)) {
+                                        if (!v.paused) {
+                                            try { v.pause(); } catch(_) {}
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Play the video closest to viewport center
+                            if (activeVid && closest < (window.innerHeight * 0.48)) {
+                                if (activeVid.paused) {
+                                    var p = activeVid.play();
+                                    if (p !== undefined) {
+                                        p.catch(function() {
+                                            // Retry without force-muting unless needed
+                                            activeVid.play().catch(function() {});
+                                        });
+                                    }
+                                }
+
+                                // Handle custom play button overlays (Instagram, Facebook, TikTok, Twitter/X, Reddit)
+                                try {
+                                    var parent = activeVid.closest('div[role="dialog"], div[role="article"], article, section, div[class*="player"], div[class*="video"]') || activeVid.parentElement;
+                                    if (parent) {
+                                        var playOverlay = parent.querySelector(
+                                            'button[aria-label*="Play" i], div[aria-label*="Play" i], [data-testid*="playButton"], .vjs-big-play-button, [class*="play-button"], [class*="PlayButton"]'
+                                        );
+                                        if (playOverlay && playOverlay.offsetParent !== null) {
+                                            playOverlay.click();
+                                        }
+                                    }
+                                } catch(_) {}
+                            }
+                        } catch (_) {}
+                    }
+
+                    // IntersectionObserver for instantaneous detection as elements/scroll containers move
+                    try {
+                        if (window.IntersectionObserver) {
+                            var vidObserver = new IntersectionObserver(function(entries) {
+                                autoPlayVisibleVideo();
+                            }, {
+                                threshold: [0.3, 0.5, 0.75]
+                            });
+
+                            function observeAllVideos() {
+                                var allVids = document.querySelectorAll('video');
+                                for (var k = 0; k < allVids.length; k++) {
+                                    if (!allVids[k].__hazeObservedUniversal) {
+                                        allVids[k].__hazeObservedUniversal = true;
+                                        vidObserver.observe(allVids[k]);
+                                    }
+                                }
+                            }
+                            observeAllVideos();
+
+                            var mutObs = new MutationObserver(function() {
+                                observeAllVideos();
+                            });
+                            mutObs.observe(document.body || document.documentElement, {
+                                childList: true,
+                                subtree: true
+                            });
+                        }
+                    } catch(_) {}
+
+                    window.addEventListener('scroll', autoPlayVisibleVideo, { capture: true, passive: true });
+                    document.addEventListener('scroll', autoPlayVisibleVideo, { capture: true, passive: true });
+                    document.addEventListener('touchmove', autoPlayVisibleVideo, { passive: true });
+                    document.addEventListener('touchend', function() {
+                        setTimeout(autoPlayVisibleVideo, 50);
+                        setTimeout(autoPlayVisibleVideo, 200);
+                        setTimeout(autoPlayVisibleVideo, 500);
+                    }, { passive: true });
+                    setInterval(autoPlayVisibleVideo, 800);
+                    window.__hazeCheckUniversalAutoplay = autoPlayVisibleVideo;
+                })();
             })();
         """.trimIndent()
 

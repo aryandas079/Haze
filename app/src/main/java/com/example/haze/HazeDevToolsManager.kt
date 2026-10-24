@@ -1020,10 +1020,10 @@ object HazeDevToolsManager {
                 }
             }
 
-            quickActionBar.addView(createQuickBtn("✏️ Edit HTML") { openOuterHtmlEditorFn?.invoke(selectedSelector) })
-            quickActionBar.addView(createQuickBtn("＋ Attribute") { openAddAttributeDialogFn?.invoke(selectedSelector) })
-            quickActionBar.addView(createQuickBtn("🗑️ Delete") { deleteElementFn?.invoke(selectedSelector) })
-            quickActionBar.addView(createQuickBtn("📋 Copy HTML") {
+            quickActionBar.addView(createQuickBtn("Edit HTML") { openOuterHtmlEditorFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("+ Attribute") { openAddAttributeDialogFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("Delete") { deleteElementFn?.invoke(selectedSelector) })
+            quickActionBar.addView(createQuickBtn("Copy HTML") {
                 val jsGetOuter = """
                     (function() {
                         var el = document.querySelector(${JSONObject.quote(selectedSelector)}) || window.__hazeInspectedElement;

@@ -44,16 +44,34 @@ object HazeSettingsManager {
         val accentColor = Color.parseColor(accentColorHex)
 
         val sectionHeaderColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
-        val bgColor = if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
-        val cardColor = if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
-        val cardBorderColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E2EC")
+        val isTint = HazeTintManager.isTintEnabled(activity)
+        val bgColor = if (isTint) {
+            if (isDark) Color.argb(225, 18, 18, 22) else Color.argb(225, 245, 247, 250)
+        } else {
+            if (isDark) Color.parseColor("#121212") else Color.parseColor("#F8F9FA")
+        }
+        val cardColor = if (isTint) {
+            if (isDark) Color.argb(175, 30, 32, 38) else Color.argb(200, 255, 255, 255)
+        } else {
+            if (isDark) Color.parseColor("#1E1E1E") else Color.WHITE
+        }
+        val cardBorderColor = if (isTint) {
+            if (isDark) Color.argb(65, 255, 255, 255) else Color.argb(120, 255, 255, 255)
+        } else {
+            if (isDark) Color.parseColor("#333333") else Color.parseColor("#E0E2EC")
+        }
         val textColor = if (isDark) Color.WHITE else Color.parseColor("#202124")
         val subTextColor = if (isDark) Color.parseColor("#C4C7C5") else Color.parseColor("#5F6368")
         val dividerColor = if (isDark) Color.parseColor("#333333") else Color.parseColor("#E5E5E5")
 
         val dialog = Dialog(activity, android.R.style.Theme_Light_NoTitleBar)
         dialog.window?.setWindowAnimations(R.style.HazeDialogAnimation)
-        dialog.window?.statusBarColor = bgColor
+        if (isTint) {
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            HazeTintManager.applyBlurBehindToWindow(dialog.window, 60)
+        } else {
+            dialog.window?.statusBarColor = bgColor
+        }
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -434,7 +452,12 @@ object HazeSettingsManager {
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dpToPx(context, 16), dpToPx(context, 10), dpToPx(context, 16), dpToPx(context, 10))
+            isClickable = true
+            isFocusable = true
+            val outVal = TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outVal, true)
+            setBackgroundResource(outVal.resourceId)
+            setPadding(dpToPx(context, 16), dpToPx(context, 12), dpToPx(context, 16), dpToPx(context, 12))
             
             val textCol = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -447,6 +470,8 @@ object HazeSettingsManager {
 
             val sw = Switch(context).apply {
                 isChecked = prefs.getBoolean(prefKey, defaultValue)
+                isFocusable = false
+                isClickable = false
                 val isDark = prefs.getBoolean("is_dark", true)
                 val switchActiveColor = if (isDark) Color.parseColor("#8AB4F8") else accentColor
                 val thumbColor = ColorStateList(
@@ -458,11 +483,13 @@ object HazeSettingsManager {
                     arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
                     intArrayOf(if (isDark) Color.parseColor("#3C4D6B") else Color.parseColor("#A8C7FA"), if (isDark) Color.parseColor("#38393D") else Color.parseColor("#DADCE0"))
                 )
-                setOnCheckedChangeListener { _, isChecked ->
-                    if (context is MainActivity) context.triggerStrongHaptic()
-                    prefs.edit().putBoolean(prefKey, isChecked).apply()
-                    onChange(isChecked)
-                }
+            }
+            setOnClickListener {
+                if (context is MainActivity) context.triggerStrongHaptic()
+                sw.toggle()
+                val newState = sw.isChecked
+                prefs.edit().putBoolean(prefKey, newState).apply()
+                onChange(newState)
             }
             addView(textCol)
             addView(sw)

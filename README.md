@@ -43,7 +43,11 @@
   - [Google Account and Cloud Backup Sync](#google-account-and-cloud-backup-sync)
   - [Ambient Themes and Custom Personalization](#ambient-themes-and-custom-personalization)
   - [Power Utilities Suite](#power-utilities-suite)
-- [Architecture and Design](#architecture-and-design)
+- [Deep-Dive Technical Architecture](#deep-dive-technical-architecture)
+  - [JNI Zero Dispatch Pipeline](#jni-zero-dispatch-pipeline)
+  - [Chromium Content Layer vs. WebView](#chromium-content-layer-vs-webview)
+  - [High-Throughput Native C++ Matching Pipeline](#high-throughput-native-c-matching-pipeline)
+- [Universal Website Compatibility Suite (Top 50 Domains)](#universal-website-compatibility-suite-top-50-domains)
 - [Project Directory Structure](#project-directory-structure)
 - [Tech Stack and Dependencies](#tech-stack-and-dependencies)
 - [Getting Started and Build Instructions](#getting-started-and-build-instructions)
@@ -53,6 +57,16 @@
   - [Running Tests](#running-tests)
 - [Privacy and Security Blueprint](#privacy-and-security-blueprint)
 - [Roadmap](#roadmap)
+- [Legal, Governance & Trust Policies](#legal-governance--trust-policies)
+  - [Privacy Policy & Client-Side Data Architecture](#privacy-policy--client-side-data-architecture)
+  - [Cookie, Cache & Web Storage Governance](#cookie-cache--web-storage-governance)
+  - [End-User Terms of Service & Acceptable Use Policy](#end-user-terms-of-service--acceptable-use-policy)
+  - [Security Architecture & Vulnerability Disclosure Program](#security-architecture--vulnerability-disclosure-program)
+  - [Regulatory Compliance & Data Subject Rights (GDPR / CCPA)](#regulatory-compliance--data-subject-rights-gdpr--ccpa)
+  - [Law Enforcement Guidelines & Transparency](#law-enforcement-guidelines--transparency)
+  - [Intellectual Property, Third-Party Notices & DMCA Policy](#intellectual-property-third-party-notices--dmca-policy)
+  - [Accessibility & Ergonomic Inclusion Statement](#accessibility--ergonomic-inclusion-statement)
+  - [Legal Notice & Imprint](#legal-notice--imprint)
 - [Contributing and Community](#contributing-and-community)
 - [Author and Contact](#author-and-contact)
 - [License](#license)
@@ -266,6 +280,67 @@ Make your browsing canvas uniquely yours:
 - **In-Page Find (`findAllAsync` / `findNext`)**: Live text highlighting and match cycling across web documents.
 - **Responsive Tab Grid**: Full-screen visual tab switcher with live captured tab previews, Normal/Private tab segmentation, and one-tap restore.
 - **Desktop Mode and Immersive View**: Instant desktop User-Agent spoofing and fullscreen distraction-free reading.
+
+---
+
+## Deep-Dive Technical Architecture
+
+### JNI Zero Dispatch Pipeline
+Haze communicates between its Kotlin UI orchestration layer and the low-level C++ Blink/V8 internals through Chromium's official modern binding generator: **`JNI_Zero`**.
+
+```text
+[Kotlin Presentation Layer] 
+       │  (Calls IBrowserEngine / NativeChromiumTab methods)
+       ▼
+[JNI_Zero Auto-Generated Stubs: org.jni_zero.*]
+       │  (Zero-overhead direct function pointer dispatch)
+       ▼
+[Chromium JNI Dispatch Bridge: jni_bridge.cc / NativeContentShell]
+       │  (Passes thread-safe raw pointers & WebContents handles)
+       ▼
+[Chromium C++ Core: Blink Rendering Engine + V8 JS Runtime]
+```
+
+This decoupled architecture guarantees:
+1. **Type Safety**: Automatic translation between Java/Kotlin objects and native C++ `base::android::ScopedJavaLocalRef`.
+2. **Deterministic Memory Lifecycles**: Eliminates JNI global reference memory leaks that often plague custom Android browser forks.
+3. **Low-Latency Callback Hooks**: Immediate C++ to Kotlin signals for page navigation states, DOM layout progress, and render process termination recovery.
+
+### Chromium Content Layer vs. WebView
+
+| Metric / Capability | Standard Android WebView | Haze Native Chromium Engine |
+| :--- | :--- | :--- |
+| **Blink & V8 Version** | Frozen to host OS system version | Custom-compiled high-performance binary snapshot |
+| **Process Isolation** | Shared sandbox / constrained by system | Dedicated sandboxed multi-process `WebContents` architecture |
+| **HTTP/3 & QUIC** | Inconsistent across older Android releases | Full native support compiled into network stack |
+| **Custom Network Interceptors** | Synchronous Java `shouldInterceptRequest` | Native C++ socket-level trie matching (`libhazeshield.so`) |
+| **JNI Dispatch Bridge** | Hidden framework internal bindings | Direct `JNI_Zero` runtime dispatch over `chromium_engine.jar` |
+| **Memory Allocation** | System Webview shared zygote | Custom heap snapshots (`snapshot_blob_64.bin` / `snapshot_blob_32.bin`) |
+| **Dual-ABI Packaging** | Relies on vendor system library extraction | Bundled dual-ABI (`arm64-v8a` + `armeabi-v7a`) native libraries |
+
+### High-Throughput Native C++ Matching Pipeline
+Network security evaluation is performed inside `libhazeshield.so` compiled with C++17:
+- **`DomainMatcher`**: Operates on a hash-based set and prefix tree to identify blocked hostnames with $O(1)$ amortized complexity.
+- **`RuleMatcher`**: Evaluates wildcard and substring patterns across URL paths without blocking the UI thread.
+- **`std::shared_mutex` Concurrency**: Lock-free concurrent read operations across multiple parallel network requests, ensuring zero frame drops even during intense web asset loading.
+
+---
+
+## Universal Website Compatibility Suite (Top 50 Domains)
+
+Haze is tested and optimized across 50 of the world's most demanding web applications, spanning mobile and desktop viewports:
+
+| Category | Target Websites | Compatibility & Optimization Highlights |
+| :--- | :--- | :--- |
+| **Search Engines** | `google.com`, `bing.com`, `yahoo.com`, `yandex.ru`, `baidu.com`, `duckduckgo.com` | Fast instant results rendering, location suggestions, voice input integration, and image carousel navigation. |
+| **Streaming Media** | `youtube.com`, `netflix.com`, `twitch.tv`, `bilibili.com`, `imdb.com` | Notification Media Center scrub controls, 1080p60 WebM/MP4 hardware decoding, background playback, and PiP multitasking. |
+| **Social Networks** | `facebook.com`, `instagram.com`, `x.com`, `reddit.com`, `tiktok.com`, `linkedin.com`, `pinterest.com`, `vk.ru` | Infinite scroll smoothness, multi-image upload dialogues, auto-playing feed videos, and dynamic story carousels. |
+| **Messaging & Chat** | `whatsapp.com`, `t.me`, `discord.com` | QR code camera pairing, WebRTC voice/video calls, audio recording permissions, and live WebSocket message delivery. |
+| **AI Assistants** | `chatgpt.com`, `gemini.google.com`, `claude.ai` | Real-time Server-Sent Events (SSE) streaming responses, code snippet copy-to-clipboard, and complex LaTeX formula rendering. |
+| **E-Commerce & Travel** | `amazon.com`, `temu.com`, `ebay.com`, `booking.com` | Secure multi-step payment flows, interactive map widgets, photo zoom galleries, and dynamic filtering drawers. |
+| **News & Knowledge** | `wikipedia.org`, `yahoo.co.jp`, `news.yahoo.co.jp`, `naver.com`, `dzen.ru`, `globo.com`, `weather.com` | Fast text reflow, responsive typography scaling, article table-of-contents navigation, and high-contrast reader view. |
+| **Productivity & Cloud**| `cloud.microsoft`, `live.com`, `microsoft.com`, `canva.com`, `samsung.com`, `github.com`, `brave.com`, `fandom.com`, `mail.ru` | Complex WebAssembly (Wasm) canvas manipulation, drag-and-drop file uploaders, code diff viewers, and responsive editor panes. |
+| **Entertainment & Web** | `pornhub.com`, `xhamster.com`, `xvideos.com`, `stripchat.com`, `bet.br` | Native HLS/DASH streaming video playback, interactive player controls, and strict script isolation. |
 
 ---
 
@@ -522,6 +597,108 @@ Haze treats user privacy as a fundamental architectural constraint, not an after
 
 ---
 
+## Legal, Governance & Trust Policies
+
+Haze Browser is distributed as an open-source native Android web browser. Below is the comprehensive statement of privacy practices, acceptable use, security disclosures, and intellectual property terms.
+
+---
+
+### Privacy Policy & Client-Side Data Architecture
+
+Haze operates on a **zero-telemetry, local-first** architecture:
+
+- **Zero First-Party Telemetry**: Haze contains no background telemetry daemons, diagnostic beacons, pingbacks, or usage counters. No server logs exist because Haze operates without central user-tracking servers.
+- **Zero Analytics SDKs**: The codebase is completely free of Google Firebase Analytics, Adjust, AppsFlyer, Mixpanel, Crashlytics, Facebook Graph SDK, or third-party behavioral profiling code.
+- **Zero Advertising Identifiers**: Haze never queries the Android Advertising ID (`AAID`) or hardware serial numbers (`IMEI`, `MAC address`, `Android ID`).
+- **SQLite Local Indexing (`HazeDatabase`)**: All user browsing artifacts—including browsing history, custom bookmarks, homepage shortcuts, and search omnibox caches—reside solely in the private app sandbox (`/data/user/0/com.aryandas.haze/databases/`).
+- **Hardware-Backed AES-256-GCM Vault**: Web passwords, autofill entries, and credentials are encrypted via `HazePasswordVault` using hardware-generated keys managed by the `AndroidKeyStore`. Cryptographic keys never leave the hardware-isolated Trusted Execution Environment (TEE) or StrongBox keymaster.
+- **Biometric Unlock**: Stored credentials and private browsing tabs can be locked behind device-level biometric authentication (Fingerprint, Face Unlock, or Device Lock PIN).
+- **Incognito & Ephemeral Session Lifecycle**: Incognito tabs operate in a dedicated in-memory context completely detached from standard browsing profiles. When the last Incognito tab is closed, in-memory cookies, DOM storage keys, and IndexedDB data are immediately purged from memory.
+- **Cloud Synchronization Boundaries**: Cloud sync in Haze is entirely opt-in. When enabled via Google Account Authentication (`play-services-auth`), your browser settings, bookmarks, and custom shortcuts are synchronized directly to your personal Google Cloud / Firebase container. No intermediary proxy or developer-owned relay inspects or relays your synchronized data.
+
+---
+
+### Cookie, Cache & Web Storage Governance
+
+- **First-Party Cookies**: First-party session and authentication cookies are stored locally to allow persistent logins across web applications (e.g., GitHub, YouTube, Reddit).
+- **Third-Party Tracking Cookies**: Haze blocks known third-party tracking cookies by default via its native C++ rule engine (`libhazeshield.so`), neutralizing cross-site advertising networks.
+- **Origin Partitioning**: To prevent cross-site identity leakage, Haze enforces origin partitioning across `localStorage`, `sessionStorage`, `IndexedDB`, and Service Worker registrations. Tracking scripts cannot correlate your identity across domains.
+- **Cache Eviction**: HTTP caching complies strictly with RFC 7234 cache directives. Cached assets can be flushed on demand via `Settings > Clear Browsing Data` or automatically configured to evict stale entries under low device storage conditions.
+
+---
+
+### End-User Terms of Service & Acceptable Use Policy
+
+- **Permitted Use**: Haze Browser is distributed as free, open-source software under the Apache License, Version 2.0. Users are granted permission to install, run, modify, fork, and distribute the application for personal, educational, research, or commercial purposes.
+- **Prohibited Activities**: Users and redistributors may not use Haze Browser or its native filtering engine to conduct distributed denial-of-service (DDoS) attacks, automated botnet crawling, network flooding, vulnerability probing of unauthorized websites, or malware distribution.
+- **Security Boundaries**: Haze does not bypass website paywalls, defeat Digital Rights Management (DRM), crack CAPTCHAs, or spoof authentication tokens. Native filtering is strictly limited to blocking invasive advertising, telemetry, and script tracking.
+- **Open-Source Disclaimer (AS-IS)**: Haze Browser is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+
+---
+
+### Security Architecture & Vulnerability Disclosure Program
+
+- **Dual-Layer Security Perimeter**:
+  - *Kotlin/Android Runtime*: Adheres to Android zero-trust architecture, enforces explicit one-time runtime permissions (`RECORD_AUDIO`, `CAMERA`), and blocks cleartext HTTP by default.
+  - *Native C++17 Shield (`libhazeshield.so`)*: Hardened with `-fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE -O3`, with thread-safe `std::shared_mutex` synchronization and bounded memory limits.
+- **Upstream Chromium Security Backports**: High-severity upstream Chromium Common Vulnerabilities and Exposures (CVEs) affecting Blink, V8 sandboxing, and Skia rendering are periodically compiled and integrated into updated releases.
+- **Responsible Vulnerability Disclosure**:
+  - Report suspected security vulnerabilities directly to the maintainer via GitHub Private Security Advisories.
+  - Include reproducible test cases, Android version, device model, and scrubbed logcat output.
+  - Inquiries receive an initial acknowledgment within 48 hours, followed by remediation updates.
+
+---
+
+### Regulatory Compliance & Data Subject Rights (GDPR / CCPA)
+
+- **Data Minimization**: Haze never collects, sells, rents, or monetizes personal data. You retain 100% control over all data generated during web browsing.
+- **Right to Erasure ("Forget Me")**: Instantly delete browsing history, cached web files, saved cookies, site permissions, and encrypted passwords via `Settings > Privacy Shield > Clear All Browsing Data`.
+- **Right to Data Portability**: Passwords stored in the hardware vault can be exported to standard CSV format at any time using biometric authentication.
+- **Global Privacy Controls**: Haze automatically transmits the `DNT: 1` (Do Not Track) and `Sec-GPC: 1` (Global Privacy Control) HTTP headers on all outgoing web requests.
+- **Zero Subprocessors**: Because Haze operates client-side without proprietary backend servers, there are zero third-party data subprocessors.
+
+---
+
+### Law Enforcement Guidelines & Transparency
+
+- **Absence of User Data**: Because Haze Browser does not log, collect, or store user browsing sessions, IP addresses, or device identifiers on remote infrastructure, **we possess no user data to produce in response to subpoenas, warrants, court orders, or law enforcement requests**.
+- **On-Device Physical Encryption**: Any data residing on a physical device is encrypted under the device's hardware credentials and the Android Keystore system. The maintainers of Haze do not hold encryption keys or backdoors.
+
+---
+
+### Intellectual Property, Third-Party Notices & DMCA Policy
+
+- **Apache 2.0 Open Source Licensing**: The original application code, Kotlin UI components, CMake configurations, and custom C++17 shield engines are licensed under the **Apache License, Version 2.0**.
+- **Third-Party Software Attribution**:
+  - *The Chromium Project* (Blink, V8, Content Shell, JNI_Zero): Copyright (c) The Chromium Authors. Licensed under the BSD 3-Clause License.
+  - *Android Jetpack & AndroidX Libraries*: Copyright (c) The Android Open Source Project. Licensed under the Apache License, Version 2.0.
+  - *Kotlin Standard Library & Coroutines*: Copyright (c) JetBrains s.r.o. Licensed under the Apache License, Version 2.0.
+  - *ICU4C / Unicode Data Tables*: Copyright (c) Unicode, Inc. Licensed under the Unicode License Agreement.
+- **Trademark Guidelines**: The names **"Haze"**, **"Haze Browser"**, and the associated icon and branding assets are marks belonging to Aryan Das. The Apache 2.0 license grants code rights, but does not grant permission to use project trademarks for downstream branding without permission.
+- **DMCA / Copyright Inquiries**: Notices regarding copyright infringement or licensing conflicts can be filed directly through GitHub Issues or by contacting the maintainer.
+
+---
+
+### Accessibility & Ergonomic Inclusion Statement
+
+- **WCAG 2.1 & TalkBack Screen Reader Compatibility**: All UI surfaces—including the bottom navigation bar, quick actions pill, tab manager cards, and password dialogs—provide rich, localized `contentDescription` semantics for Android TalkBack.
+- **Dynamic Typography & Font Scaling**: Full support for Android system typography scaling up to 200% without clipped layouts.
+- **True OLED Dark Mode**: Pure `#000000` AMOLED high-contrast palette minimizes eye strain in low-light environments and significantly conserves battery life on OLED panels.
+- **One-Handed Mobile Reachability**: All essential touch targets (address omnibox, search suggestions, tab switcher trigger, voice search, settings menu) are anchored to the bottom of the display for effortless one-handed control.
+
+---
+
+### Legal Notice & Imprint
+
+- **Project Name**: Haze Browser
+- **Application Package**: `com.aryandas.haze`
+- **Lead Architect & Maintainer**: Aryan Das
+- **Source Code Repository**: [https://github.com/aryandas079/Haze](https://github.com/aryandas079/Haze)
+- **Primary License**: Apache License, Version 2.0
+- **Governing Law**: Subject to open-source software licensing norms and applicable international intellectual property laws.
+
+---
+
 ## Contributing and Community
 
 Haze Browser is open source and community-driven. We welcome contributions from developers worldwide, including bug fixes, engine optimizations, documentation improvements, and feature proposals.
@@ -575,4 +752,3 @@ For full details, please refer to the [LICENSE](LICENSE) file located in the roo
 <div align="center">
   <sub>Copyright (c) 2026 Aryan Das. Licensed under the Apache License, Version 2.0.</sub>
 </div>
-

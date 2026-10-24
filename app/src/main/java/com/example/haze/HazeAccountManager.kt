@@ -25,6 +25,7 @@ object HazeAccountManager {
     private const val KEY_USER_EMAIL = "user_email"
     private const val KEY_USER_NAME = "user_name"
     private const val KEY_USER_GIVEN_NAME = "user_given_name"
+    private const val KEY_USER_FAMILY_NAME = "user_family_name"
     private const val KEY_USER_PHOTO_URL = "user_photo_url"
     private const val KEY_SIGNED_IN_AT = "signed_in_at"
     private const val KEY_ONBOARDING_COMPLETED = "has_completed_onboarding"
@@ -35,7 +36,8 @@ object HazeAccountManager {
         val displayName: String,
         val givenName: String,
         val photoUrl: String?,
-        val signedInAt: Long = System.currentTimeMillis()
+        val signedInAt: Long = System.currentTimeMillis(),
+        val familyName: String? = null
     )
 
     private val accountListeners = CopyOnWriteArrayList<(HazeUser?) -> Unit>()
@@ -107,11 +109,7 @@ object HazeAccountManager {
                     
                     val prefs = getPrefs(context)
                     val cachedName = prefs.getString("cached_display_name_" + email.lowercase(), null) ?: name
-                    var cachedPhoto = prefs.getString("cached_photo_url_" + email.lowercase(), null)
-                    
-                    if (cachedPhoto.isNullOrEmpty() && email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
-                        cachedPhoto = "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
-                    }
+                    val cachedPhoto = prefs.getString("cached_photo_url_" + email.lowercase(), null)
 
                     return HazeUser(
                         id = "google_device_" + email.lowercase(),
@@ -147,21 +145,17 @@ object HazeAccountManager {
         val id = prefs.getString(KEY_USER_ID, null) ?: return null
         val email = prefs.getString(KEY_USER_EMAIL, "") ?: ""
         var name = prefs.getString(KEY_USER_NAME, "Haze User") ?: "Haze User"
-        if (name.equals("Manojdasexplorer", ignoreCase = true) || name.equals(email.substringBefore("@"), ignoreCase = true)) {
+        if (name.equals(email.substringBefore("@"), ignoreCase = true)) {
             val cachedName = prefs.getString("cached_display_name_" + email.lowercase(), null)
             if (!cachedName.isNullOrEmpty()) {
                 name = cachedName
-            } else if (email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
-                name = "Manoj Das"
             }
         }
         val givenName = prefs.getString(KEY_USER_GIVEN_NAME, name.split(" ").firstOrNull() ?: "User") ?: "User"
+        val familyName = prefs.getString(KEY_USER_FAMILY_NAME, null) ?: name.split(" ").drop(1).joinToString(" ").takeIf { it.isNotBlank() }
         var photoUrl = prefs.getString(KEY_USER_PHOTO_URL, null)
         if (photoUrl.isNullOrEmpty() && email.isNotEmpty()) {
             photoUrl = prefs.getString("cached_photo_url_" + email.lowercase(), null)
-            if (photoUrl.isNullOrEmpty() && email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
-                photoUrl = "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo"
-            }
             if (!photoUrl.isNullOrEmpty()) {
                 prefs.edit()
                     .putString(KEY_USER_PHOTO_URL, photoUrl)
@@ -178,7 +172,8 @@ object HazeAccountManager {
             displayName = name,
             givenName = givenName,
             photoUrl = photoUrl,
-            signedInAt = signedInAt
+            signedInAt = signedInAt,
+            familyName = familyName
         )
     }
 
@@ -274,12 +269,10 @@ object HazeAccountManager {
     }
 
     fun saveUser(context: Context, user: HazeUser) {
-        val resolvedName = if (user.displayName.equals("Manojdasexplorer", ignoreCase = true) || user.displayName.equals(user.email.substringBefore("@"), ignoreCase = true)) {
+        val resolvedName = if (user.displayName.equals(user.email.substringBefore("@"), ignoreCase = true)) {
             val cachedName = getPrefs(context).getString("cached_display_name_" + user.email.lowercase(), null)
             if (!cachedName.isNullOrEmpty()) {
                 cachedName
-            } else if (user.email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) {
-                "Manoj Das"
             } else {
                 user.displayName
             }
@@ -287,12 +280,12 @@ object HazeAccountManager {
             user.displayName
         }
         val resolvedGiven = resolvedName.split(" ").firstOrNull() ?: user.givenName
+        val resolvedFamily = user.familyName ?: resolvedName.split(" ").drop(1).joinToString(" ").takeIf { it.isNotBlank() }
 
         val resolvedPhoto = if (!user.photoUrl.isNullOrEmpty()) {
             user.photoUrl
         } else {
             getPrefs(context).getString("cached_photo_url_" + user.email.lowercase(), null)
-                ?: if (user.email.equals("manojdasexplorer@gmail.com", ignoreCase = true)) "https://lh3.googleusercontent.com/ogw/AF2bZyju-ppFDHce-2YiY3M-W7uKD_zDPwgwASPjRIrU5twUlA=s192-c-mo" else null
         }
 
         val editor = getPrefs(context).edit()
@@ -302,6 +295,7 @@ object HazeAccountManager {
             .putString(KEY_USER_EMAIL, user.email)
             .putString(KEY_USER_NAME, resolvedName)
             .putString(KEY_USER_GIVEN_NAME, resolvedGiven)
+            .putString(KEY_USER_FAMILY_NAME, resolvedFamily)
             .putString(KEY_USER_PHOTO_URL, resolvedPhoto)
             .putLong(KEY_SIGNED_IN_AT, user.signedInAt)
 
@@ -389,6 +383,8 @@ object HazeAccountManager {
             val givenName = account.givenName
                 ?: account.displayName?.split(" ")?.firstOrNull()
                 ?: "User"
+            val familyName = account.familyName
+                ?: account.displayName?.split(" ")?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }
 
             val user = HazeUser(
                 id = account.id ?: account.email ?: "google_user_${System.currentTimeMillis()}",
@@ -396,7 +392,8 @@ object HazeAccountManager {
                 displayName = account.displayName ?: givenName,
                 givenName = givenName,
                 photoUrl = account.photoUrl?.toString(),
-                signedInAt = System.currentTimeMillis()
+                signedInAt = System.currentTimeMillis(),
+                familyName = familyName
             )
 
             saveUser(context, user)
@@ -502,6 +499,8 @@ object HazeAccountManager {
             val givenName = lastAccount.givenName
                 ?: lastAccount.displayName?.split(" ")?.firstOrNull()
                 ?: "User"
+            val familyName = lastAccount.familyName
+                ?: lastAccount.displayName?.split(" ")?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }
             val photoUrl = lastAccount.photoUrl?.toString()
             val existing = getUser(activity)
             val user = HazeUser(
@@ -510,7 +509,8 @@ object HazeAccountManager {
                 displayName = lastAccount.displayName ?: (existing?.displayName ?: givenName),
                 givenName = givenName,
                 photoUrl = photoUrl ?: existing?.photoUrl,
-                signedInAt = existing?.signedInAt ?: System.currentTimeMillis()
+                signedInAt = existing?.signedInAt ?: System.currentTimeMillis(),
+                familyName = familyName
             )
             saveUser(activity, user)
             if (!user.photoUrl.isNullOrEmpty()) {
@@ -527,6 +527,8 @@ object HazeAccountManager {
                 val givenName = account.givenName
                     ?: account.displayName?.split(" ")?.firstOrNull()
                     ?: "User"
+                val familyName = account.familyName
+                    ?: account.displayName?.split(" ")?.drop(1)?.joinToString(" ")?.takeIf { it.isNotBlank() }
                 val photoUrl = account.photoUrl?.toString()
                 val existing = getUser(activity)
                 val user = HazeUser(
@@ -535,7 +537,8 @@ object HazeAccountManager {
                     displayName = account.displayName ?: (existing?.displayName ?: givenName),
                     givenName = givenName,
                     photoUrl = photoUrl ?: existing?.photoUrl,
-                    signedInAt = existing?.signedInAt ?: System.currentTimeMillis()
+                    signedInAt = existing?.signedInAt ?: System.currentTimeMillis(),
+                    familyName = familyName
                 )
                 saveUser(activity, user)
                 if (!user.photoUrl.isNullOrEmpty()) {

@@ -143,7 +143,7 @@
 
 
 
-        <!-- Circular Profile Button -->
+        <!-- Circular Profile Button (Avatar Only) -->
         <FrameLayout
             android:id="@+id/btnProfile"
             android:layout_width="44dp"
@@ -390,20 +390,24 @@
             <!-- Clear Query Button (Hidden when empty) -->
             <ImageButton
                 android:id="@+id/btnClearQuery"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:padding="5dp"
+                android:scaleType="centerInside"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_close"
                 android:visibility="gone"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="2dp"
                 android:contentDescription="Clear Text"
                 app:tint="#5F6368" />
 
             <!-- QR Code Scan Button -->
             <ImageButton
                 android:id="@+id/btnQrScan"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="6dp"
+                android:scaleType="centerInside"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_qr_code"
                 android:visibility="gone"
@@ -414,28 +418,30 @@
             <!-- Voice Search Button -->
             <ImageButton
                 android:id="@+id/btnVoiceSearch"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="6dp"
+                android:scaleType="centerInside"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_mic"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="4dp"
                 android:contentDescription="Voice Search"
                 app:tint="#5F6368" />
 
-            <!-- Tab Count / Manager Circular Button -->
+            <!-- Tab Count / Manager Circular Button (Enlarged Touch Target) -->
             <FrameLayout
                 android:id="@+id/btnTabsCircular"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="4dp"
                 android:clickable="true"
                 android:focusable="true">
 
                 <TextView
                     android:id="@+id/tabCountBtn"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
                     android:text="1"
                     android:textStyle="bold"
                     android:gravity="center"
@@ -444,11 +450,13 @@
                     android:layout_gravity="center" />
             </FrameLayout>
 
-            <!-- Dropdown Menu Button -->
+            <!-- Dropdown Menu Button (Enlarged Touch Target) -->
             <ImageButton
                 android:id="@+id/menuBtn"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="6dp"
+                android:scaleType="centerInside"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_wide_arrow_down"
                 android:contentDescription="Menu"
