@@ -1011,6 +1011,20 @@ class ChromiumBrowserTab(
 
                 // 2. Ultra-lightweight Network Request Interception & In-Feed Sponsored Neutralizer
                 try {
+                    function sanitizePlayerResponse(resp) {
+                        try {
+                            if (!resp) return resp;
+                            if (resp.adPlacements) delete resp.adPlacements;
+                            if (resp.adSlots) delete resp.adSlots;
+                            if (resp.playerAds) delete resp.playerAds;
+                            if (resp.playbackTracking) {
+                                if (resp.playbackTracking.videostatsPlaybackUrl) delete resp.playbackTracking.videostatsPlaybackUrl;
+                                if (resp.playbackTracking.videostatsDelayplayUrl) delete resp.playbackTracking.videostatsDelayplayUrl;
+                            }
+                        } catch(_) {}
+                        return resp;
+                    }
+
                     var origFetch = window.fetch;
                     window.fetch = function(input, init) {
                         var url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
@@ -1019,11 +1033,29 @@ class ChromiumBrowserTab(
                             url.indexOf('/api/stats/atr') !== -1 ||
                             url.indexOf('/pagead/') !== -1 ||
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            url.indexOf('/ptracking') !== -1
+                            url.indexOf('/ptracking') !== -1 ||
+                            url.indexOf('/youtubei/v1/log_event') !== -1 ||
+                            url.indexOf('/youtubei/v1/ads') !== -1
                         )) {
                             return Promise.resolve(new Response('', { status: 204, statusText: 'No Content' }));
                         }
-                        return origFetch.apply(this, arguments);
+                        var p = origFetch.apply(this, arguments);
+                        if (url && (url.indexOf('/youtubei/v1/player') !== -1 || url.indexOf('/youtubei/v1/browse') !== -1)) {
+                            return p.then(function(res) {
+                                try {
+                                    var cloned = res.clone();
+                                    return cloned.json().then(function(data) {
+                                        sanitizePlayerResponse(data);
+                                        return new Response(JSON.stringify(data), {
+                                            status: res.status,
+                                            statusText: res.statusText,
+                                            headers: res.headers
+                                        });
+                                    }).catch(function() { return res; });
+                                } catch(_) { return res; }
+                            });
+                        }
+                        return p;
                     };
 
                     var origXhrOpen = XMLHttpRequest.prototype.open;
@@ -1034,7 +1066,9 @@ class ChromiumBrowserTab(
                             u.indexOf('/api/stats/atr') !== -1 ||
                             u.indexOf('/pagead/') !== -1 ||
                             u.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
-                            u.indexOf('/ptracking') !== -1
+                            u.indexOf('/ptracking') !== -1 ||
+                            u.indexOf('/youtubei/v1/log_event') !== -1 ||
+                            u.indexOf('/youtubei/v1/ads') !== -1
                         )) {
                             this.send = function() {};
                             return;
@@ -1084,6 +1118,13 @@ class ChromiumBrowserTab(
                         var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
 
                         if (adShowing || (player && player.classList && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting')))) {
+                            // Fast-forward video ad to completion cleanly
+                            var adVideo = document.querySelector('video.video-stream, .ad-showing video, .html5-main-video');
+                            if (adVideo && isFinite(adVideo.duration) && adVideo.duration > 0 && !adVideo.paused) {
+                                adVideo.muted = true;
+                                adVideo.currentTime = adVideo.duration;
+                            }
+
                             // 1. YouTube native skipAd function
                             if (player && typeof player.skipAd === 'function') {
                                 try { player.skipAd(); } catch(_) {}
@@ -1167,6 +1208,202 @@ class ChromiumBrowserTab(
                     // Unhide Shorts player API and carousel container if concealed & preserve controls overlay
                     var cachedOverlayTemplate = null;
 
+                    function syncShortsMetadata(targetEl) {
+                        try {
+                            var p = document.getElementById('movie_player');
+                            if (!p || !p.getVideoData) return;
+                            var vData = p.getVideoData() || {};
+                            var pResp = (p.getPlayerResponse && p.getPlayerResponse()) || {};
+                            var micro = (pResp.microformat && pResp.microformat.playerMicroformatRenderer) || {};
+                            var details = pResp.videoDetails || {};
+
+                            var authorName = details.author || vData.author || '';
+                            if (!authorName) return;
+
+                            var videoId = details.videoId || vData.video_id || '';
+                            var handle = micro.ownerProfileUrl ? micro.ownerProfileUrl.split('/').pop() : ('@' + authorName.toLowerCase().replace(/\s+/g, ''));
+                            if (!handle.startsWith('@')) handle = '@' + handle;
+                            var title = details.title || vData.title || '';
+                            var rawLikes = micro.likeCount ? parseInt(micro.likeCount, 10) : 0;
+                            var likesFormatted = rawLikes >= 1000000 ? (rawLikes / 1000000).toFixed(1) + 'M' :
+                                                 rawLikes >= 1000 ? (rawLikes / 1000).toFixed(rawLikes >= 10000 ? 0 : 1) + 'K' :
+                                                 (rawLikes > 0 ? String(rawLikes) : 'Like');
+
+                            var root = targetEl || document;
+
+                            // 1. Channel link & handle
+                            var channelLink = root.querySelector('yt-reel-channel-bar-view-model a, .__haze_channel_bar span');
+                            if (channelLink) {
+                                channelLink.innerText = handle;
+                                if (channelLink.tagName === 'A') {
+                                    channelLink.href = '/' + handle;
+                                }
+                            }
+
+                            // 2. Avatar Photo per Channel / Account
+                            var avatarShape = root.querySelector('.ytSpecAvatarShapeHost, .ytSpecAvatarShapeButton');
+                            if (avatarShape) {
+                                avatarShape.setAttribute('aria-label', 'Go to channel ' + handle);
+                                avatarShape.style.position = 'relative';
+                                avatarShape.style.width = '32px';
+                                avatarShape.style.height = '32px';
+                                avatarShape.style.setProperty('border-radius', '50%', 'important');
+                                avatarShape.style.setProperty('overflow', 'hidden', 'important');
+
+                                var imgContainer = avatarShape.querySelector('.ytSpecAvatarShapeAvatarSizeSmall, .ytSpecAvatarShapeAvatarSizeExtraSmall, .ytSpecAvatarShapeAvatarSizeMedium') || avatarShape.firstElementChild;
+                                var img = avatarShape.querySelector('img');
+                                var initial = avatarShape.querySelector('.__haze_avatar_initial');
+
+                                // Check if the author has changed to avoid sticking with the first short's profile photo
+                                var lastAuthor = avatarShape.getAttribute('data-haze-author');
+                                var authorChanged = lastAuthor && lastAuthor !== authorName;
+                                if (authorChanged) {
+                                    avatarShape.removeAttribute('data-haze-synced-src');
+                                    if (img) img.src = '';
+                                }
+                                avatarShape.setAttribute('data-haze-author', authorName);
+
+                                // Locate candidate author photo in this reel/short element
+                                var carouselItem = root.closest('ytm-reel-item-renderer, ytd-reel-video-renderer, .reel-video-in-sequence, ytm-shorts-element');
+                                var candidateImg = carouselItem ? carouselItem.querySelector('yt-reel-channel-bar-view-model img, .ytSpecAvatarShapeHost img, img[src*="yt3.ggpht.com/"], img[src*="googleusercontent.com/"]') : null;
+
+                                var photoUrl = '';
+                                if (candidateImg && candidateImg.src && candidateImg.src.indexOf('data:') === -1 && candidateImg !== img) {
+                                    photoUrl = candidateImg.src;
+                                } else if (img && img.src && img.src.indexOf('data:') === -1 && !authorChanged) {
+                                    photoUrl = img.src;
+                                }
+
+                                if (photoUrl) {
+                                    avatarShape.setAttribute('data-haze-synced-src', photoUrl);
+                                    if (initial) initial.remove();
+                                    if (imgContainer) imgContainer.style.removeProperty('display');
+                                    if (!img) {
+                                        img = document.createElement('img');
+                                        img.className = 'ytCoreImageHost ytSpecAvatarShapeImage';
+                                        avatarShape.appendChild(img);
+                                    }
+                                    if (img.src !== photoUrl) {
+                                        img.src = photoUrl;
+                                    }
+                                    img.style.removeProperty('display');
+                                    img.style.setProperty('width', '100%', 'important');
+                                    img.style.setProperty('height', '100%', 'important');
+                                    img.style.setProperty('border-radius', '50%', 'important');
+                                    img.style.setProperty('object-fit', 'cover', 'important');
+                                } else {
+                                    // Creator initials fallback if image is not yet loaded for this specific creator
+                                    if (img && img.complete && img.naturalWidth > 0 && !authorChanged) {
+                                        if (initial) initial.remove();
+                                        if (imgContainer) imgContainer.style.removeProperty('display');
+                                        img.style.removeProperty('display');
+                                    } else {
+                                        if (img) img.style.setProperty('display', 'none', 'important');
+                                        if (!initial) {
+                                            initial = document.createElement('div');
+                                            initial.className = '__haze_avatar_initial';
+                                            avatarShape.appendChild(initial);
+                                        }
+                                        initial.style.cssText = 'width:32px; height:32px; min-width:32px; max-width:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#ff0033; color:#fff; font-weight:bold; font-size:14px; box-sizing:border-box;';
+                                        initial.innerText = authorName.charAt(0).toUpperCase();
+                                    }
+                                }
+                            }
+
+                            // 3. Subscribe button
+                            var subBtn = root.querySelector('yt-reel-channel-bar-view-model button, .__haze_channel_bar button');
+                            if (subBtn) {
+                                subBtn.setAttribute('aria-label', 'Subscribe to ' + handle + '.');
+                                var subText = subBtn.querySelector('.ytSpecButtonShapeNextButtonTextContent') || subBtn;
+                                if (subBtn.getAttribute('data-haze-subscribed') === 'true') {
+                                    subText.innerText = 'Subscribed';
+                                    subBtn.style.background = 'rgba(255,255,255,0.2)';
+                                    subBtn.style.color = '#fff';
+                                } else {
+                                    subText.innerText = 'Subscribe';
+                                    subBtn.style.background = '#fff';
+                                    subBtn.style.color = '#0f0f0f';
+                                }
+                                if (!subBtn.__hazeSubBound) {
+                                    subBtn.__hazeSubBound = true;
+                                    subBtn.addEventListener('click', function(e) {
+                                        e.stopPropagation();
+                                        var isSub = subBtn.getAttribute('data-haze-subscribed') === 'true';
+                                        if (isSub) {
+                                            subBtn.removeAttribute('data-haze-subscribed');
+                                            subText.innerText = 'Subscribe';
+                                            subBtn.style.background = '#fff';
+                                            subBtn.style.color = '#0f0f0f';
+                                        } else {
+                                            subBtn.setAttribute('data-haze-subscribed', 'true');
+                                            subText.innerText = 'Subscribed';
+                                            subBtn.style.background = 'rgba(255,255,255,0.2)';
+                                            subBtn.style.color = '#fff';
+                                        }
+                                    });
+                                }
+                            }
+
+                            // 4. Video Title
+                            var titleEl = root.querySelector('.ytShortsVideoTitleViewModelShortsVideoTitle, yt-reel-metapanel-view-model h1, .ytReelMetapanelViewModelMetapanelItemTitle');
+                            if (titleEl) {
+                                titleEl.innerText = title;
+                                titleEl.setAttribute('aria-label', title);
+                            }
+
+                            // 5. Hide search suggestion pill if stale
+                            var searchPill = root.querySelector('yt-shorts-suggested-action-view-model');
+                            if (searchPill) {
+                                searchPill.style.display = 'none';
+                            }
+
+                            // 6. Sound / audio pill in metapanel
+                            var audioPill = root.querySelector('a.ytSpecButtonShapeNextHost[href*="watch?v="], a.ytSpecButtonShapeNextHost[href*="/shorts/"]');
+                            if (audioPill) {
+                                var audioSpan = audioPill.querySelector('.ytSpecButtonShapeNextButtonTextContent span span') || 
+                                                audioPill.querySelector('.ytSpecButtonShapeNextButtonTextContent span') ||
+                                                audioPill.querySelector('.ytSpecButtonShapeNextButtonTextContent');
+                                if (audioSpan) {
+                                    audioSpan.innerText = 'Original audio - ' + authorName;
+                                }
+                                audioPill.setAttribute('aria-label', 'Original audio - ' + authorName);
+                                var iconSpan = audioPill.querySelector('.yt-icon-shape');
+                                if (iconSpan) iconSpan.innerText = '';
+                            }
+
+                            // 7. Like count
+                            var likeBtn = root.querySelector('button[aria-label*="like" i]');
+                            if (likeBtn) {
+                                likeBtn.setAttribute('aria-label', 'like this video along with ' + (rawLikes || 'others'));
+                                var likeCountSpan = (likeBtn.parentElement && likeBtn.parentElement.querySelector('.ytSpecButtonShapeWithLabelLabel span')) ||
+                                                    (likeBtn.parentElement && likeBtn.parentElement.querySelector('.ytAttributedStringHost'));
+                                if (likeCountSpan && rawLikes > 0) {
+                                    likeCountSpan.innerText = likesFormatted;
+                                }
+                            }
+
+                            // 8. Sound pivot button at bottom-right
+                            var soundPivot = root.querySelector('a[aria-label*="See more videos using this sound"], div.reel-player-overlay-actions a:last-child');
+                            if (soundPivot) {
+                                if (videoId) {
+                                    soundPivot.href = 'https://m.youtube.com/source/' + videoId + '/shorts';
+                                }
+                                var pivotImg = soundPivot.querySelector('img');
+                                if (pivotImg) {
+                                    pivotImg.style.display = 'none';
+                                }
+                                var pivotInitial = soundPivot.querySelector('.__haze_pivot_initial');
+                                if (!pivotInitial) {
+                                    pivotInitial = document.createElement('div');
+                                    pivotInitial.className = '__haze_pivot_initial';
+                                    soundPivot.appendChild(pivotInitial);
+                                }
+                                pivotInitial.style.cssText = 'width:36px; height:36px; border-radius:6px; background:#212121; border:1px solid rgba(255,255,255,0.4); display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px;';
+                                pivotInitial.innerHTML = '<svg xmlns=\"http://www.w3.org/2000/svg\" height=\"20\" viewBox=\"0 0 24 24\" width=\"20\" fill=\"#fff\"><path d=\"M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z\"/></svg>';
+                            }
+                        } catch(_) {}
+                    }
+
                     function preserveShortsOverlay() {
                         try {
                             var allOverlays = Array.from(document.querySelectorAll('ytm-reel-player-overlay-renderer'));
@@ -1175,75 +1412,56 @@ class ChromiumBrowserTab(
 
                             if (nativeOverlay && nativeOverlay.innerHTML.length > 500) {
                                 cachedOverlayTemplate = nativeOverlay.cloneNode(true);
-                                // If native overlay is present and valid, remove any redundant injected clone
                                 if (injectedOverlay) {
                                     injectedOverlay.remove();
                                 }
+                                syncShortsMetadata(nativeOverlay);
                                 return;
                             }
 
                             var tc = document.querySelector('.layer.touch-controls');
                             // Only inject if there is NO native overlay attached in touch-controls
                             if (tc && !tc.querySelector('ytm-reel-player-overlay-renderer:not([data-haze-injected])') && cachedOverlayTemplate) {
-                                if (injectedOverlay) return; // Already injected and active
+                                if (injectedOverlay) {
+                                    syncShortsMetadata(injectedOverlay);
+                                    return;
+                                }
                                 var clone = cachedOverlayTemplate.cloneNode(true);
                                 clone.__hazeInjected = true;
                                 clone.setAttribute('data-haze-injected', 'true');
                                 tc.appendChild(clone);
 
-                                // Synchronize active video metadata (title, author, subscribe)
-                                var player = document.getElementById('movie_player');
-                                if (player && player.getVideoData) {
-                                    var vData = player.getVideoData();
-                                    if (vData) {
-                                        var titleEl = clone.querySelector('.ytReelMetapanelViewModelMetapanelItemTitle') || clone.querySelector('yt-reel-metapanel-view-model');
-                                        if (titleEl && vData.title) {
-                                            titleEl.innerText = vData.title;
-                                        }
+                                // Ensure channel bar and subscribe button are present
+                                var metaContainer = clone.querySelector('.ytReelPlayerOverlayViewModelHorizontalContainer');
+                                var existingChannelBar = clone.querySelector('.__haze_channel_bar, yt-reel-channel-bar-view-model');
+                                if (!existingChannelBar && metaContainer) {
+                                    var channelBar = document.createElement('div');
+                                    channelBar.className = '__haze_channel_bar';
+                                    channelBar.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:8px; pointer-events:auto;';
 
-                                        // Ensure channel bar and subscribe button are present
-                                        var metaContainer = clone.querySelector('.ytReelPlayerOverlayViewModelHorizontalContainer');
-                                        var existingChannelBar = clone.querySelector('.__haze_channel_bar, yt-reel-channel-bar-view-model');
-                                        if (!existingChannelBar && metaContainer) {
-                                            var channelBar = document.createElement('div');
-                                            channelBar.className = '__haze_channel_bar';
-                                            channelBar.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:8px; pointer-events:auto;';
+                                    var avatar = document.createElement('div');
+                                    avatar.style.cssText = 'width:32px; height:32px; min-width:32px; border-radius:50%; background:#ff0033; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px;';
+                                    avatar.innerText = 'Y';
 
-                                            var avatar = document.createElement('div');
-                                            avatar.style.cssText = 'width:32px; height:32px; border-radius:50%; background:#ff0033; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:14px;';
-                                            avatar.innerText = (vData.author || 'Y').charAt(0).toUpperCase();
+                                    var authorName = document.createElement('span');
+                                    authorName.style.cssText = 'color:#fff; font-weight:bold; font-size:14px; text-shadow:0 1px 2px rgba(0,0,0,0.8);';
+                                    authorName.innerText = '@creator';
 
-                                            var authorName = document.createElement('span');
-                                            authorName.style.cssText = 'color:#fff; font-weight:bold; font-size:14px; text-shadow:0 1px 2px rgba(0,0,0,0.8);';
-                                            authorName.innerText = '@' + (vData.author || 'creator');
+                                    var subBtn = document.createElement('button');
+                                    subBtn.style.cssText = 'background:#fff; color:#0f0f0f; border:none; border-radius:18px; padding:6px 14px; font-weight:bold; font-size:12px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.3);';
+                                    subBtn.innerText = 'Subscribe';
 
-                                            var subBtn = document.createElement('button');
-                                            subBtn.style.cssText = 'background:#fff; color:#0f0f0f; border:none; border-radius:18px; padding:6px 14px; font-weight:bold; font-size:12px; cursor:pointer; box-shadow:0 1px 3px rgba(0,0,0,0.3);';
-                                            subBtn.innerText = 'Subscribe';
-                                            subBtn.onclick = function(e) {
-                                                e.stopPropagation();
-                                                if (subBtn.innerText === 'Subscribe') {
-                                                    subBtn.innerText = 'Subscribed';
-                                                    subBtn.style.background = 'rgba(255,255,255,0.2)';
-                                                    subBtn.style.color = '#fff';
-                                                } else {
-                                                    subBtn.innerText = 'Subscribe';
-                                                    subBtn.style.background = '#fff';
-                                                    subBtn.style.color = '#0f0f0f';
-                                                }
-                                            };
+                                    channelBar.appendChild(avatar);
+                                    channelBar.appendChild(authorName);
+                                    channelBar.appendChild(subBtn);
 
-                                            channelBar.appendChild(avatar);
-                                            channelBar.appendChild(authorName);
-                                            channelBar.appendChild(subBtn);
-
-                                            var metapanel = clone.querySelector('.ytReelPlayerOverlayViewModelMetadataContainerMetapanel');
-                                            if (metapanel) {
-                                                metapanel.insertBefore(channelBar, metapanel.firstChild);
-                                            }
-                                        }
+                                    var metapanel = clone.querySelector('.ytReelPlayerOverlayViewModelMetadataContainerMetapanel');
+                                    if (metapanel) {
+                                        metapanel.insertBefore(channelBar, metapanel.firstChild);
                                     }
                                 }
+
+                                syncShortsMetadata(clone);
                             }
                         } catch(_) {}
                     }
@@ -1416,8 +1634,51 @@ class ChromiumBrowserTab(
                         setTimeout(autoPlayActiveShort, 200);
                         setTimeout(autoPlayActiveShort, 500);
                     }, { passive: true });
-                    setInterval(autoPlayActiveShort, 800);
+                    document.addEventListener('yt-navigate-finish', function() {
+                        setTimeout(ensurePlayerVisible, 100);
+                        setTimeout(ensurePlayerVisible, 300);
+                        setTimeout(autoPlayActiveShort, 350);
+                    });
+                    document.addEventListener('yt-page-data-updated', function() {
+                        setTimeout(ensurePlayerVisible, 100);
+                        setTimeout(ensurePlayerVisible, 300);
+                        setTimeout(autoPlayActiveShort, 350);
+                    });
+                    setInterval(autoPlayActiveShort, 600);
+                    setInterval(ensurePlayerVisible, 800);
                     window.__hazeCheckShortsAutoplay = autoPlayActiveShort;
+                })();
+
+                // 5. Universal Instant-Play On User Click for all Videos
+                (function initInstantVideoPlayback() {
+                    function triggerPlayImmediately(target) {
+                        try {
+                            if (!target) return;
+                            // 1. If clicking directly on or near a video element or player container
+                            var video = (target.tagName === 'VIDEO') ? target : target.querySelector('video') || (target.closest ? target.closest('.html5-video-player, #movie_player, ytm-video-with-context-renderer, ytm-reel-item-renderer, ytd-reel-video-renderer, .player-container, .video-stream')?.querySelector('video') : null);
+                            if (video && video.paused) {
+                                var pr = video.play();
+                                if (pr !== undefined) pr.catch(function() {});
+                            }
+
+                            // 2. Click any hidden or delayed play button inside player
+                            var playBtn = target.closest ? target.closest('.html5-video-player, #movie_player, .player-container, ytm-reel-item-renderer, ytd-reel-video-renderer')?.querySelector('.ytp-large-play-button, .ytp-play-button, button.player-control-play-pause-icon, button[aria-label*="Play" i], div[aria-label="Play" i]') : null;
+                            if (playBtn && playBtn !== target) {
+                                playBtn.click();
+                            }
+                        } catch(_) {}
+                    }
+
+                    document.addEventListener('click', function(e) {
+                        triggerPlayImmediately(e.target);
+                    }, { capture: true, passive: true });
+
+                    document.addEventListener('touchend', function(e) {
+                        if (e.target) {
+                            setTimeout(function() { triggerPlayImmediately(e.target); }, 50);
+                            setTimeout(function() { triggerPlayImmediately(e.target); }, 200);
+                        }
+                    }, { passive: true });
                 })();
             })();
         """.trimIndent()

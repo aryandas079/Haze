@@ -384,25 +384,31 @@ object HazeTranslationManager {
 
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
-        val bannerBg = if (isDark) Color.parseColor("#262626") else Color.parseColor("#E8F0FE")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#174EA6")
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+
+        // Elegant rectangular grey & black theme
+        val bannerBg = if (isDark) Color.parseColor("#141416") else Color.parseColor("#1C1D1F")
+        val strokeColor = if (isDark) Color.parseColor("#2C2D30") else Color.parseColor("#333538")
+        val textColor = Color.parseColor("#EDEDED")
+        val subTextColor = Color.parseColor("#9E9E9E")
+        val btnBg = Color.parseColor("#2B2D31")
+        val btnStroke = Color.parseColor("#3F4147")
+        val btnTextColor = Color.parseColor("#FFFFFF")
 
         val banner = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dpToPx(activity, 16), dpToPx(activity, 10), dpToPx(activity, 12), dpToPx(activity, 10))
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 10), dpToPx(activity, 10), dpToPx(activity, 10))
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 24).toFloat()
+                cornerRadius = dpToPx(activity, 8).toFloat()
                 setColor(bannerBg)
-                setStroke(dpToPx(activity, 1), if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
+                setStroke(dpToPx(activity, 1), strokeColor)
             }
-            elevation = dpToPx(activity, 12).toFloat()
+            elevation = dpToPx(activity, 8).toFloat()
         }
 
         val icon = ImageView(activity).apply {
             setImageResource(R.drawable.ic_translate)
-            setColorFilter(textColor)
+            setColorFilter(Color.parseColor("#B0B3B8"))
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 20), dpToPx(activity, 20)).apply {
                 marginEnd = dpToPx(activity, 10)
             }
@@ -412,19 +418,20 @@ object HazeTranslationManager {
         val tvText = TextView(activity).apply {
             text = "Page is in $langDisplay. Translate to English?"
             textSize = 12.5f
-            setTypeface(null, Typeface.BOLD)
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
             setTextColor(textColor)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         val btnTranslate = TextView(activity).apply {
             text = "Translate"
-            textSize = 12.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            textSize = 12f
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+            setTextColor(btnTextColor)
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 14).toFloat()
-                setColor(accentColor)
+                cornerRadius = dpToPx(activity, 6).toFloat()
+                setColor(btnBg)
+                setStroke(dpToPx(activity, 1), btnStroke)
             }
             setPadding(dpToPx(activity, 14), dpToPx(activity, 7), dpToPx(activity, 14), dpToPx(activity, 7))
             setOnClickListener {
@@ -436,7 +443,7 @@ object HazeTranslationManager {
 
         val btnClose = ImageButton(activity).apply {
             setImageResource(R.drawable.ic_close)
-            setColorFilter(textColor)
+            setColorFilter(Color.parseColor("#8E9297"))
             background = null
             setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 28), dpToPx(activity, 28)).apply {
@@ -481,27 +488,32 @@ object HazeTranslationManager {
 
         val prefs = activity.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
         val isDark = prefs.getBoolean("is_dark", false) || activity.isPrivateMode
-        val bannerBg = if (isDark) Color.parseColor("#262626") else Color.parseColor("#E8F0FE")
-        val textColor = if (isDark) Color.WHITE else Color.parseColor("#174EA6")
-        val accentColor = Color.parseColor(prefs.getString("accent_color", "#1A73E8") ?: "#1A73E8")
+
+        // Elegant rectangular grey & black theme
+        val bannerBg = if (isDark) Color.parseColor("#141416") else Color.parseColor("#1C1D1F")
+        val strokeColor = if (isDark) Color.parseColor("#2C2D30") else Color.parseColor("#333538")
+        val textColor = Color.parseColor("#EDEDED")
+        val btnBg = Color.parseColor("#2B2D31")
+        val btnStroke = Color.parseColor("#3F4147")
+        val btnTextColor = Color.parseColor("#FFFFFF")
 
         val targetName = SUPPORTED_LANGUAGES.find { it.second.startsWith(targetLangCode) }?.third ?: "English"
 
         val banner = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dpToPx(activity, 14), dpToPx(activity, 9), dpToPx(activity, 10), dpToPx(activity, 9))
+            setPadding(dpToPx(activity, 14), dpToPx(activity, 10), dpToPx(activity, 10), dpToPx(activity, 10))
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 24).toFloat()
+                cornerRadius = dpToPx(activity, 8).toFloat()
                 setColor(bannerBg)
-                setStroke(dpToPx(activity, 1), if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
+                setStroke(dpToPx(activity, 1), strokeColor)
             }
-            elevation = dpToPx(activity, 12).toFloat()
+            elevation = dpToPx(activity, 8).toFloat()
         }
 
         val icon = ImageView(activity).apply {
             setImageResource(R.drawable.ic_translate)
-            setColorFilter(accentColor)
+            setColorFilter(Color.parseColor("#B0B3B8"))
             layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 20), dpToPx(activity, 20)).apply {
                 marginEnd = dpToPx(activity, 8)
             }
@@ -510,7 +522,7 @@ object HazeTranslationManager {
         val tvText = TextView(activity).apply {
             text = "Translated to $targetName"
             textSize = 12f
-            setTypeface(null, Typeface.BOLD)
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
             setTextColor(textColor)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -518,11 +530,12 @@ object HazeTranslationManager {
         val btnOriginal = TextView(activity).apply {
             text = "Original"
             textSize = 11.5f
-            setTypeface(null, Typeface.BOLD)
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
             setTextColor(textColor)
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 12).toFloat()
-                setColor(if (isDark) Color.parseColor("#3C4043") else Color.parseColor("#D3E3FD"))
+                cornerRadius = dpToPx(activity, 6).toFloat()
+                setColor(Color.parseColor("#242528"))
+                setStroke(dpToPx(activity, 1), Color.parseColor("#383A3E"))
             }
             setPadding(dpToPx(activity, 10), dpToPx(activity, 6), dpToPx(activity, 10), dpToPx(activity, 6))
             setOnClickListener {
@@ -535,11 +548,12 @@ object HazeTranslationManager {
         val btnChange = TextView(activity).apply {
             text = "Languages"
             textSize = 11.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+            setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
+            setTextColor(btnTextColor)
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(activity, 12).toFloat()
-                setColor(accentColor)
+                cornerRadius = dpToPx(activity, 6).toFloat()
+                setColor(btnBg)
+                setStroke(dpToPx(activity, 1), btnStroke)
             }
             setPadding(dpToPx(activity, 10), dpToPx(activity, 6), dpToPx(activity, 10), dpToPx(activity, 6))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -553,10 +567,10 @@ object HazeTranslationManager {
 
         val btnClose = ImageButton(activity).apply {
             setImageResource(R.drawable.ic_close)
-            setColorFilter(textColor)
+            setColorFilter(Color.parseColor("#8E9297"))
             background = null
             setPadding(dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4), dpToPx(activity, 4))
-            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 24), dpToPx(activity, 24)).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(activity, 26), dpToPx(activity, 26)).apply {
                 marginStart = dpToPx(activity, 4)
             }
             setOnClickListener {

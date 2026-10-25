@@ -520,9 +520,7 @@ object HazePrivacyShieldEngine {
         "cdn.jsdelivr.net", "unpkg.com", "code.jquery.com", "ajax.googleapis.com",
         "cdn.tailwindcss.com", "cdn.esm.sh", "esm.sh", "cdn.skypack.dev",
         "khronos.org", "threejs.org", "unity3d.com",
-        "wikipedia.org", "wikimedia.org", "upload.wikimedia.org", "wiktionary.org", "wikidata.org",
-        "google.com", "googlevideo.com", "ytimg.com", "youtube.com", "music.youtube.com",
-        "spotify.com", "spotifycdn.net", "scdn.co"
+        "wikipedia.org", "wikimedia.org", "upload.wikimedia.org", "wiktionary.org", "wikidata.org"
     )
 
     // Known Popup, Popunder, and Redirect Ad Networks
@@ -663,11 +661,7 @@ object HazePrivacyShieldEngine {
             return BlockDecision.ALLOW
         }
 
-        // 2b. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs, core web destinations)
-        if (matchesDomainOrSuffix(reqHost, essentialDomains)) {
-            return BlockDecision.ALLOW
-        }
-
+        // 2b. Check YouTube advertising endpoints early BEFORE essentialDomains check
         val isYouTube = isYouTubeHost(pageHost) || isYouTubeHost(reqHost)
         if (isYouTube) {
             val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -685,6 +679,11 @@ object HazePrivacyShieldEngine {
                 recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate, pageHost)
                 return decision
             }
+        }
+
+        // 2c. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs, core web destinations)
+        if (matchesDomainOrSuffix(reqHost, essentialDomains)) {
+            return BlockDecision.ALLOW
         }
 
         // Native C++ HazeShieldCore Execution
@@ -961,10 +960,14 @@ object HazePrivacyShieldEngine {
                 lowerPath.contains("/ptracking") ||
                 lowerPath.contains("/get_midroll_info") ||
                 lowerPath.contains("/youtubei/v1/player/ad_break") ||
-                lowerPath.contains("/ad_break") ||
                 lowerPath.contains("/youtubei/v1/att/get") ||
+                lowerPath.contains("/youtubei/v1/log_event") ||
+                lowerPath.contains("/youtubei/v1/ads") ||
+                lowerPath.contains("/ad_break") ||
                 lowerUrl.contains("adformat=") ||
-                lowerUrl.contains("ad_type="))
+                lowerUrl.contains("ad_type=") ||
+                lowerUrl.contains("ad_break") ||
+                lowerUrl.contains("adunit"))
     }
 
     private fun matchesDomainOrSuffix(host: String, domainSet: Set<String>): Boolean {
