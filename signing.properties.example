@@ -1,0 +1,21 @@
+# ==============================================================================
+# Haze Release Signing Configuration
+# ==============================================================================
+# Copy this file to 'signing.properties' in the project root and fill in your
+# actual keystore details. 'signing.properties' is gitignored for security.
+#
+# Alternatively, you can pass these properties via command-line:
+# ./gradlew bundleRelease -PKEYSTORE_PATH=... -PKEYSTORE_PASSWORD=... -PKEY_ALIAS=... -PKEY_PASSWORD=...
+# ==============================================================================
+
+# Relative to project root or absolute path to your .jks / .keystore file
+KEYSTORE_PATH=my-release-key.jks
+
+# Password for the keystore
+KEYSTORE_PASSWORD=your_keystore_password
+
+# Alias of the signing key
+KEY_ALIAS=your_key_alias
+
+# Password for the key
+KEY_PASSWORD=your_key_password
