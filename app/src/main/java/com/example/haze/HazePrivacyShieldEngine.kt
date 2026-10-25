@@ -655,13 +655,8 @@ object HazePrivacyShieldEngine {
         }
         val isBalancedMode = HazeSiteCompatibilityManager.getSiteMode(context, currentSiteHost) == HazeSiteCompatibilityManager.MODE_BALANCED
 
-        // 2a. Never block legitimate video and audio media streams!
-        // YouTube streams chunks from googlevideo.com; other video sites use HLS (.m3u8, .ts), DASH (.mpd, .m4s), MP4/WebM.
-        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
-            return BlockDecision.ALLOW
-        }
-
-        // 2b. Check YouTube advertising endpoints early BEFORE essentialDomains check
+        // Check YouTube advertising endpoints before the media-stream fast path. Ad
+        // requests must not be allowed simply because they use a media URL.
         val isYouTube = isYouTubeHost(pageHost) || isYouTubeHost(reqHost)
         if (isYouTube) {
             val prefs = context.getSharedPreferences("HazePrefs", Context.MODE_PRIVATE)
@@ -679,6 +674,12 @@ object HazePrivacyShieldEngine {
                 recordEvent(context, decision, reqHost, requestUrl, "YOUTUBE_AD", isPrivate, pageHost)
                 return decision
             }
+        }
+
+        // Never block legitimate video and audio media streams. YouTube streams
+        // chunks from googlevideo.com; other video sites use HLS/DASH segments.
+        if (isMediaStreamRequest(reqHost, requestUri.path.orEmpty(), requestUrl)) {
+            return BlockDecision.ALLOW
         }
 
         // 2c. Check essential services (OAuth, CAPTCHAs, Payments, standard CDNs, core web destinations)

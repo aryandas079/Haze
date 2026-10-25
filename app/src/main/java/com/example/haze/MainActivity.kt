@@ -4883,6 +4883,7 @@ class MainActivity : AppCompatActivity() {
                     if (url != HAZE_HOME_URL && !url.startsWith("haze://")) {
                         showPageLoading(5)
                         tab.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT, null)
+                        tab.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.SOCIAL_SHORT_VIDEO_PROFILE_SCRIPT, null)
                         if (url.contains("youtube.com", ignoreCase = true)) {
                             tab.evaluateJavascript(com.example.haze.engine.chromium.ChromiumBrowserTab.YOUTUBE_ENGINE_SCRIPT, null)
                         }
@@ -5240,6 +5241,16 @@ class MainActivity : AppCompatActivity() {
                     webView,
                     com.example.haze.engine.chromium.ChromiumBrowserTab.ADGUARD_UNIVERSAL_SHIELD_SCRIPT,
                     setOf("*")
+                )
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    com.example.haze.engine.chromium.ChromiumBrowserTab.SOCIAL_SHORT_VIDEO_PROFILE_SCRIPT,
+                    setOf(
+                        "https://*.youtube.com", "https://youtube.com",
+                        "https://*.instagram.com", "https://instagram.com",
+                        "https://*.facebook.com", "https://facebook.com",
+                        "https://*.tiktok.com", "https://tiktok.com"
+                    )
                 )
             }
         } catch (_: Throwable) {}

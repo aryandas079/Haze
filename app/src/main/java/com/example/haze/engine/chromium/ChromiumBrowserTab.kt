@@ -97,6 +97,16 @@ class ChromiumBrowserTab(
                     ADGUARD_UNIVERSAL_SHIELD_SCRIPT,
                     setOf("*")
                 )
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(
+                    webView,
+                    SOCIAL_SHORT_VIDEO_PROFILE_SCRIPT,
+                    setOf(
+                        "https://*.youtube.com", "https://youtube.com",
+                        "https://*.instagram.com", "https://instagram.com",
+                        "https://*.facebook.com", "https://facebook.com",
+                        "https://*.tiktok.com", "https://tiktok.com"
+                    )
+                )
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -474,19 +484,6 @@ class ChromiumBrowserTab(
                         obsResult.responseHeaders,
                         obsResult.data
                     )
-                }
-
-                // Ultra-smooth playback bypass: never delay or buffer-check video/audio streaming chunks
-                // Media Source Extensions (MSE) chunks from googlevideo.com and YouTube Music API player endpoints
-                // must be handled directly by the native Chromium network stack with 0ms overhead.
-                if (HazePrivacyShieldEngine.isYouTubeMediaRequest(reqUrl) || 
-                    HazePrivacyShieldEngine.isMediaStreamRequest(
-                        request.url?.host?.lowercase() ?: "",
-                        request.url?.path ?: "",
-                        reqUrl
-                    )
-                ) {
-                    return null
                 }
 
                 val ctx = webView.context
@@ -1009,7 +1006,7 @@ class ChromiumBrowserTab(
                     document.addEventListener('DOMContentLoaded', injectYtStyle);
                 }
 
-                // 2. Ultra-lightweight Network Request Interception & In-Feed Sponsored Neutralizer
+                // 2. Pre-sanitize Initial Payload & Ultra-fast Network Interception
                 try {
                     function sanitizePlayerResponse(resp) {
                         try {
@@ -1025,6 +1022,23 @@ class ChromiumBrowserTab(
                         return resp;
                     }
 
+                    // Immediately strip pre-embedded ad placements from initial page payload
+                    if (window.ytInitialPlayerResponse) {
+                        sanitizePlayerResponse(window.ytInitialPlayerResponse);
+                    }
+                    try {
+                        var _storedInitialPR = window.ytInitialPlayerResponse;
+                        Object.defineProperty(window, 'ytInitialPlayerResponse', {
+                            get: function() { return _storedInitialPR; },
+                            set: function(val) {
+                                sanitizePlayerResponse(val);
+                                _storedInitialPR = val;
+                            },
+                            configurable: true,
+                            enumerable: true
+                        });
+                    } catch(_) {}
+
                     var origFetch = window.fetch;
                     window.fetch = function(input, init) {
                         var url = (typeof input === 'string') ? input : (input && input.url) ? input.url : '';
@@ -1035,7 +1049,8 @@ class ChromiumBrowserTab(
                             url.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
                             url.indexOf('/ptracking') !== -1 ||
                             url.indexOf('/youtubei/v1/log_event') !== -1 ||
-                            url.indexOf('/youtubei/v1/ads') !== -1
+                            url.indexOf('/youtubei/v1/ads') !== -1 ||
+                            url.indexOf('/get_midroll_info') !== -1
                         )) {
                             return Promise.resolve(new Response('', { status: 204, statusText: 'No Content' }));
                         }
@@ -1068,7 +1083,8 @@ class ChromiumBrowserTab(
                             u.indexOf('/youtubei/v1/player/ad_break') !== -1 ||
                             u.indexOf('/ptracking') !== -1 ||
                             u.indexOf('/youtubei/v1/log_event') !== -1 ||
-                            u.indexOf('/youtubei/v1/ads') !== -1
+                            u.indexOf('/youtubei/v1/ads') !== -1 ||
+                            u.indexOf('/get_midroll_info') !== -1
                         )) {
                             this.send = function() {};
                             return;
@@ -1111,20 +1127,13 @@ class ChromiumBrowserTab(
                     window.addEventListener('DOMContentLoaded', setYtCfg);
                 } catch(_) {}
 
-                // 3. Fast and Safe YouTube Ad Skipping (Click-only, Never tamper with video element properties or playbackRate)
+                // 3. Fast and Safe Instant YouTube Ad Neutralizer & Skip
                 function skipAdSafely() {
                     try {
                         var player = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
                         var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads.ad-showing');
 
                         if (adShowing || (player && player.classList && (player.classList.contains('ad-showing') || player.classList.contains('ad-interrupting')))) {
-                            // Fast-forward video ad to completion cleanly
-                            var adVideo = document.querySelector('video.video-stream, .ad-showing video, .html5-main-video');
-                            if (adVideo && isFinite(adVideo.duration) && adVideo.duration > 0 && !adVideo.paused) {
-                                adVideo.muted = true;
-                                adVideo.currentTime = adVideo.duration;
-                            }
-
                             // 1. YouTube native skipAd function
                             if (player && typeof player.skipAd === 'function') {
                                 try { player.skipAd(); } catch(_) {}
@@ -1140,7 +1149,16 @@ class ChromiumBrowserTab(
                                 try { skipBtn.click(); } catch(_) {}
                             }
 
-                            // 3. Remove modal promo and upsell overlays
+                            // 3. Instant advance to skip ad without black delay
+                            var adVideo = document.querySelector('video.video-stream, .ad-showing video, .html5-main-video');
+                            if (adVideo && isFinite(adVideo.duration) && adVideo.duration > 0) {
+                                adVideo.muted = true;
+                                if (adVideo.currentTime < adVideo.duration) {
+                                    adVideo.currentTime = adVideo.duration;
+                                }
+                            }
+
+                            // 4. Remove modal promo and upsell overlays
                             var enforcement = document.querySelectorAll(
                                 'ytd-enforcement-message-view-model, #enforcement-message, yt-playability-error-supported-renderers, ' +
                                 'ytm-mealbar-promo-renderer, ytm-upsell-dialog-renderer, ytd-mealbar-promo-renderer'
@@ -1207,40 +1225,69 @@ class ChromiumBrowserTab(
 
                     // Unhide Shorts player API and carousel container if concealed & preserve controls overlay
                     var cachedOverlayTemplate = null;
+                    var cachedAvatarMap = {};
+
+                    function getShortsAvatarMap() {
+                        try {
+                            var json = JSON.stringify(window.ytInitialData || {});
+                            if (json && json.length > 50) {
+                                var chunks = json.split('decoratedAvatarViewModel');
+                                for (var i = 1; i < chunks.length; i++) {
+                                    var chunk = chunks[i];
+                                    var uMatch = chunk.match(/https:\/\/yt3\.ggpht\.com\/[^"\\\s]+/);
+                                    var lMatch = chunk.match(/@([a-zA-Z0-9_\-\.]+)/);
+                                    if (uMatch && lMatch) {
+                                        cachedAvatarMap[lMatch[1].toLowerCase()] = uMatch[0];
+                                    }
+                                }
+                            }
+                        } catch(_) {}
+                        return cachedAvatarMap;
+                    }
 
                     function syncShortsMetadata(targetEl) {
                         try {
+                            var root = targetEl || document;
+
                             var p = document.getElementById('movie_player');
-                            if (!p || !p.getVideoData) return;
-                            var vData = p.getVideoData() || {};
-                            var pResp = (p.getPlayerResponse && p.getPlayerResponse()) || {};
+                            var vData = (p && p.getVideoData) ? p.getVideoData() : {};
+                            var pResp = (p && p.getPlayerResponse) ? p.getPlayerResponse() : {};
                             var micro = (pResp.microformat && pResp.microformat.playerMicroformatRenderer) || {};
                             var details = pResp.videoDetails || {};
 
                             var authorName = details.author || vData.author || '';
-                            if (!authorName) return;
-
                             var videoId = details.videoId || vData.video_id || '';
-                            var handle = micro.ownerProfileUrl ? micro.ownerProfileUrl.split('/').pop() : ('@' + authorName.toLowerCase().replace(/\s+/g, ''));
-                            if (!handle.startsWith('@')) handle = '@' + handle;
-                            var title = details.title || vData.title || '';
-                            var rawLikes = micro.likeCount ? parseInt(micro.likeCount, 10) : 0;
-                            var likesFormatted = rawLikes >= 1000000 ? (rawLikes / 1000000).toFixed(1) + 'M' :
-                                                 rawLikes >= 1000 ? (rawLikes / 1000).toFixed(rawLikes >= 10000 ? 0 : 1) + 'K' :
-                                                 (rawLikes > 0 ? String(rawLikes) : 'Like');
 
-                            var root = targetEl || document;
+                            // Determine real handle from current active video player
+                            var handle = '';
+                            if (micro.ownerProfileUrl) {
+                                var parts = micro.ownerProfileUrl.split('/');
+                                var lastPart = parts[parts.length - 1];
+                                if (lastPart) handle = lastPart.startsWith('@') ? lastPart : ('@' + lastPart);
+                            }
+                            if (!handle && authorName) {
+                                handle = '@' + authorName.toLowerCase().replace(/\s+/g, '');
+                            }
 
                             // 1. Channel link & handle
-                            var channelLink = root.querySelector('yt-reel-channel-bar-view-model a, .__haze_channel_bar span');
-                            if (channelLink) {
+                            var channelLink = root.querySelector('yt-reel-channel-bar-view-model a, .__haze_channel_bar span, .ytReelChannelBarViewModelChannelName a');
+                            if (channelLink && handle) {
                                 channelLink.innerText = handle;
                                 if (channelLink.tagName === 'A') {
                                     channelLink.href = '/' + handle;
                                 }
                             }
 
-                            // 2. Avatar Photo per Channel / Account
+                            if (!authorName && !handle) return;
+                            var cleanHandleKey = handle.replace(/^@+/, '').toLowerCase();
+
+                            var title = details.title || vData.title || '';
+                            var rawLikes = micro.likeCount ? parseInt(micro.likeCount, 10) : 0;
+                            var likesFormatted = rawLikes >= 1000000 ? (rawLikes / 1000000).toFixed(1) + 'M' :
+                                                 rawLikes >= 1000 ? (rawLikes / 1000).toFixed(rawLikes >= 10000 ? 0 : 1) + 'K' :
+                                                 (rawLikes > 0 ? String(rawLikes) : 'Like');
+
+                            // 2. Avatar Photo per Channel / Creator Account
                             var avatarShape = root.querySelector('.ytSpecAvatarShapeHost, .ytSpecAvatarShapeButton');
                             if (avatarShape) {
                                 avatarShape.setAttribute('aria-label', 'Go to channel ' + handle);
@@ -1254,24 +1301,27 @@ class ChromiumBrowserTab(
                                 var img = avatarShape.querySelector('img');
                                 var initial = avatarShape.querySelector('.__haze_avatar_initial');
 
-                                // Check if the author has changed to avoid sticking with the first short's profile photo
+                                // Check if author has changed
                                 var lastAuthor = avatarShape.getAttribute('data-haze-author');
-                                var authorChanged = lastAuthor && lastAuthor !== authorName;
+                                var authorChanged = lastAuthor && lastAuthor !== cleanHandleKey;
                                 if (authorChanged) {
                                     avatarShape.removeAttribute('data-haze-synced-src');
-                                    if (img) img.src = '';
+                                    if (img) img.remove();
+                                    img = null;
                                 }
-                                avatarShape.setAttribute('data-haze-author', authorName);
+                                avatarShape.setAttribute('data-haze-author', cleanHandleKey);
 
-                                // Locate candidate author photo in this reel/short element
-                                var carouselItem = root.closest('ytm-reel-item-renderer, ytd-reel-video-renderer, .reel-video-in-sequence, ytm-shorts-element');
-                                var candidateImg = carouselItem ? carouselItem.querySelector('yt-reel-channel-bar-view-model img, .ytSpecAvatarShapeHost img, img[src*="yt3.ggpht.com/"], img[src*="googleusercontent.com/"]') : null;
+                                // Find real avatar URL for this specific creator
+                                var avatarMap = getShortsAvatarMap();
+                                var photoUrl = avatarMap[cleanHandleKey] || '';
 
-                                var photoUrl = '';
-                                if (candidateImg && candidateImg.src && candidateImg.src.indexOf('data:') === -1 && candidateImg !== img) {
-                                    photoUrl = candidateImg.src;
-                                } else if (img && img.src && img.src.indexOf('data:') === -1 && !authorChanged) {
-                                    photoUrl = img.src;
+                                // Fallback: candidate images in active carousel item
+                                if (!photoUrl) {
+                                    var carouselItem = root.closest('ytm-reel-item-renderer, ytd-reel-video-renderer, .reel-video-in-sequence, ytm-shorts-element');
+                                    var candidateImg = carouselItem ? carouselItem.querySelector('yt-reel-channel-bar-view-model img[src*="yt3.ggpht.com/"], img[src*="googleusercontent.com/"]') : null;
+                                    if (candidateImg && candidateImg.src && candidateImg.src.indexOf('data:') === -1 && candidateImg !== img) {
+                                        photoUrl = candidateImg.src;
+                                    }
                                 }
 
                                 if (photoUrl) {
@@ -1283,30 +1333,37 @@ class ChromiumBrowserTab(
                                         img.className = 'ytCoreImageHost ytSpecAvatarShapeImage';
                                         avatarShape.appendChild(img);
                                     }
-                                    if (img.src !== photoUrl) {
-                                        img.src = photoUrl;
+                                    if (img.getAttribute('src') !== photoUrl) {
+                                        img.setAttribute('src', photoUrl);
                                     }
-                                    img.style.removeProperty('display');
-                                    img.style.setProperty('width', '100%', 'important');
-                                    img.style.setProperty('height', '100%', 'important');
+                                    img.style.setProperty('display', 'block', 'important');
+                                    img.style.setProperty('visibility', 'visible', 'important');
+                                    img.style.setProperty('opacity', '1', 'important');
+                                    img.style.setProperty('width', '32px', 'important');
+                                    img.style.setProperty('height', '32px', 'important');
                                     img.style.setProperty('border-radius', '50%', 'important');
                                     img.style.setProperty('object-fit', 'cover', 'important');
+                                    img.style.setProperty('position', 'relative', 'important');
+                                    img.style.setProperty('z-index', '999', 'important');
+
+                                    var overlays = avatarShape.querySelectorAll('.ytSpecAvatarShapeImageOverlays');
+                                    for (var o = 0; o < overlays.length; o++) overlays[o].style.display = 'none';
                                 } else {
-                                    // Creator initials fallback if image is not yet loaded for this specific creator
-                                    if (img && img.complete && img.naturalWidth > 0 && !authorChanged) {
-                                        if (initial) initial.remove();
-                                        if (imgContainer) imgContainer.style.removeProperty('display');
-                                        img.style.removeProperty('display');
-                                    } else {
-                                        if (img) img.style.setProperty('display', 'none', 'important');
-                                        if (!initial) {
-                                            initial = document.createElement('div');
-                                            initial.className = '__haze_avatar_initial';
-                                            avatarShape.appendChild(initial);
-                                        }
-                                        initial.style.cssText = 'width:32px; height:32px; min-width:32px; max-width:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:#ff0033; color:#fff; font-weight:bold; font-size:14px; box-sizing:border-box;';
-                                        initial.innerText = authorName.charAt(0).toUpperCase();
+                                    // Creator initials avatar fallback with unique color hash
+                                    if (img) img.remove();
+                                    if (imgContainer) imgContainer.style.setProperty('display', 'none', 'important');
+                                    if (!initial) {
+                                        initial = document.createElement('div');
+                                        initial.className = '__haze_avatar_initial';
+                                        avatarShape.appendChild(initial);
                                     }
+                                    var colors = ['#E50914', '#1E88E5', '#43A047', '#FB8C00', '#8E24AA', '#00ACC1', '#D81B60', '#5E35B1', '#00897B'];
+                                    var hash = 0;
+                                    for (var c = 0; c < cleanHandleKey.length; c++) hash = (hash << 5) - hash + cleanHandleKey.charCodeAt(c);
+                                    var chosenBg = colors[Math.abs(hash) % colors.length];
+
+                                    initial.setAttribute('style', 'position:absolute !important; top:0 !important; left:0 !important; width:32px !important; height:32px !important; border-radius:50% !important; background:' + chosenBg + ' !important; color:#ffffff !important; display:flex !important; align-items:center !important; justify-content:center !important; font-size:15px !important; font-weight:bold !important; z-index:9999 !important; margin:0 !important; padding:0 !important;');
+                                    initial.innerText = (authorName || cleanHandleKey).charAt(0).toUpperCase();
                                 }
                             }
 
@@ -1670,16 +1727,85 @@ class ChromiumBrowserTab(
                     }
 
                     document.addEventListener('click', function(e) {
+                        if (typeof skipAdSafely === 'function') skipAdSafely();
                         triggerPlayImmediately(e.target);
                     }, { capture: true, passive: true });
 
                     document.addEventListener('touchend', function(e) {
                         if (e.target) {
-                            setTimeout(function() { triggerPlayImmediately(e.target); }, 50);
-                            setTimeout(function() { triggerPlayImmediately(e.target); }, 200);
+                            setTimeout(function() {
+                                if (typeof skipAdSafely === 'function') skipAdSafely();
+                                triggerPlayImmediately(e.target);
+                            }, 50);
+                            setTimeout(function() {
+                                if (typeof skipAdSafely === 'function') skipAdSafely();
+                                triggerPlayImmediately(e.target);
+                            }, 200);
                         }
                     }, { passive: true });
                 })();
+            })();
+        """.trimIndent()
+
+        val SOCIAL_SHORT_VIDEO_PROFILE_SCRIPT = """
+            (function() {
+                if (window.__hazeSocialProfileScript) return;
+                var host = window.location.hostname || '';
+                if (!/(youtube|instagram|facebook|tiktok)\./i.test(host)) return;
+                window.__hazeSocialProfileScript = true;
+
+                function isSquareAvatar(img) {
+                    if (!img || !img.src || img.src.indexOf('data:') === 0) return false;
+                    var w = img.width || img.naturalWidth;
+                    var h = img.height || img.naturalHeight;
+                    return w > 0 && h > 0 && Math.abs(w - h) <= Math.max(w, h) * 0.2 && w <= 256 && h <= 256;
+                }
+
+                function findAvatar(video) {
+                    var node = video;
+                    for (var depth = 0; node && depth < 7; depth++, node = node.parentElement) {
+                        var images = node.querySelectorAll ? node.querySelectorAll('img[src]') : [];
+                        for (var i = 0; i < images.length; i++) {
+                            if (isSquareAvatar(images[i]) && images[i] !== video) return images[i];
+                        }
+                    }
+                    return null;
+                }
+
+                function syncVideo(video) {
+                    if (!video || video.tagName !== 'VIDEO') return;
+                    var avatar = findAvatar(video);
+                    if (!avatar) return;
+                    var parent = video.parentElement;
+                    if (!parent) return;
+                    var overlay = parent.querySelector(':scope > .__haze_creator_avatar');
+                    if (!overlay) {
+                        if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+                        overlay = document.createElement('img');
+                        overlay.className = '__haze_creator_avatar';
+                        overlay.alt = 'Creator profile';
+                        overlay.setAttribute('aria-hidden', 'true');
+                        overlay.style.cssText = 'position:absolute;left:12px;top:12px;width:36px;height:36px;border-radius:50%;object-fit:cover;z-index:2147483000;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.5);';
+                        parent.appendChild(overlay);
+                    }
+                    if (overlay.src !== avatar.currentSrc && overlay.src !== avatar.src) {
+                        overlay.src = avatar.currentSrc || avatar.src;
+                    }
+                }
+
+                function scan() {
+                    try {
+                        var videos = document.querySelectorAll('video');
+                        for (var i = 0; i < videos.length; i++) syncVideo(videos[i]);
+                    } catch(_) {}
+                }
+                document.addEventListener('play', function(e) { syncVideo(e.target); }, true);
+                document.addEventListener('loadedmetadata', function(e) { syncVideo(e.target); }, true);
+                window.addEventListener('scroll', scan, {passive:true});
+                if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', scan);
+                var observer = new MutationObserver(scan);
+                observer.observe(document.documentElement || document, {childList:true, subtree:true});
+                setInterval(scan, 1200);
             })();
         """.trimIndent()
 

@@ -1,3 +1,5 @@
+import java.util.Properties
+import java.io.FileInputStream
 import java.util.Collections
 import java.util.zip.GZIPInputStream
 import java.io.SequenceInputStream
@@ -8,6 +10,29 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        create("release") {
+            val signingPropsFile = rootProject.file("signing.properties")
+            val p = Properties()
+            if (signingPropsFile.exists()) {
+                FileInputStream(signingPropsFile).use { fis -> p.load(fis) }
+            }
+            val keyStorePath = p.getProperty("KEYSTORE_PATH") ?: (project.findProperty("KEYSTORE_PATH") as? String)
+            val keyStorePassword = p.getProperty("KEYSTORE_PASSWORD") ?: (project.findProperty("KEYSTORE_PASSWORD") as? String)
+            val keyAliasStr = p.getProperty("KEY_ALIAS") ?: (project.findProperty("KEY_ALIAS") as? String)
+            val keyPass = p.getProperty("KEY_PASSWORD") ?: (project.findProperty("KEY_PASSWORD") as? String)
+
+            if (keyStorePath != null && rootProject.file(keyStorePath).exists()) {
+                storeFile = rootProject.file(keyStorePath)
+                storePassword = keyStorePassword
+                keyAlias = keyAliasStr
+                keyPassword = keyPass
+            } else {
+                initWith(getByName("debug"))
+            }
+        }
+    }
+
     namespace = "com.example.haze"
     compileSdk = 37
 
@@ -15,8 +40,8 @@ android {
         applicationId = "com.aryandas.haze"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
@@ -47,12 +72,25 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug") // Uses debug key so you can install it directly
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+    bundle {
+        language {
+            enableSplit = false
+        }
+        density {
+            enableSplit = true
+        }
+        abi {
+            enableSplit = true
+        }
+    }
+
     splits {
         abi {
-            isEnable = true
+            // App Bundles (.aab) natively handle ABI splits; splits.abi is for generating standalone APKs
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include("armeabi-v7a", "arm64-v8a")
             isUniversalApk = true

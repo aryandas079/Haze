@@ -23,6 +23,9 @@ local.properties
 *.tar.gz
 *.log
 *.sh
+*.jks
+*.keystore
+signing.properties
 /app/app_build_tmp*
 /app/build_temp*
 /app/src/main/jniLibs/**/libcontent_shell_content_view.so
