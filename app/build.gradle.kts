@@ -134,7 +134,7 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-val prepareNativeChromiumLibs by tasks.registering {
+val prepareNativeChromiumLibs = tasks.register("prepareNativeChromiumLibs") {
     description = "Reassembles and decompresses Chromium native libraries from GitHub-safe chunks in app/native_blobs"
     doLast {
         val abis = listOf("arm64-v8a", "armeabi-v7a")
@@ -165,7 +165,7 @@ tasks.named("preBuild") {
     dependsOn(prepareNativeChromiumLibs)
 }
 
-val clearReadOnlyFlags by tasks.registering {
+val clearReadOnlyFlags = tasks.register("clearReadOnlyFlags") {
     description = "Clears Windows ReadOnly file and folder attributes to prevent AccessDeniedException during cleanup"
     doFirst {
         if (System.getProperty("os.name", "").lowercase().contains("windows")) {
